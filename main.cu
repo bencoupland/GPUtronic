@@ -36,7 +36,7 @@
  *   - Nsight Profiling: Use 'nsight-compute --target sm_61 ./gputronic' to profile stalls/occupancy during sweeps. Look for 'Warp State' (stall reasons) and 'Occupancy' charts.
 
  * License: MIT – fork, improve, share.
- * GitHub: https://github.com/benracoupland/GPUtronic
+ * GitHub: https://github.com/bencoupland/GPUtronic
  */
 
 #include <cuda_runtime.h>           // Core CUDA runtime APIs – kernel launch, memory management, synchronization
