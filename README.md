@@ -101,4 +101,8 @@ Full knock retard (throttle pull before downshift)
 Max TDP to 200W+
 Port to Ada/Blackwell
 
+![40block](https://github.com/user-attachments/assets/e82cd239-96f5-43a4-98a1-31ab146c0a9d)
+![60block](https://github.com/user-attachments/assets/5e7fb933-0163-45a0-84db-f54c39500c23)
+![80block](https://github.com/user-attachments/assets/9090bd26-6b57-4500-96e3-9c1295cd6243)
+
 Thanks for checking it out -- let's make GPUs controllable like engines
