@@ -77,8 +77,9 @@ Replace the power stroke loop with your real compute (e.g., GEMM, conv, inferenc
 Example:
 
 if (tid < (total_threads * throttle)) {
-    // Your real short/long workload here
-    // e.g. batched matmul, reduction, procedural generation
+
+    // Your real short/long workload here, e.g. batched matmul, reduction, procedural generation
+    
     if (threadIdx.x % 32 == 0) atomicAdd(d_rpm_counter, 1);
 }
 
