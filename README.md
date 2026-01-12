@@ -88,17 +88,13 @@ Short kernels (10–100 cycles) benefit most from dynamic block scaling — upsh
 
 Porting to Newer Architectures:
 Volta+ (sm_70+): Use __nanosleep() instead of clock64() busy-wait → lower power, more precise idle.
-Ampere+ / Ada / Blackwell: Higher SM count → increase max_blocks (e.g., 200–400), better atomic perf, native persistent threads.
+Ampere / Ada / Blackwell: Higher SM count → increase max_blocks (e.g., 200–400), better atomic perf, native persistent threads.
 
 Profiling with Nsight:
 nsight-compute --target sm_61 ./gputronic
 
 Future Plans:
-Real workloads (GEMM, inference, rendering, sims),
-Better tach accuracy (hybrid atomic + clock64()),
-Full knock retard (throttle pull before downshift),
-Max TDP to 200W+,
-Port to Ada/Blackwell.
+Real workloads (GEMM, inference, rendering, sims), better tach accuracy (hybrid atomic + clock64()), full knock retard (throttle pull before downshift), max TDP to 200W+, port to Ada/Blackwell.
 
 ![40block](https://github.com/user-attachments/assets/e82cd239-96f5-43a4-98a1-31ab146c0a9d)
 ![60block](https://github.com/user-attachments/assets/5e7fb933-0163-45a0-84db-f54c39500c23)
