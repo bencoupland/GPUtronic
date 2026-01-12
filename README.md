@@ -57,10 +57,17 @@ But the loop works. Control is real-time on stock drivers. Pascal limits obvious
 
 ### Build & Run
 
+This project is self-contained in a single CUDA source file. Tested on Ubuntu/Mint with NVIDIA driver 580 series + CUDA 12 toolkit.
+
+**Compile** (adjust NVML lib path if needed):
+```bash
 nvcc -o gputronic main.cu \
-  -arch=sm_61 -O3 -lineinfo \
-  -Xcompiler "-Wall -Wextra" -std=c++11 \
-  /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.580.95.05  # adjust to your NVML lib path
+  -arch=sm_61 \
+  -O3 \
+  -lineinfo \
+  -Xcompiler "-Wall -Wextra" \
+  -std=c++11 \
+  /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.580.95.05  # Path to your libnvidia-ml.so (find with `find /usr -name libnvidia-ml.so`)
 
 ./gputronic
 
