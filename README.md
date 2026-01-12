@@ -100,7 +100,7 @@ Real workloads (GEMM, inference, rendering, sims), better tach accuracy (hybrid 
 
 ### Understanding RPM in GPUtronic: What It Actually Measures
 
-In GPUtronic, **RPM** is not literal revolutions per minute — it's a deliberate analogy to make the concept intuitive.  
+In GPUtronic, **RPM** is **not** literal revolutions per minute — it's a deliberate analogy to make the concept intuitive.  
 
 **RPM = warp completion rate (instruction throughput proxy)**
 
