@@ -146,8 +146,8 @@ int main() {
     *h_rpm_counter = 0;                          // Previous tach value for delta RPM
 
     std::cout << "======================================================" << std::endl;
-    std::cout << " GPUtronic Stage 0.1: Closed-Loop Control for GPUs" << std::endl;
-    std::cout << " [W/S] ±10k RPM | [T] Dyno Sweep | [Q] Key-Off" << std::endl;
+    std::cout << " GPUtronic Stage 0.1: Closed-Loop Control for GPUs    " << std::endl;
+    std::cout << " [W/S] ±10k RPM | [T] Dyno Sweep | [Q] Key-Off        " << std::endl;
     std::cout << "======================================================" << std::endl;
 
     // [IGNITION] Launch initial kernel in golden ratio gear
