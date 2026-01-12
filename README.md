@@ -3,6 +3,8 @@
 GPUtronic is an experimental, self-built closed-loop control system for GPUs.  
 It treats the GPU as a physical engine with real-time feedback, adaptive scaling, and safety mechanisms — something current drivers and schedulers do not provide.
 
+![gputronic](https://github.com/user-attachments/assets/10960083-fe38-47f8-b7e2-9794f4d207ca)
+
 ### The Big Idea: GPU as an "Instruction Pressure Engine"
 
 Modern GPUs are black-box throughput monsters: launch a kernel, wait, repeat. No real-time "throttle", no feedback loop, no dynamic adjustment of "displacement" (active SMs/blocks).  
