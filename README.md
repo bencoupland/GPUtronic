@@ -68,39 +68,37 @@ nvcc -o gputronic main.cu \
   -Xcompiler "-Wall -Wextra" \
   -std=c++11 \
   /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.580.95.05  # Path to your libnvidia-ml.so (find with `find /usr -name libnvidia-ml.so`)
-
+```
+**Run**
 ./gputronic
 
-Keys:
+**Keys:**
 w / s : ±10k RPM setpoint
 t : Run full-band dyno sweep (0–200k RPM)
 q : Quit
 
-Dependencies: NVIDIA driver + CUDA toolkit (tested on Nvidia 580 series driver, CUDA 12.0, Linux Mint 22.2, GTX 1080/GP104 "Pascal" architecture)
+**Dependencies:** NVIDIA driver + CUDA toolkit (tested on Nvidia 580 series driver, CUDA 12.0, Linux Mint 22.2, GTX 1080/GP104 "Pascal" architecture)
 
-How to Integrate Real Workloads:
+### How to Integrate Real Workloads:
 Replace the power stroke loop with your real compute (e.g., GEMM, conv, inference layer, shader). The control plane (PID, shifts, tach, telemetry) stays the same.
 
 Example:
-
+```bash
 if (tid < (total_threads * throttle)) {
-
     // Your real short/long workload here, e.g. batched matmul, reduction, procedural generation
-    
     if (threadIdx.x % 32 == 0) atomicAdd(d_rpm_counter, 1);
-    
 }
-
+```
 Short kernels (10–100 cycles) benefit most from dynamic block scaling — upshift for bursts, downshift for idle.
 
-Porting to Newer Architectures:
+**Porting to Newer Architectures:**
 Volta+ (sm_70+): Use __nanosleep() instead of clock64() busy-wait → lower power, more precise idle.
 Ampere / Ada / Blackwell: Higher SM count → increase max_blocks (e.g., 200–400), better atomic perf, native persistent threads.
 
-Profiling with Nsight:
+**Profiling with Nsight:**
 nsight-compute --target sm_61 ./gputronic
 
-Future Plans:
+**Future Plans:**
 Real workloads (GEMM, inference, rendering, sims), better tach accuracy (hybrid atomic + clock64()), full knock retard (throttle pull before downshift), max TDP to 200W+, port to Ada/Blackwell.
 
 ![gputronic_60block_dyno](https://github.com/user-attachments/assets/258a58b9-c30a-41b9-9b96-22ba652c521f)
@@ -126,7 +124,7 @@ So **1 RPM ≈ 32 threads/second** completing their workload (warp throughput).
 - **Divergence & stalls**: Avoided in baseline (uniform 400 iters). Hybrid variable iters caused stalls (threads in same warp finish at different times) → reduced ceiling.
 - **Why RPM is useful**: It's a **consistent, workload-independent metric** for tuning control (PID, shifts). In real apps, higher RPM = more work done per second.
 
-Dyno plot example (60-block run):
+**Dyno plot example (60-block run):**
 - Near-perfect tracking to ~130k target RPM
 - Throttle ramps to 100% at ~140k
 - Plateau at ~150–151k RPM (saturation point)
