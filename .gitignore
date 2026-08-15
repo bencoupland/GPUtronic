@@ -1,0 +1,16 @@
+build/
+*.o
+*.so
+*.a
+!build/.gitkeep
+results/*.csv
+results/*.csv.xz
+!results/*_report.txt
+!results/*_summary.csv
+archive/pre-gold-2026-05/logs/
+archive/pre-gold-2026-05/binaries/
+archive/pre-gold-2026-05/results/
+.cache/
+*.log
+*~
+.DS_Store

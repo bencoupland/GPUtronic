@@ -1,0 +1,1 @@
+pulses=7869856 z=1.3824 z_mean=1.3738 rate=320931.9 sleep=414966 tach=1 track=1 fr_rate=445187.0 cl_rate=324057.7 useful_drop=1 PASS=1

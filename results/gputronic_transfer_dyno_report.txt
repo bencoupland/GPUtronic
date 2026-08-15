@@ -1,0 +1,12 @@
+GPUTronic Transfer Dyno Report
+R2=0.8706 slope=-0.221087 intercept=282534.2 rate_cut=1 flop_cut=1 coupled=1 PASS=1
+flops_per_pulse=32768 tiles_per_pulse=32
+sleep=0 rate=275632.0 gflops=9.031908
+sleep=1000 rate=274252.5 gflops=8.986705
+sleep=5000 rate=274024.6 gflops=8.979239
+sleep=10000 rate=274867.8 gflops=9.006867
+sleep=20000 rate=273932.4 gflops=8.976218
+sleep=50000 rate=274593.9 gflops=8.997892
+sleep=100000 rate=273268.4 gflops=8.954458
+sleep=200000 rate=269248.8 gflops=8.822745
+sleep=500000 rate=157104.4 gflops=5.147997

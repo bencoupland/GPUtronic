@@ -1,0 +1,242 @@
+// =============================================================================
+// GPUTronic Q-Axis Governor v26.2 — SAFE + CSV Logging
+// =============================================================================
+// - One-sided control (only act when Z > target)
+// - CSV logging (gputronic_log.csv)
+// - Responsive work counter from thread 0
+// =============================================================================
+
+#include <cuda_runtime.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <math.h>
+#include <unistd.h>
+#include <signal.h>
+
+#define NUM_SM              84
+#define THREADS_PER_BLOCK   64
+#define WORK_UNITS_PER_THREAD 8192
+
+#define MAX_SLEEP_NS        800000
+#define BASE_SLEEP_NS       300   // raised for PCIe link safety (lower control freq)
+#define FLAG_STOP           0x1
+#define FLAG_PAUSE          0x2
+
+static unsigned long long* g_sm_counters = NULL;
+static struct GPUControlData* g_d_control = NULL;
+static struct GPUControlData* g_h_control = NULL;
+
+static volatile int g_running = 1;
+
+static float KP = 0.35f;
+static float KI = 0.04f;
+static float TARGET_PM = 1.4f;   // raised default for PCIe margin + safety
+
+struct __align__(16) GPUControlData {
+    unsigned int control_flags;
+    float target_pm;
+    float current_pm;
+    unsigned long long total_work_pulses;
+    float z_estimate;
+    float dzdt_estimate;
+    float pm_error;
+    int throttle_sleep_ns;
+    int max_sleep_ns;
+};
+
+static float P[2][2] = {{1.0f, 0.0f}, {0.0f, 1.0f}};
+
+inline double get_time_us() {
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1e6 + ts.tv_nsec / 1000.0;
+}
+
+__device__ __forceinline__ void placeholder_workload(float* acc, int sm_id, int iter) {
+    float a = sinf((float)(iter * 17 + sm_id) * 0.0174532925f);
+    float b = cosf((float)(iter * 23 + sm_id) * 0.0174532925f);
+    *acc = fmaf(a, b, *acc);
+}
+
+__global__ void gpu_persistent_kernel(unsigned long long* sm_counters,
+                                      GPUControlData* control_data) {
+    int sm_id = blockIdx.x;
+    int tid = threadIdx.x;
+
+    while (true) {
+        if (control_data->control_flags & FLAG_STOP) break;
+        if (control_data->control_flags & FLAG_PAUSE) { __nanosleep(1000); continue; }
+
+        int sleep_ns = control_data->throttle_sleep_ns;
+        if (sleep_ns < BASE_SLEEP_NS) sleep_ns = BASE_SLEEP_NS;
+
+        float thread_acc = 0.0f;
+        for (int i = 0; i < WORK_UNITS_PER_THREAD / 32; i++) {
+            placeholder_workload(&thread_acc, sm_id, i);
+            if ((i & 31) == 0) atomicAdd(&sm_counters[sm_id], 32ULL);
+        }
+        __nanosleep(sleep_ns);
+
+        if (tid == 0) {
+            control_data->total_work_pulses = sm_counters[sm_id];
+        }
+    }
+}
+
+void handle_signal(int sig) {
+    (void)sig; g_running = 0;
+    if (g_h_control) g_h_control->control_flags |= FLAG_STOP;
+}
+
+static void kalman_update(float measured_z, float dt, float* z_hat, float* dzdt_hat) {
+    float z_pred = *z_hat + *dzdt_hat * dt;
+    float dzdt_pred = *dzdt_hat;
+
+    const float Q = 0.0006f;
+    P[0][0] += 2.0f * dt * P[0][1] + dt * dt * P[1][1] + Q;
+    P[0][1] += dt * P[1][1];
+    P[1][0] = P[0][1];
+    P[1][1] += Q * 0.7f;
+
+    float y = measured_z - z_pred;
+    const float R = 0.022f;
+    float S = P[0][0] + R;
+    float K0 = P[0][0] / S;
+    float K1 = P[1][0] / S;
+
+    *z_hat = z_pred + K0 * y;
+    *dzdt_hat = dzdt_pred + K1 * y;
+
+    P[0][0] = (1.0f - K0) * P[0][0];
+    P[0][1] = (1.0f - K0) * P[0][1];
+    P[1][0] = P[0][1];
+    P[1][1] = (1.0f - K1) * P[1][1];
+}
+
+void* control_loop(void* arg) {
+    (void)arg;
+    float integral = 0.0f;
+    float z_hat = 1.0f;
+    float dzdt_hat = 0.0f;
+    double last_time = get_time_us();
+    unsigned long long prev_work = 0;
+    static float rate_ema = 0.0f;
+    const float RATE_EMA_ALPHA = 0.23f;
+
+    P[0][0] = 1.0f; P[0][1] = 0.0f;
+    P[1][0] = 0.0f; P[1][1] = 1.0f;
+
+    FILE* csv = fopen("gputronic_log.csv", "w");
+    if (csv) fprintf(csv, "time_s,Z,rate_mps,sleep_ns,error\n");
+
+    printf("[CTRL] v26.2 SAFE | one-sided + CSV logging\n");
+
+    double warmup_until = get_time_us() + 20000000.0;
+
+    while (g_running) {
+        double now = get_time_us();
+        double dt = (now - last_time) * 1e-6;
+        if (dt < 0.0000095) { usleep(1); continue; }
+        last_time = now;
+
+        unsigned long long work = g_h_control->total_work_pulses;
+        unsigned long long delta = work - prev_work;
+        prev_work = work;
+
+        float inst_rate = (dt > 0) ? (delta / dt) : 0.0f;
+
+        // Clamp insane rates from fast atomic counter
+        if (inst_rate > 500000000.0f) inst_rate = 500000000.0f;
+        if (inst_rate < 0.0f) inst_rate = 0.0f;
+        rate_ema = RATE_EMA_ALPHA * inst_rate + (1.0f - RATE_EMA_ALPHA) * rate_ema;
+
+        float measured_z = (rate_ema > 5000.0f) ? (2000000.0f / (rate_ema + 8000.0f)) : 2.5f;
+        if (measured_z > 3.5f) measured_z = 3.5f;
+        if (measured_z < 0.2f) measured_z = 0.2f;
+
+        kalman_update(measured_z, (float)dt, &z_hat, &dzdt_hat);
+
+        float z = z_hat;
+        if (z > 3.0f) z = 3.0f;
+        if (z < 0.25f) z = 0.25f;
+
+        int new_sleep = BASE_SLEEP_NS;
+        float error = 0.0f;
+
+        if (now > warmup_until && z > TARGET_PM) {
+            error = TARGET_PM - z;
+            integral += error * (float)dt;
+            if (integral > 1.2f) integral = 1.2f;
+            if (integral < -1.2f) integral = -1.2f;
+
+            float delta_q = -(KP * error + KI * integral);
+            new_sleep = (int)(BASE_SLEEP_NS + delta_q * 115000.0f);
+            if (new_sleep < BASE_SLEEP_NS) new_sleep = BASE_SLEEP_NS;
+        } else {
+            integral = 0.0f;
+        }
+
+        g_h_control->throttle_sleep_ns = new_sleep;
+        g_h_control->current_pm = z;
+        g_h_control->z_estimate = z;
+        g_h_control->dzdt_estimate = dzdt_hat;
+        g_h_control->pm_error = error;
+
+        // CSV
+        if (csv) {
+            fprintf(csv, "%.3f,%.4f,%.1f,%d,%.4f\n",
+                    (now - warmup_until)/1e6, z, rate_ema, new_sleep, error);
+        }
+    }
+
+    if (csv) fclose(csv);
+    return NULL;
+}
+
+int main(int argc, char** argv) {
+    if (argc >= 4) { KP = atof(argv[1]); KI = atof(argv[2]); TARGET_PM = atof(argv[3]); }
+
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+
+    printf("═══════════════════════════════════════════════════════════\n");
+    printf("[GPUTronic v26.2 SAFE] One-sided control + CSV\n");
+    printf("═══════════════════════════════════════════════════════════\n\n");
+
+    cudaSetDevice(0);
+    cudaHostAlloc((void**)&g_h_control, sizeof(GPUControlData), cudaHostAllocMapped);
+    cudaHostGetDevicePointer((void**)&g_d_control, g_h_control, 0);
+
+    memset(g_h_control, 0, sizeof(GPUControlData));
+    g_h_control->target_pm = TARGET_PM;
+    g_h_control->max_sleep_ns = MAX_SLEEP_NS;
+    g_h_control->throttle_sleep_ns = BASE_SLEEP_NS;
+
+    cudaMalloc((void**)&g_sm_counters, NUM_SM * sizeof(unsigned long long));
+
+    dim3 block(THREADS_PER_BLOCK);
+    gpu_persistent_kernel<<<NUM_SM, block>>>(g_sm_counters, g_d_control);
+
+    pthread_t ctrl_thread;
+    pthread_create(&ctrl_thread, NULL, control_loop, NULL);
+
+    for (int i = 0; i < 300; i++) {
+        usleep(1000000);
+        if (!g_running) break;
+        printf("[TEL] t=%3ds | Z=%.3f | sleep=%6d\n",
+               i+1, g_h_control->z_estimate, g_h_control->throttle_sleep_ns);
+    }
+
+    g_running = 0;
+    g_h_control->control_flags |= FLAG_STOP;
+    usleep(100000);
+    pthread_join(ctrl_thread, NULL);
+    cudaDeviceSynchronize();
+
+    printf("\n[GPUTronic v26.2 SAFE] Run complete. CSV: gputronic_log.csv\n");
+    cudaFree(g_sm_counters);
+    cudaFreeHost(g_h_control);
+    return 0;
+}

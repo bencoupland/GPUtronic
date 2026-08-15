@@ -1,0 +1,11 @@
+GPUTronic Gold Dyno Report
+R2=0.8816 slope=-0.321787 intercept=492755.2 plant_ok=1 decreasing=1 PASS=1
+sleep=0 rate=499025.2
+sleep=1000 rate=499726.5
+sleep=5000 rate=473405.3
+sleep=10000 rate=471910.5
+sleep=20000 rate=473909.1
+sleep=50000 rate=475497.5
+sleep=100000 rate=472755.1
+sleep=200000 rate=469250.5
+sleep=500000 rate=314213.4
