@@ -4,6 +4,8 @@ Closed-loop control of instruction-flow throughput on a GPU.
 
 Reference: **Gold 1.0.0**
 
+![GPUTRONIC](docs/assets/gputronic-mark.jpg)
+
 Most GPU software still treats the device as a firehose with a thermal fuse: launch work, measure heat, hope. Gold treats useful work rate as a feedback variable. Observe it, estimate impedance from a calibrated tachometer, actuate on a short cable. Thermal and power stay with the stock driver. Once the plant interface is honest, this is ordinary control engineering — the same class of loop that is already standard on every other plant we bother to regulate.
 
 The specification of record is `docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`.
