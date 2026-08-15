@@ -1,19 +1,26 @@
 /* =============================================================================
  * GPUTronic Gold 1.0.0
  * -----------------------------------------------------------------------------
- * Reference implementation: correct tachometer + calibrated Z + tracking PI.
+ * Read with: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md  (GT-FF-GOLD-1.0)
  *
- * Fixes vs late v26 forks:
- *   1. Aggregate Q via atomicAdd on total_work_pulses (not last-SM overwrite)
- *   2. Periodic __threadfence_system (Blackwell host visibility)
- *   3. Auto-calibrated Z = rate_ref / rate from a *sustained* free-run window
- *      (not peak EMA — peak overshoot parks Z ≥ target and one-sided never engages)
- *   4. Tracking PI: sleep rises when Z < target (plant gain sleep→Z is +)
- *   5. One-sided: only add sleep when Z < target; else base sleep + zero I
- *   6. 2-state Kalman with proper P prediction
- *   7. sleep_scale from measured loop period so PI commands reach the
- *      nanosleep cliff (~200–500 µs on this 5080), not the ~8 µs dead zone
- *   8. Batched device work between mapped atomics (atomics dominate the period)
+ * Walk order (do not start at main):
+ *   F-02 gold_work / gold_persistent_kernel
+ *   F-01 gputronic_create
+ *   F-12 gputronic_start / stop
+ *   F-05…F-10 control_thread
+ *   F-09 gold_apply_auto_scale
+ *   F-08 kalman_update
+ *   F-13 mode_dyno / mode_closedloop_check
+ *
+ * Contracts that define Gold (lost in late v26, restored here):
+ *   1. F-04  Aggregate Q via atomicAdd on total_work_pulses
+ *   2. F-01  Periodic __threadfence_system; host __sync_synchronize after sleep
+ *   3. F-06  rate_ref from a sustained free-run window (not peak EMA)
+ *   4. F-07  Z = rate_ref / rate; plant gain sleep↑ ⇒ Z↑
+ *   5. F-10  One-sided PI: sleep only when Z < target
+ *   6. F-08  2-state Kalman with P_pred = F P F^T + Q
+ *   7. F-09  sleep_scale from measured loop period (nanosleep cliff, not 8 µs)
+ *   8. F-02  Batched device work between mapped atomics
  *
  * Build: make gold
  * Run:   ./build/gputronic_gold check | dyno | step | run [sec] [Z] [Kp] [Ki]
@@ -31,9 +38,10 @@
 #include <time.h>
 #include <unistd.h>
 
-/* -------------------- device plant -------------------- */
+/* -------------------- F-02 device plant + F-04 tach + F-11 actuator -------------------- */
 
-/* Mapped atomics set the loop period (~300 µs). Batch real ALU between pulses. */
+/* Mapped atomics set the loop period (~300 µs on this 5080). The fmaf batch
+ * is real ALU so DCE cannot eat the loop; it is not a FLOP claim (see F-14). */
 #define GOLD_WORK_ITERS 8
 #define GOLD_BATCH 16
 
@@ -49,10 +57,11 @@ __device__ __forceinline__ void gold_work(float* acc, int sm, int iter) {
 }
 
 /*
- * Persistent plant:
- *  - grid = num_sm (one block per SM)
- *  - warp leaders pulse aggregate + per-SM counters
- *  - actuator: __nanosleep on the commanded throttle
+ * F-02 persistent plant.
+ *   grid = num_sm (one block / SM)
+ *   warp leaders (lane==0) pulse F-04 aggregate + per-SM diagnostic
+ *   F-11: __nanosleep(throttle_sleep_ns) after the work batch
+ * Period is atomic-dominated. Do not "tune Kp" to hide that.
  */
 __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        GPUTronicControl* ctrl,
@@ -187,7 +196,8 @@ void gputronic_config_gold(GPUTronicConfig* cfg) {
 }
 
 static void kalman_update(GPUTronicHandle* h, float z_meas, float dt) {
-    /* Constant-velocity model on [Z, dZ/dt] */
+    /* F-08: constant-velocity model on [Z, dZ/dt].
+     * P_pred is the explicit F P F^T + Q expansion. Do not replace with P[i]+=Q. */
     float z_pred = h->z_hat + h->dzdt_hat * dt;
     float dz_pred = h->dzdt_hat;
 
@@ -214,6 +224,7 @@ static void kalman_update(GPUTronicHandle* h, float z_meas, float dt) {
 }
 
 static void gold_apply_auto_scale(GPUTronicHandle* h) {
+    /* F-09: map e_des=0.30 onto ~1.25 loop periods so PI reaches the cliff. */
     if (!h->cfg.auto_sleep_scale || h->rate_ref < 1000.0f || h->cfg.num_sm <= 0)
         return;
     /* Pulse sources per loop: self-test has one warp-leader pulse per warp.
@@ -234,6 +245,7 @@ static void gold_apply_auto_scale(GPUTronicHandle* h) {
 }
 
 static void* control_thread(void* arg) {
+    /* F-12 ECU thread. Per accepted tick: F-05 rate → F-06/F-07 Z → F-08 → F-10 → cable. */
     GPUTronicHandle* h = (GPUTronicHandle*)arg;
     const float dt_target = h->cfg.control_dt_us * 1e-6f;
     double last = now_us();
@@ -429,6 +441,7 @@ static void* control_thread(void* arg) {
 }
 
 GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
+    /* F-01: map the cable. Query SM count. No PCIe fallback. */
     GPUTronicHandle* h = (GPUTronicHandle*)calloc(1, sizeof(GPUTronicHandle));
     if (!h) return NULL;
 
@@ -681,7 +694,7 @@ static int mode_run(int duration_s, float target, float kp, float ki) {
     return 0;
 }
 
-/* Dyno: open-loop sleep sweep, measure mean rate, report linearity R² */
+/* Dyno F-13: open-loop sleep sweep. Rate = wall Δpulses/Δt, not rate_ema alone. */
 static int mode_dyno(void) {
     GPUTronicConfig cfg;
     gputronic_config_gold(&cfg);

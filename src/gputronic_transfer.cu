@@ -1,6 +1,8 @@
 /* =============================================================================
  * GPUTronic Transfer Plant — cooperative GEMM microtiles on Gold 1.0
  * -----------------------------------------------------------------------------
+ * Read with: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md  (F-03, F-14)
+ *
  * Second plant on the Gold 1.0 interface (stock auto sleep_scale).
  *   - launch_selftest_kernel = 0
  *   - persistent kernel does real FP32 GEMM microtiles (shared-mem 8x8x8)

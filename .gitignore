@@ -14,3 +14,5 @@ archive/pre-gold-2026-05/results/
 *.log
 *~
 .DS_Store
+Personal Access Token for GitHub/
+*ghp_*
