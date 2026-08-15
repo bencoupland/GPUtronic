@@ -1,10 +1,10 @@
-# GPUTronic Gold 1.0.0 — Function Frame
+# GPUTronic 1.0 Gold — Function Frame
 
 | Field | Value |
 |-------|--------|
 | Document | GT-FF-GOLD-1.0 |
 | Title | Closed-loop impedance control of a cooperative GPU plant |
-| Status | **Released** — Gold 1.0.0 (`1.0.0-gold`) |
+| Status | **Released** — GPUTronic 1.0 Gold (`1.0.0-gold`) |
 | Hardware of record | NVIDIA GeForce RTX 5080 (GB203, 84 SM), CUDA 12.8, driver 595.x |
 | Software of record | `include/gputronic.h`, `src/gputronic_gold.cu`, `src/gputronic_transfer.cu` |
 | Gate | `make gold && ./build/gputronic_gold check` · `make transfer && ./build/gputronic_transfer check` |
