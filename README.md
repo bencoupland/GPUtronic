@@ -10,7 +10,7 @@ A modern GPU is one of the last machines we still treat as a firehose. Launch a 
 
 That is strange, once you notice it. Every other plant we take seriously — a shaft, a current, a cabin, a fuel rail — has a measured rate, a hidden state we estimate, and a command we can apply faster than the plant moves. A GPU has all of those pieces. Occupancy, memory stalls, issue slots, and `__nanosleep` are not mysteries. What was missing was an honest interface: one number for useful work, one definition of impedance that is 1 when the device is free-running, and one command that actually changes the rate.
 
-GPUTronic is that interface, frozen as **1.0 Gold**, gated, and exercised on two plants.
+GPUTronic is that interface, checked on three test kernels. The control in this tree is how many SMs do the work (`active_sms`). An earlier version used sleep duration instead. That source is in `archive/gold-1.0.0-nanosleep/`. The long function-frame doc still describes the sleep version, with a note at the top.
 
 The specification of record is [`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md). This README is the tour.
 
@@ -34,13 +34,13 @@ The names are borrowed from field-oriented control because the *job* is the same
 
 Q is not “utilization.” Utilization can be high while useful work is stalled. Q is a count of completed work units, incremented with `atomicAdd` into one aggregate, `total_work_pulses`. Last-SM overwrite of that counter is forbidden. That single rule is the difference between a governor and a ghost.
 
-Z is not ohms and not phase margin in degrees. \(Z = 1.5\) means the plant is delivering two-thirds of its calibrated free-run rate. Sleep goes up, rate goes down, Z goes up. The plant gain is positive. The PI has no extra minus sign.
+Z is not ohms and not a phase margin. \(Z = 1.5\) means the GPU is doing about two-thirds of the speed it had when nothing was holding it back. Turning SMs off lowers that speed and raises Z. There is no extra minus sign in the controller. Full speed is every SM running. The point of the loop is to land near the speed you asked for when conditions are not ideal.
 
 D stays with NVSMC. A 25 ms NVML poll cannot sit in a 10 µs path, and fighting the driver’s thermal loop is how you get a worse plant, not a better one. If the hardware throttles, Q falls, Z rises, and the governor backs off. That is collaboration, not domination.
 
 The observer is a 2-state Kalman filter on \([Z, \dot{Z}]\). GPUTronic 1.0 publishes \(\dot{Z}\) and does not yet feed it as a D-term. The estimate is on the cable for the next honest use, not as decoration.
 
-The actuator is `__nanosleep` on a mapped control block. On this RTX 5080 the host pointer equals the device pointer. The kernel re-reads `throttle_sleep_ns` every chunk. No 20–50 µs memcpy. If mapping fails, create aborts. A slow cable is a different plant.
+The control value is `active_sms` in a shared control block. That many SMs run the tiles and increment the counter. The others skip the work. At least 4 stay on, so the kernel is never empty. On this RTX 5080 the CPU and the GPU see the same memory. The kernel reads the count every pass. There is no 20–50 µs copy. If the mapping fails, startup aborts. A slow link between the two would be a different system. Sleep duration was the first attempt. On this 5080 it does little below about 200 µs, jumps near 500 µs, and then longer sleeps do not slow the chip further. Sleeping some SMs while others kept working did nothing. That is why the count replaced it.
 
 ## Why 1.0 is tagged Gold
 
@@ -48,7 +48,7 @@ There was a long ladder — a GTX 1080 proof of concept in this repo’s history
 
 1.0 Gold is the cleanup that makes the claim reproducible tomorrow.
 
-Three lies, specifically, that look like control until you measure useful work:
+Three mistakes that look like a working controller until you measure the work:
 
 1. **Peak-hold calibration.** Taking the peak of a rate EMA during free-run inflates \(r_{\mathrm{ref}}\). Free-run Z then sits at 1.4–1.7. A one-sided PI, which only adds sleep when \(Z\) is *below* target, never engages. The log says “tracking.” The actuator is at base sleep. Nothing moved.
 
@@ -56,11 +56,13 @@ Three lies, specifically, that look like control until you measure useful work:
 
 3. **A scale that commands 8 µs.** `__nanosleep` on this plant is almost invisible below ~200 µs and bites near 500 µs. Stock `sleep_scale = 1.2e5` at a typical error commands about 8 µs. After calibration, GPUTronic measures the loop period and sets scale so a 0.3 error maps onto roughly one period — the start of the cliff. Do not retune Kp to hide a dead-zone actuator.
 
-One-sided PI follows from the plant: if Z is already at or above target, hold base sleep (max Q). Do not undersleep below base to “fight” high impedance on a synthetic plant. Thermal remains the driver’s problem.
+If Z is already at or above the target, every SM runs. If Z is only a little short, the SM count stays put, so a small error does not jump back to full speed. Temperature stays with the driver. The 8 µs scale in the list above is a reason the sleep-duration control was dropped. Adjusting Kp does not fix a control that cannot move the speed smoothly.
 
 ## What it does on this machine
 
 Hardware of record: RTX 5080 (GB203, 84 SMs), CUDA 12.8.
+
+The sleep tables below are from the older sleep-duration control, kept because they show the jump. Current numbers are in `STATUS.md`. On 2026-09-23 all three checks passed with the SM count as the control. Closed-loop average Z was about 1.36–1.38. Turning the request back to full speed returned the rate to the unthrottled run.
 
 **Self-test plant** — GPUTronic’s own persistent kernel. Dyno, open-loop sleep sweep, rate from wall \(\Delta p / \Delta t\):
 
@@ -88,53 +90,56 @@ make gold && ./build/gputronic_gold check
 
 make transfer && ./build/gputronic_transfer check
 # === TRANSFER GATE: dyno=PASS closedloop=PASS ===
+
+make episode && ./build/gputronic_episode check
+# === EPISODE GATE: dyno=PASS closedloop=PASS ===
 ```
 
 CSV lands under `results/` every run. Dyno rate is always a wall window, never the lagging EMA alone.
 
-## The cable
+## The shared control block
 
-Host and device share one struct, `GPUTronicControl`, allocated with `cudaHostAllocMapped`.
+The CPU and the GPU share one struct, `GPUTronicControl`, allocated with `cudaHostAllocMapped`.
 
-Device writes one thing that matters: `total_work_pulses`, via `atomicAdd`. Warp or block leaders only. Fence every 32 pulses, not every pulse — or the fence drowns the actuator.
+The GPU writes one thing that matters: `total_work_pulses`, with `atomicAdd`, from the thread that finishes a unit of work. Fence every 32 pulses, not every pulse. A fence on every pulse swamps the copy.
 
-Host writes one command that matters: `throttle_sleep_ns`. Then `__sync_synchronize()`.
+The CPU writes `active_sms`, then `__sync_synchronize()`. That many SMs do the work. The others skip it.
 
-Everything else on the struct is telemetry or flags (STOP / PAUSE / RESET). The kernel must run if the snapshots are stale. If a signal is not in that struct, the device cannot see it. The header *is* the cable.
+The rest of the struct is readings or flags (STOP / PAUSE / RESET). If a value is not in that struct, the GPU cannot see it.
 
-A cooperative workload — the only mode that is actually this contract — does this:
+A kernel we compile ourselves does this:
 
 1. `launch_selftest_kernel = 0`
 2. `gputronic_create`, then `cudaHostGetDevicePointer` on `gputronic_get_control()`
-3. Launch your persistent kernel before or with `gputronic_start`, so calibration sees pulses
-4. `atomicAdd` completed work into `total_work_pulses`
-5. Read `throttle_sleep_ns` every chunk and `__nanosleep` it
-6. Honour STOP
+3. Launch the kernel before or with `gputronic_start`, so the free-run measurement sees pulses
+4. `atomicAdd` finished work into `total_work_pulses`
+5. Only the first `active_sms` SMs run that work
+6. Stop when asked
 
-That is the entire embed contract. The transfer plant is the existence proof. llama.cpp, a custom GEMM, a decode kernel: same five steps. Uninstrumented apps are a different plant. Call that contending, or observe-only, and do not call it this.
+Transfer is the test where the kernel stays resident. Episode (`src/gputronic_episode.cu`) is the test where the kernel returns and the 8 ms window still sees Z. A program we do not modify does not do any of this. That is a separate problem.
 
 ## Timescales, because they are the whole story
 
 | Clock | Period | Role |
 |-------|--------|------|
 | GPU inner work | nanoseconds | fmaf / tile |
-| Persistent loop | ~300 µs here | mapped atomic + nanosleep |
+| Persistent loop | ~300 µs here | mapped atomic, then the SM check |
 | Control *path* | 10 µs | thread wake, not the observer |
 | Rate window | ~8 ms | what Z is actually formed from |
 | Calibration | 0.7 s warmup + 1.1 s sustain | \(r_{\mathrm{ref}}\) |
 | NVML / thermal | ~25 ms | not in this loop |
 
-People hear “100 kHz governor” and imagine the plant is being steered every 10 µs. The path can be that fast. The plant is not. GPUTronic is honest about the mismatch. The observer is sized to the plant. The path is sized to not add another 300 µs of host latency on top.
+The control thread can wake every 10 µs. That does not mean the rate estimate is that fast. The rate is a count of pulses over about 8 ms. The 10 µs wake is only so the CPU is not late writing the SM count.
 
 ## What this is not
 
-It is not a magic sidecar that regulates Cyberpunk’s shaders because a process is running. External, uninstrumented kernels have no pulse source and do not honour sleep. That needs hooks or a contending design with different physics. Blurring those is how the v26-era tree got noisy.
+It does not control a game or a library you did not build, just because a process is running. Those kernels do not add to the pulse count and do not read `active_sms`.
 
-It is not a replacement for the NVIDIA driver. Clocks, power, and temperature stay where they are.
+It does not replace the NVIDIA driver. Clocks, power, and temperature stay there.
 
-It is not 9 GFLOP/s as a performance claim. The transfer tiles exist to be *counted*. The result is that FLOPs moved when Z was commanded. cuBLAS is not the competitor. Open-loop hope is.
+The transfer kernel’s few GFLOP/s are not a speed claim. The tiles are there so the FLOPs can be counted. They moved when Z was commanded. cuBLAS is not the comparison.
 
-It is not universal yet. Two plants on one 5080. The next honest work is another real cooperative path — inference, a bigger GEMM, a title that will take a hook — and a new version tag if the calibration or scale law has to change.
+It is not general yet. Three kernels on one 5080. The next step is the same loop on those kernels when the workload changes, without fitting a new curve by hand.
 
 ## Quick start (RTX 5080 / CUDA 12.8)
 
@@ -143,15 +148,17 @@ make gold
 ./build/gputronic_gold check
 ./build/gputronic_gold run 30
 make transfer && ./build/gputronic_transfer check
+make episode && ./build/gputronic_episode check
 make demo && ./build/gputronic_demo
 ```
 
 ```
 include/gputronic.h                      public C API
 src/gputronic_gold.cu                    core + CLI
-src/gputronic_transfer.cu                second plant
+src/gputronic_transfer.cu                second plant (persistent)
+src/gputronic_episode.cu                 third plant (launch-complete)
 docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md
-GOLD.md  STATUS.md  TRANSFER.md
+GOLD.md  STATUS.md  TRANSFER.md  EPISODE.md
 archive/v0.1-github/                     first public PoC (GTX 1080)
 ```
 

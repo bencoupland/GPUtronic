@@ -1,8 +1,10 @@
 # GPUTronic Gold 1.0.0
 
+This note is the first public description. At that time the control was how long the kernel slept. The code in the repo now sets how many SMs run. See the README.
+
 Most GPU software still treats the device like a firehose with a thermal fuse. Measure heat. Hope. Throttle clocks.
 
-GPUTronic starts from a different premise: a modern GPU is a dynamical system. It has a useful-work rate, an impedance, and a response to load. If you can observe the right state and act on a short enough cable, the rest is ordinary control engineering.
+GPUTronic starts from a different premise: a modern GPU has a work rate you can count, and a response to how hard you let it run. If you can measure that rate and change it without fighting the driver's temperature control, the rest is an ordinary feedback loop.
 
 Gold 1.0.0 is the reference that makes that claim reproducible. It had not been posted yet; this is the first public 1.0, with the transfer-plant corrections already in.
 
@@ -32,13 +34,13 @@ Gold self-test plant: free-run 445 kpulse/s → 324 kpulse/s at target Z = 1.50 
 
 Transfer plant — cooperative 8×8×8 GEMM microtiles, 32768 FLOP per pulse, stock Gold controller, no gain override: 8.77 → 6.55 GFLOP/s (−25%). Free-run Z ≈ 0.98. That is the second-plant test: useful work moves in the direction the model predicts.
 
-Dyno on both plants is flat to ~200 µs and cuts ~30–45% at 500 µs. Mapped atomics set the loop period. That is a fact about this cable, not a tuning footnote.
+Open-loop sleep did little until about 200 µs and cut about 30–45% at 500 µs. The mapped counter, not the math in the tile, set the loop period.
 
 ## Scope
 
 In: cooperative workloads that publish work pulses and honour `throttle_sleep_ns`.
 
-Out: FOC of someone else’s closed shaders. That needs hooks or an honestly named contending mode. Different plant. We will not blur them.
+Out: kernels we did not write and that do not read the control block. That is a different problem.
 
 ## How to run
 
@@ -51,6 +53,6 @@ make transfer && ./build/gputronic_transfer check
 
 `include/gputronic.h` · `src/gputronic_gold.cu` · MIT
 
-The interesting claim was never “more FPS by force.” It was that instruction-flow impedance is a feedback variable, and that once the interface is honest the rest looks obvious.
+The claim was never “more frames per second.” It was that the rate of finished work can be a feedback signal.
 
 — Ben Coupland

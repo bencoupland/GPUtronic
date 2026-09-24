@@ -1,6 +1,8 @@
 # X thread — GPUTronic Gold 1.0.0
 # @benracoupland
-# Tone: engineering summary. No hype. All posts verified ≤280 chars.
+# Draft from the first public post, when the control was sleep duration.
+# The repo now uses an SM count. See the README.
+# Posts were checked to stay within 280 characters.
 
 ---
 

@@ -12,14 +12,14 @@ Unpublished until this tree. Transfer-plant lessons are folded in: this *is* 1.0
 
 ## Why Gold exists
 
-Late v14–v26 forks lost the tachometer contract (last-SM overwrite, Z stuck at floor/ceiling). Gold freezes the plant interface:
+Late v14–v26 forks lost the pulse counter (the last SM overwrote it, and Z stuck at a floor or a ceiling). Gold keeps a few rules:
 
 1. **Aggregate Q** — `atomicAdd` on `total_work_pulses`
 2. **Mapped zero-copy** — host_ctrl == device_ctrl on this 5080
 3. **Sustained Z cal** — `Z = rate_ref / rate` from a 1.1 s free-run *window*, not peak EMA
 4. **Windowed rate** — ~8 ms pulse Δ, not a 10 µs EMA that cannot see a 300 µs plant
-5. **Auto `sleep_scale`** — sized from measured loop period so PI commands reach the nanosleep cliff
-6. **One-sided tracking PI** — sleep only when Z < target
+5. **SM count** — `active_sms` is how many SMs run the work. The others skip it and do not count a pulse. At least 4 stay on. After free-run, one test at half the SMs sets how strongly the error changes that count. Kp and Ki are unchanged. Sleep duration is not the control. The previous source is in `archive/gold-1.0.0-nanosleep/`.
+6. **One-sided PI** — if Z is already at the target, every SM runs. If Z is only a little short, the count stays where it is.
 7. **CSV evidence** — every run writes `results/gputronic_gold_*.csv`
 
 ## Gate (must stay green)

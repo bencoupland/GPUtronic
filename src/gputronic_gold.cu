@@ -60,7 +60,8 @@ __device__ __forceinline__ void gold_work(float* acc, int sm, int iter) {
  * F-02 persistent plant.
  *   grid = num_sm (one block / SM)
  *   warp leaders (lane==0) pulse F-04 aggregate + per-SM diagnostic
- *   F-11: __nanosleep(throttle_sleep_ns) after the work batch
+ *   Actuator: the lowest active_sms blocks do the work and pulse.
+ *   Idle blocks backoff 5 µs and do not pulse. Duration is not the command.
  * Period is atomic-dominated. Do not "tune Kp" to hide that.
  */
 __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
@@ -88,6 +89,14 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             continue;
         }
 
+        int active = ctrl->active_sms;
+        if (active <= 0 || active > num_sm) active = num_sm;
+        if (active < 4) active = 4;
+        if (sm >= active) {
+            __nanosleep(5000);
+            continue;
+        }
+
         for (int b = 0; b < GOLD_BATCH; b++) {
             for (int i = 0; i < GOLD_WORK_ITERS; i++)
                 gold_work(&local, sm, i + b * GOLD_WORK_ITERS);
@@ -100,17 +109,9 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             atomicAdd(&sm_counters[sm], 1ULL);
             atomicAdd((unsigned long long*)&ctrl->total_work_pulses, 1ULL);
             local_pulses++;
-            /* Fence every 32 pulses — enough for host visibility, cheap enough
-               that it does not drown the sleep actuator in system traffic. */
+            /* Fence every 32 pulses — enough for host visibility. */
             if ((local_pulses & 31u) == 0u) __threadfence_system();
         }
-
-        /* Volatile-qualified field: re-read command every chunk */
-        int sleep_ns = ctrl->throttle_sleep_ns;
-        int max_s = ctrl->max_sleep_ns;
-        if (sleep_ns < 0) sleep_ns = 0;
-        if (max_s > 0 && sleep_ns > max_s) sleep_ns = max_s;
-        if (sleep_ns > 0) __nanosleep((unsigned int)sleep_ns);
     }
 }
 
@@ -132,7 +133,15 @@ struct GPUTronicHandle {
     pthread_t thr;
     int running;
     int started;
-    int open_loop_sleep; /* >=0 forces open-loop sleep; -1 = closed loop */
+    int open_loop_sleep; /* legacy; <0 closed, 0 free-run */
+    int open_loop_sms;   /* <0 closed loop, 0 all SMs, >0 working-SM count */
+    int held_sms;
+    int probing;
+    int probe_n;
+    double probe_until_us;
+    unsigned long long probe_mark;
+    double probe_mark_us;
+    float sms_per_u;
     int zero_copy_ok;
     /* Kalman / PI state (control thread only) */
     float P[2][2];
@@ -223,25 +232,24 @@ static void kalman_update(GPUTronicHandle* h, float z_meas, float dt) {
     h->P[1][1] = p11 - K1 * p01;
 }
 
-static void gold_apply_auto_scale(GPUTronicHandle* h) {
-    /* F-09: map e_des=0.30 onto ~1.25 loop periods so PI reaches the cliff. */
-    if (!h->cfg.auto_sleep_scale || h->rate_ref < 1000.0f || h->cfg.num_sm <= 0)
-        return;
-    /* Pulse sources per loop: self-test has one warp-leader pulse per warp.
-     * Cooperative plants typically pulse once per block ≈ once per SM. */
-    int sources = h->cfg.num_sm;
-    if (h->cfg.launch_selftest_kernel && h->cfg.threads_per_block >= 32)
-        sources = h->cfg.num_sm * (h->cfg.threads_per_block / 32);
-    if (sources < 1) sources = 1;
-    double period_ns = 1e9 * (double)sources / (double)h->rate_ref;
-    float kp = (h->cfg.kp > 1e-6f) ? h->cfg.kp : 0.55f;
-    const float e_des = 0.30f;
-    float scale = (float)(1.25 * period_ns / ((double)kp * (double)e_des));
-    if (scale < 200000.0f) scale = 200000.0f;
-    if (scale > 8000000.0f) scale = 8000000.0f;
-    h->cfg.sleep_scale = scale;
-    printf("[CAL] auto sleep_scale=%.0f (period~%.0f ns, %d sources, e=%.2f → ~%.0f ns)\n",
-           scale, period_ns, sources, e_des, (double)kp * e_des * scale);
+static void gold_apply_width_scale(GPUTronicHandle* h, double z_half) {
+    /* One half-population sample. (Z-1) per SM removed, then the drop that
+     * reaches Z=1.5. Kp is unchanged. sms_per_u maps u = Kp*e + Ki*I onto
+     * that drop at e=0.30 with I=0. */
+    int removed = h->cfg.num_sm / 2;
+    if (removed < 1) removed = 1;
+    int drop = h->cfg.num_sm * 36 / 84;
+    if (drop < 1) drop = 1;
+    if (z_half > 1.05 && removed > 0) {
+        double g = (z_half - 1.0) / (double)removed;
+        if (g > 1e-4) drop = (int)(0.5 / g + 0.5);
+    }
+    if (drop < 1) drop = 1;
+    if (drop > h->cfg.num_sm - 4) drop = h->cfg.num_sm - 4;
+    float kp = (h->cfg.kp > 1e-6f) ? h->cfg.kp : GPUTRONIC_GOLD_KP;
+    h->sms_per_u = (float)drop / (kp * 0.30f);
+    printf("[CAL] width Z_half=%.3f drop_for_1.5=%d sms_per_u=%.1f (Kp=%.2f)\n",
+           z_half, drop, h->sms_per_u, kp);
 }
 
 static void* control_thread(void* arg) {
@@ -328,24 +336,39 @@ static void* control_thread(void* arg) {
                 h->cal_mark_us = t;
                 h->cal_marked = 1;
             }
-            if (t >= h->calibrate_until_us && h->cal_marked) {
+            if (!h->probing && t >= h->calibrate_until_us && h->cal_marked) {
                 double dt_cal = (t - h->cal_mark_us) * 1e-6;
                 unsigned long long dp_cal = pulses - h->cal_pulse_mark;
                 if (dt_cal > 0.2 && dp_cal > 1000ULL) {
                     h->rate_ref = (float)((double)dp_cal / dt_cal);
-                    h->calibrated = 1;
                     printf("[CAL] rate_ref=%.1f pulses/s (sustained %.2fs window, %llu pulses)\n",
                            h->rate_ref, dt_cal, (unsigned long long)dp_cal);
-                    gold_apply_auto_scale(h);
+                    h->probing = 1;
+                    h->probe_n = h->cfg.num_sm / 2;
+                    if (h->probe_n < 4) h->probe_n = 4;
+                    h->probe_mark = pulses;
+                    h->probe_mark_us = t;
+                    h->probe_until_us = t + 500000.0;
                 } else if (h->rate_ema > 1000.0f) {
-                    /* Fallback if the window was empty (should be rare). */
                     h->rate_ref = h->rate_ema;
-                    h->calibrated = 1;
                     printf("[CAL] rate_ref=%.1f pulses/s (EMA fallback)\n", h->rate_ref);
-                    gold_apply_auto_scale(h);
+                    gold_apply_width_scale(h, 1.0);
+                    h->calibrated = 1;
+                    h->held_sms = h->cfg.num_sm;
                 }
             }
-            z_raw = 1.0f; /* nominal during cal */
+            if (h->probing && t >= h->probe_until_us) {
+                double dt_p = (t - h->probe_mark_us) * 1e-6;
+                unsigned long long dp_p = pulses - h->probe_mark;
+                double rate_h = (dt_p > 0.05) ? (double)dp_p / dt_p : 0.0;
+                double z_half = (rate_h > 1.0 && h->rate_ref > 1.0f)
+                                    ? (double)h->rate_ref / rate_h : 1.0;
+                gold_apply_width_scale(h, z_half);
+                h->probing = 0;
+                h->calibrated = 1;
+                h->held_sms = h->cfg.num_sm;
+            }
+            z_raw = 1.0f; /* nominal during cal and the half-population probe */
         } else {
             z_raw = h->rate_ref / (h->rate_ema + 1.0f);
         }
@@ -363,49 +386,52 @@ static void* control_thread(void* arg) {
             h->dzdt_hat = 0.0f;
         }
 
-        int new_sleep = h->cfg.base_sleep_ns;
+        int n_cmd = h->cfg.num_sm;
         float error = 0.0f;
+        int num_sm = h->cfg.num_sm;
 
-        if (h->open_loop_sleep >= 0) {
-            new_sleep = h->open_loop_sleep;
+        if (h->probing) {
+            n_cmd = h->probe_n;
+        } else if (h->open_loop_sms > 0) {
+            n_cmd = h->open_loop_sms;
+            h->integral = 0.0f;
+        } else if (h->open_loop_sms == 0) {
+            n_cmd = num_sm;
             h->integral = 0.0f;
         } else if (!h->calibrated) {
-            new_sleep = h->cfg.base_sleep_ns;
+            n_cmd = num_sm;
             h->integral = 0.0f;
+        } else if (h->cfg.one_sided && z >= h->cfg.target_z) {
+            /* Full width. Do not hold a throttle once Z is already at target. */
+            n_cmd = num_sm;
+            h->integral = 0.0f;
+            h->held_sms = num_sm;
         } else {
             /*
-             * Tracking PI on plant with positive gain (sleep ↑ ⇒ Z ↑):
-             *   e = target - z
-             *   sleep = base + scale * (Kp*e + Ki*∫e)
-             * When z < target, e>0 → add sleep → raise Z toward target.
-             *
-             * One-sided Gold policy: if z >= target, stay at base sleep
-             * (max Q). Do not fight high impedance by undersleeping below base.
+             * Fewer working SMs raise Z. u maps onto SMs removed.
+             * Inside the deadband, hold the count. Zeroing it would snap
+             * back to every SM and the loop would bang.
              */
-            int engage = 1;
-            if (h->cfg.one_sided && z >= h->cfg.target_z) engage = 0;
-
-            if (engage) {
-                error = h->cfg.target_z - z;
+            error = h->cfg.target_z - z;
+            n_cmd = h->held_sms;
+            if (n_cmd < 4 || n_cmd > num_sm) n_cmd = num_sm;
+            if (fabsf(error) >= h->cfg.deadband) {
                 h->integral += error * dt;
                 if (h->integral > h->cfg.integral_clamp) h->integral = h->cfg.integral_clamp;
                 if (h->integral < -h->cfg.integral_clamp) h->integral = -h->cfg.integral_clamp;
-
                 float u = h->cfg.kp * error + h->cfg.ki * h->integral;
-                if (fabsf(error) < h->cfg.deadband) u = 0.0f;
-
-                new_sleep = (int)(h->cfg.base_sleep_ns + u * h->cfg.sleep_scale);
-            } else {
-                h->integral = 0.0f;
-                new_sleep = h->cfg.base_sleep_ns;
+                if (u < 0.0f) u = 0.0f;
+                int drop = (int)(u * h->sms_per_u + 0.5f);
+                if (drop < 0) drop = 0;
+                n_cmd = num_sm - drop;
             }
         }
 
-        if (new_sleep < 0) new_sleep = 0;
-        if (new_sleep > h->cfg.max_sleep_ns) new_sleep = h->cfg.max_sleep_ns;
-
-        h->h_ctrl->throttle_sleep_ns = new_sleep;
-        /* Ensure host store is visible to mapped device mappings promptly */
+        if (n_cmd < 4) n_cmd = 4;
+        if (n_cmd > num_sm) n_cmd = num_sm;
+        h->held_sms = n_cmd;
+        h->h_ctrl->active_sms = n_cmd;
+        h->h_ctrl->throttle_sleep_ns = h->cfg.base_sleep_ns;
         __sync_synchronize();
 
         h->h_ctrl->target_z = h->cfg.target_z;
@@ -415,14 +441,14 @@ static void* control_thread(void* arg) {
         h->h_ctrl->rate_ema = h->rate_ema;
         h->h_ctrl->pm_error = error;
         h->h_ctrl->integral = h->integral;
-        if (new_sleep > h->cfg.base_sleep_ns) h->h_ctrl->proactive_corrections++;
+        if (n_cmd < num_sm) h->h_ctrl->proactive_corrections++;
 
         double inst_hz = 1.0 / dt;
         hz_ema = 0.95 * hz_ema + 0.05 * inst_hz;
         h->h_ctrl->control_hz_ema = (int)(hz_ema + 0.5);
 
-        if (new_sleep < h->min_sleep) h->min_sleep = new_sleep;
-        if (new_sleep > h->max_sleep_seen) h->max_sleep_seen = new_sleep;
+        if (n_cmd < h->min_sleep) h->min_sleep = n_cmd;
+        if (n_cmd > h->max_sleep_seen) h->max_sleep_seen = n_cmd;
         h->sum_z += z;
         h->sum_z2 += (double)z * (double)z;
         h->n_z++;
@@ -430,7 +456,7 @@ static void* control_thread(void* arg) {
         if (h->csv) {
             double t_s = (t - h->t0_us) * 1e-6;
             fprintf(h->csv, "%.6f,%.5f,%.5f,%.5f,%.1f,%d,%.5f,%.5f,%d,%.1f\n",
-                    t_s, z_raw, z, h->dzdt_hat, h->rate_ema, new_sleep,
+                    t_s, z_raw, z, h->dzdt_hat, h->rate_ema, n_cmd,
                     error, h->integral, h->h_ctrl->control_hz_ema, h->rate_ref);
             h->csv_rows++;
             if ((tick & 1023) == 0) fflush(h->csv);
@@ -506,6 +532,12 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     h->h_sm = (unsigned long long*)calloc((size_t)h->cfg.num_sm, sizeof(unsigned long long));
 
     h->open_loop_sleep = -1;
+    h->open_loop_sms = -1;
+    h->held_sms = h->cfg.num_sm;
+    h->sms_per_u = (h->cfg.kp > 1e-6f)
+                       ? ((float)(h->cfg.num_sm * 36 / 84) / (h->cfg.kp * 0.30f))
+                       : 200.0f;
+    h->h_ctrl->active_sms = h->cfg.num_sm;
     h->running = 0;
     h->started = 0;
 
@@ -517,11 +549,10 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     printf("[ZC ] host_ctrl=%p device_ctrl=%p %s\n",
            (void*)h->h_ctrl, (void*)h->d_ctrl,
            h->d_ctrl ? "OK (mapped)" : "FAIL");
-    printf("[LAW] target_z=%.2f Kp=%.3f Ki=%.4f scale=%.0f one_sided=%d\n",
-           h->cfg.target_z, h->cfg.kp, h->cfg.ki, h->cfg.sleep_scale, h->cfg.one_sided);
-    printf("[LOOP] dt=%d us (%.0f kHz) base_sleep=%d max_sleep=%d\n\n",
-           h->cfg.control_dt_us, 1000.0 / h->cfg.control_dt_us,
-           h->cfg.base_sleep_ns, h->cfg.max_sleep_ns);
+    printf("[LAW] target_z=%.2f Kp=%.3f Ki=%.4f width-actuator one_sided=%d\n",
+           h->cfg.target_z, h->cfg.kp, h->cfg.ki, h->cfg.one_sided);
+    printf("[LOOP] dt=%d us (%.0f kHz) active_sms=%d floor=4\n\n",
+           h->cfg.control_dt_us, 1000.0 / h->cfg.control_dt_us, h->cfg.num_sm);
 
     return h;
 }
@@ -538,7 +569,7 @@ int gputronic_start(GPUTronicHandle* h) {
     }
     h->csv = fopen(path, "w");
     if (h->csv) {
-        fprintf(h->csv, "time_s,z_raw,z_hat,dzdt,rate_ema,sleep_ns,error,integral,ctrl_hz,rate_ref\n");
+        fprintf(h->csv, "time_s,z_raw,z_hat,dzdt,rate_ema,active_sms,error,integral,ctrl_hz,rate_ref\n");
         printf("[CSV] %s\n", path);
     } else {
         fprintf(stderr, "[WARN] could not open CSV %s\n", path);
@@ -590,7 +621,7 @@ void gputronic_stop(GPUTronicHandle* h) {
         double mean = h->sum_z / (double)h->n_z;
         double var = h->sum_z2 / (double)h->n_z - mean * mean;
         if (var < 0) var = 0;
-        printf("\n[STATS] samples=%lld mean_Z=%.4f std_Z=%.4f sleep_range=%d..%d ns rows_csv=%lld\n",
+        printf("\n[STATS] samples=%lld mean_Z=%.4f std_Z=%.4f active_sms=%d..%d rows_csv=%lld\n",
                (long long)h->n_z, mean, sqrt(var), h->min_sleep, h->max_sleep_seen,
                (long long)h->csv_rows);
     }
@@ -622,6 +653,15 @@ void gputronic_set_gains(GPUTronicHandle* h, float kp, float ki) {
 void gputronic_set_open_loop_sleep(GPUTronicHandle* h, int sleep_ns) {
     if (!h) return;
     h->open_loop_sleep = sleep_ns;
+    /* Duration is not the actuator. -1 closes the loop. 0 is every SM. */
+    if (sleep_ns < 0) h->open_loop_sms = -1;
+    else h->open_loop_sms = 0;
+}
+
+void gputronic_set_open_loop_sms(GPUTronicHandle* h, int n) {
+    if (!h) return;
+    h->open_loop_sms = n;
+    h->open_loop_sleep = (n < 0) ? -1 : 0;
 }
 
 float gputronic_get_z(const GPUTronicHandle* h) {
@@ -656,13 +696,13 @@ int gputronic_zero_copy_ok(const GPUTronicHandle* h) {
 
 void gputronic_print_status(const GPUTronicHandle* h, int elapsed_s) {
     if (!h || !h->h_ctrl) return;
-    printf("[TEL] t=%4ds | Z_raw=%.3f Z_hat=%.3f dZ=%.3f | rate=%.0f | sleep=%6d | hz~%d | pulses=%llu\n",
+    printf("[TEL] t=%4ds | Z_raw=%.3f Z_hat=%.3f dZ=%.3f | rate=%.0f | n=%3d | hz~%d | pulses=%llu\n",
            elapsed_s,
            h->h_ctrl->z_raw,
            h->h_ctrl->z_hat,
            h->h_ctrl->dzdt_hat,
            h->h_ctrl->rate_ema,
-           h->h_ctrl->throttle_sleep_ns,
+           h->h_ctrl->active_sms,
            h->h_ctrl->control_hz_ema,
            (unsigned long long)h->h_ctrl->total_work_pulses);
 }
@@ -694,13 +734,11 @@ static int mode_run(int duration_s, float target, float kp, float ki) {
     return 0;
 }
 
-/* Dyno F-13: open-loop sleep sweep. Rate = wall Δpulses/Δt, not rate_ema alone. */
+/* Dyno: open-loop working-SM sweep. Rate = wall Δpulses/Δt. */
 static int mode_dyno(void) {
     GPUTronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = "results/gputronic_gold_dyno.csv";
-    /* Raise max sleep so dyno can explore deep throttle */
-    cfg.max_sleep_ns = 2000000;
 
     GPUTronicHandle* h = gputronic_create(&cfg);
     if (!h) return 1;
@@ -709,43 +747,47 @@ static int mode_dyno(void) {
         return 1;
     }
 
-    /* Free-run settle + allow calibration window */
-    gputronic_set_open_loop_sleep(h, 0);
-    usleep(2500000);
-
-    const int sleeps[] = {0, 1000, 5000, 10000, 20000, 50000, 100000, 200000, 500000};
-    const int n = (int)(sizeof(sleeps) / sizeof(sleeps[0]));
+    int num_sm = h->cfg.num_sm;
+    int counts[] = {num_sm, num_sm * 3 / 4, num_sm * 2 / 3, num_sm / 2,
+                    num_sm / 3, num_sm / 4, 8, 4};
+    const int n = (int)(sizeof(counts) / sizeof(counts[0]));
     double xs[16], ys[16];
 
-    printf("\n=== DYNO SWEEP (open-loop sleep → rate) ===\n");
-    printf("%10s %14s %10s %10s\n", "sleep_ns", "rate_ema", "Z_hat", "pulses_d");
+    /* Free-run settle covers calibration and the half-population probe. */
+    gputronic_set_open_loop_sms(h, 0);
+    usleep(3000000);
+
+    printf("\n=== DYNO SWEEP (open-loop working SMs → rate) ===\n");
+    printf("%10s %14s %10s %10s\n", "n_sm", "rate", "Z_hat", "pulses_d");
     printf("--------------------------------------------------------\n");
 
     FILE* df = fopen("results/gputronic_gold_dyno_summary.csv", "w");
-    if (df) fprintf(df, "sleep_ns,rate_ema,z_hat,delta_pulses\n");
+    if (df) fprintf(df, "active_sms,rate,z_hat,delta_pulses\n");
 
     for (int i = 0; i < n && !g_signal_stop; i++) {
-        gputronic_set_open_loop_sleep(h, sleeps[i]);
-        usleep(1500000); /* settle (EMA + plant) */
+        int nsm = counts[i];
+        if (nsm < 4) nsm = 4;
+        gputronic_set_open_loop_sms(h, nsm);
+        usleep(800000);
         unsigned long long p0 = h->h_ctrl->total_work_pulses;
         double t0 = now_us();
         double z_acc = 0.0;
-        const int samples = 40;
+        const int samples = 20;
         for (int k = 0; k < samples; k++) {
-            usleep(50000);
+            usleep(40000);
             z_acc += h->h_ctrl->z_hat;
         }
         unsigned long long p1 = h->h_ctrl->total_work_pulses;
         double t1 = now_us();
         double dt_s = (t1 - t0) * 1e-6;
         if (dt_s < 1e-6) dt_s = 1e-6;
-        double rate = (double)(p1 - p0) / dt_s; /* true pulse rate over window */
+        double rate = (double)(p1 - p0) / dt_s;
         double z = z_acc / samples;
         unsigned long long dp = p1 - p0;
-        xs[i] = (double)sleeps[i];
+        xs[i] = (double)nsm;
         ys[i] = rate;
-        printf("%10d %14.1f %10.4f %10llu\n", sleeps[i], rate, z, (unsigned long long)dp);
-        if (df) fprintf(df, "%d,%.3f,%.5f,%llu\n", sleeps[i], rate, z, (unsigned long long)dp);
+        printf("%10d %14.1f %10.4f %10llu\n", nsm, rate, z, (unsigned long long)dp);
+        if (df) fprintf(df, "%d,%.3f,%.5f,%llu\n", nsm, rate, z, (unsigned long long)dp);
     }
     if (df) fclose(df);
 
@@ -768,19 +810,18 @@ static int mode_dyno(void) {
     }
     double r2 = (ss_tot > 1e-12) ? (1.0 - ss_res / ss_tot) : 0.0;
 
-    /* Plant OK if deep sleep cuts rate by >= 25% vs free-run */
+    /* Plant OK if the narrowest count cuts rate by >= 25% vs full width. */
     int plant_ok = (ys[0] > 1000.0) && (ys[n - 1] < ys[0] * 0.75);
-    /* Also require mostly non-increasing rate as sleep grows */
     int decreasing = 1;
     for (int i = 1; i < n; i++) {
         if (ys[i] > ys[i - 1] * 1.15) decreasing = 0;
     }
 
     printf("--------------------------------------------------------\n");
-    printf("fit: rate ≈ %.1f + (%.6f)*sleep_ns\n", a, b);
+    printf("fit: rate ≈ %.1f + (%.6f)*active_sms\n", a, b);
     printf("R² = %.4f  | plant_ok=%s | mostly_decreasing=%s\n",
            r2, plant_ok ? "YES" : "NO", decreasing ? "YES" : "NO");
-    printf("PASS: plant_ok AND (R²>=0.85 OR mostly_decreasing)\n");
+    printf("PASS: fewer SMs cut rate >= 25%% AND (R²>=0.85 OR mostly_decreasing)\n");
     int pass = plant_ok && (r2 >= 0.85 || decreasing);
     printf("RESULT: %s\n\n", pass ? "PASS" : "CHECK");
 
@@ -790,7 +831,7 @@ static int mode_dyno(void) {
         fprintf(rf, "R2=%.4f slope=%.6f intercept=%.1f plant_ok=%d decreasing=%d PASS=%d\n",
                 r2, b, a, plant_ok, decreasing, pass);
         for (int i = 0; i < n; i++)
-            fprintf(rf, "sleep=%d rate=%.1f\n", sleeps[i], ys[i]);
+            fprintf(rf, "active_sms=%d rate=%.1f\n", (int)xs[i], ys[i]);
         fclose(rf);
     }
 
@@ -887,20 +928,20 @@ static int mode_closedloop_check(int seconds) {
 
     float z = gputronic_get_z(h);
     float rate = gputronic_get_rate(h);
-    int sleep_ns = gputronic_get_sleep_ns(h);
+    int n_now = h->h_ctrl->active_sms;
     int pulses_ok = (h->h_ctrl->total_work_pulses > 1000ULL);
     int z_ok = (z >= cfg.z_floor && z <= cfg.z_ceiling);
     int rate_ok = (rate > 100.0f);
     float z_mean = (z_n > 0) ? (float)(z_acc / z_n) : z;
     double cl_rate = (cl_n > 0) ? (cl_rate_acc / cl_n) : (double)rate;
     float z_err = fabsf(z_mean - cfg.target_z);
-    int track_ok = (z_err < 0.40f) || (z_mean > 1.05f && sleep_ns > cfg.base_sleep_ns);
+    int track_ok = (z_err < 0.25f);
     int useful_drop = (fr_rate > 1000.0) && (cl_rate < fr_rate * 0.90);
-    int engaged = (sleep_ns > 50000) || useful_drop;
-    int model_ok = useful_drop && engaged;
+    int engaged = (n_now >= 4 && n_now < h->cfg.num_sm) || useful_drop;
+    int model_ok = useful_drop && engaged && track_ok;
 
-    printf("\n[CHECK] pulses=%llu z=%.3f z_mean=%.3f rate=%.1f sleep=%d\n",
-           (unsigned long long)h->h_ctrl->total_work_pulses, z, z_mean, rate, sleep_ns);
+    printf("\n[CHECK] pulses=%llu z=%.3f z_mean=%.3f rate=%.1f n=%d\n",
+           (unsigned long long)h->h_ctrl->total_work_pulses, z, z_mean, rate, n_now);
     printf("[CHECK] free-run %.1f pulse/s | closed %.1f pulse/s\n", fr_rate, cl_rate);
     printf("[CHECK] tach=%s z_sane=%s rate_sane=%s track=%s useful_drop=%s (err=%.3f)\n",
            pulses_ok ? "OK" : "FAIL", z_ok ? "OK" : "FAIL", rate_ok ? "OK" : "FAIL",
@@ -908,9 +949,9 @@ static int mode_closedloop_check(int seconds) {
 
     FILE* rf = fopen("results/gputronic_gold_closedloop_report.txt", "w");
     if (rf) {
-        fprintf(rf, "pulses=%llu z=%.4f z_mean=%.4f rate=%.1f sleep=%d tach=%d track=%d "
+        fprintf(rf, "pulses=%llu z=%.4f z_mean=%.4f rate=%.1f active_sms=%d tach=%d track=%d "
                     "fr_rate=%.1f cl_rate=%.1f useful_drop=%d PASS=%d\n",
-                (unsigned long long)h->h_ctrl->total_work_pulses, z, z_mean, rate, sleep_ns,
+                (unsigned long long)h->h_ctrl->total_work_pulses, z, z_mean, rate, n_now,
                 pulses_ok, track_ok, fr_rate, cl_rate, useful_drop, model_ok && pulses_ok);
         fclose(rf);
     }

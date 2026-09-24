@@ -13,7 +13,9 @@ You are working on **GPUTronic**, FOC-style closed-loop control for GPU executio
 - Binary: `build/gputronic_gold` (`make gold`)
 - Source: `src/gputronic_gold.cu` + `include/gputronic.h`
 - Gate: `./build/gputronic_gold check` must PASS
-- Target Z = 1.5, one-sided tracking PI, 2-state Kalman
+- Actuator: `active_sms`. Idle SMs skip the work and do not pulse. Floor is 4. Nanosleep duration is not the command. Previous sources: `archive/gold-1.0.0-nanosleep/`
+- Target Z = 1.5, one-sided tracking PI, 2-state Kalman. Kp=0.55, Ki=0.08. Do not retune them to shave the tenth.
+- Observer: rate over about 1–8 ms. Path is 10 µs. Do not bring back a 10 µs rate EMA.
 - Do not reintroduce last-SM overwrite of `total_work_pulses`
 
 ## Key Principles
@@ -24,7 +26,7 @@ You are working on **GPUTronic**, FOC-style closed-loop control for GPU executio
 - Archive experiments; do not fork Gold in-place without a new version tag
 
 ## Next Major Milestone
-Cooperative integration into real codebases (llama.cpp / custom CUDA), then an honestly named contending mode for uninstrumented apps. Lab Gold is done; product path is embed + workload registration.
+Same program, same gains, on the three test kernels we already have, including when the workload changes and the requested rate does not. Then one counter that keeps going after a kernel returns, in code we compile ourselves. A driver change is how that could apply to a program we do not modify. Integrating into llama.cpp is not the next measurement. A mode for unmodified programs stays unnamed until we can count their work without their help.
 
 ## Communication Style
 - Think in control theory terms (setpoints, observers, plant gain)

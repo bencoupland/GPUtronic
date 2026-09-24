@@ -46,7 +46,18 @@ static inline double now_us(void) {
 
 /* -------------------- cooperative plant -------------------- */
 
-__global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm) {
+/* sleep_sms == NULL, or *sleep_sms < 0: every SM honours the command (the
+ * gate). *sleep_sms >= 0: only the lowest blocks take __nanosleep. Awake
+ * blocks do the same tiles and do not wait. One block per SM, no grid barrier. */
+/* n_work == NULL: every SM runs the tiles (gate and sleep-mask).
+ * *n_work >= 0: only the lowest blocks run the tiles and pulse.
+ * *n_work < 0: the stock sleep command selects that count. Full clamp maps
+ * to half the SMs (measured Z ≈ 1.82 on this 5080, past the setpoint).
+ * At least 4 SMs stay awake.
+ * Idle blocks do not pulse. They backoff 5 µs so they do not spin on the cable. */
+__global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
+                                          volatile int* sleep_sms,
+                                          volatile int* n_work) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int r = tid / TRANSFER_TILE;
@@ -66,6 +77,44 @@ __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm) {
         if (flags & GPUTRONIC_FLAG_PAUSE) {
             __nanosleep(5000);
             continue;
+        }
+
+        int sleep_ns = ctrl->throttle_sleep_ns;
+        int max_s = ctrl->max_sleep_ns;
+        if (sleep_ns < 0) sleep_ns = 0;
+        if (max_s > 0 && sleep_ns > max_s) sleep_ns = max_s;
+
+        int active = num_sm;
+        int follow = 0;
+        if (n_work) {
+            int ov = *n_work;
+            if (ov >= 0) active = ov;
+            else follow = 1;
+        }
+        if (follow) {
+            int clamp = (max_s > 0) ? max_s : 500000;
+            int n_at_clamp = num_sm / 2;
+            if (n_at_clamp < 4) n_at_clamp = 4;
+            int span = num_sm - n_at_clamp;
+            if (span < 0) span = 0;
+            int drop = (clamp > 0) ? (int)(((long long)span * sleep_ns) / clamp) : 0;
+            active = num_sm - drop;
+        }
+        if (n_work) {
+            if (active < 4) active = 4;
+            if (active > num_sm) active = num_sm;
+            if (sm >= active) {
+                __nanosleep(5000);
+                continue;
+            }
+        } else {
+            int cable = ctrl->active_sms;
+            if (cable <= 0 || cable > num_sm) cable = num_sm;
+            if (cable < 4) cable = 4;
+            if (sm >= cable) {
+                __nanosleep(5000);
+                continue;
+            }
         }
 
         for (int t = 0; t < TRANSFER_TILES_PER_PULSE; t++) {
@@ -96,11 +145,13 @@ __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm) {
             if ((local_pulses & 31u) == 0u) __threadfence_system();
         }
 
-        int sleep_ns = ctrl->throttle_sleep_ns;
-        int max_s = ctrl->max_sleep_ns;
-        if (sleep_ns < 0) sleep_ns = 0;
-        if (max_s > 0 && sleep_ns > max_s) sleep_ns = max_s;
-        if (sleep_ns > 0) __nanosleep((unsigned int)sleep_ns);
+        int honour = 1;
+        if (sleep_sms) {
+            int k = *sleep_sms;
+            if (k >= 0) honour = (sm < k);
+        }
+        /* In follow mode the command is a count of working SMs, not a stall. */
+        if (!follow && honour && sleep_ns > 1000) __nanosleep((unsigned int)sleep_ns);
 
         iter++;
     }
@@ -128,7 +179,7 @@ static int launch_transfer_plant(GPUTronicHandle* h) {
     int num_sm = h_ctrl->num_sm;
     if (num_sm <= 0) num_sm = GPUTRONIC_DEFAULT_NUM_SM;
 
-    transfer_persistent_kernel<<<num_sm, TRANSFER_THREADS>>>(d_ctrl, num_sm);
+    transfer_persistent_kernel<<<num_sm, TRANSFER_THREADS>>>(d_ctrl, num_sm, NULL, NULL);
     err = cudaGetLastError();
     if (err != cudaSuccess) {
         fprintf(stderr, "[TRANSFER] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -200,22 +251,27 @@ static int mode_dyno(void) {
     GPUTronicHandle* h = transfer_boot(&cfg);
     if (!h) return 1;
 
-    gputronic_set_open_loop_sleep(h, 0);
-    usleep(2500000);
+    gputronic_set_open_loop_sms(h, 0);
+    usleep(3000000);
 
-    const int sleeps[] = {0, 1000, 5000, 10000, 20000, 50000, 100000, 200000, 500000};
+    int num_sm = h ? 84 : 84;
+    {
+        GPUTronicControl* c0 = gputronic_get_control(h);
+        if (c0 && c0->num_sm > 0) num_sm = c0->num_sm;
+    }
+    const int sleeps[] = {num_sm, num_sm * 3 / 4, num_sm * 2 / 3, num_sm / 2, num_sm / 3, num_sm / 4, 16, 8};
     const int n = (int)(sizeof(sleeps) / sizeof(sleeps[0]));
     double xs[16], ys[16], gf[16];
 
-    printf("\n=== TRANSFER DYNO (open-loop sleep → tile rate + GFLOP/s) ===\n");
-    printf("%10s %14s %12s %10s %12s\n", "sleep_ns", "tile/s", "GFLOP/s", "Z_hat", "tiles_d");
+    printf("\n=== TRANSFER DYNO (open-loop working SMs → tile rate + GFLOP/s) ===\n");
+    printf("%10s %14s %12s %10s %12s\n", "n_sm", "tile/s", "GFLOP/s", "Z_hat", "tiles_d");
     printf("--------------------------------------------------------------------\n");
 
     FILE* df = fopen("results/gputronic_transfer_dyno_summary.csv", "w");
     if (df) fprintf(df, "sleep_ns,tile_rate,gflops,z_hat,delta_tiles\n");
 
     for (int i = 0; i < n && !g_stop; i++) {
-        gputronic_set_open_loop_sleep(h, sleeps[i]);
+        gputronic_set_open_loop_sms(h, sleeps[i] < 4 ? 4 : sleeps[i]);
         double rate, gflops, z;
         unsigned long long dp = 0;
         measure_window(h, 1500000, 2000000, &rate, &gflops, &z, &dp);
@@ -267,9 +323,10 @@ static int mode_dyno(void) {
     int pass = rate_cut && flop_cut && coupled && (r2 >= 0.70 || decreasing);
 
     printf("--------------------------------------------------------------------\n");
-    printf("fit: tile/s ≈ %.1f + (%.6f)*sleep_ns   R²=%.4f\n", a, b, r2);
+    printf("fit: tile/s ≈ %.1f + (%.6f)*active_sms   R²=%.4f\n", a, b, r2);
     printf("free-run  %.1f tile/s  (%.4f GFLOP/s)\n", ys[0], gf[0]);
-    printf("500 us    %.1f tile/s  (%.4f GFLOP/s)  rate_cut=%s flop_cut=%s coupled=%s\n",
+    printf("n=%-4d    %.1f tile/s  (%.4f GFLOP/s)  rate_cut=%s flop_cut=%s coupled=%s\n",
+           sleeps[n - 1],
            ys[n - 1], gf[n - 1],
            rate_cut ? "YES" : "NO", flop_cut ? "YES" : "NO", coupled ? "YES" : "NO");
     printf("RESULT: %s\n\n", pass ? "PASS" : "FAIL");
@@ -427,12 +484,352 @@ static int mode_run(int seconds) {
     return 0;
 }
 
+/* Open-loop k × duration. Duration is the old axis, applied only to the
+ * lowest k SMs. Stock clamp, so a single sleep cannot step onto the plateau. */
+static int mode_mask(void) {
+    volatile int* h_k = NULL;
+    volatile int* d_k = NULL;
+    GPUTronicConfig cfg;
+    GPUTronicHandle* h;
+    GPUTronicControl* hc;
+    GPUTronicControl* dc = NULL;
+    int num_sm, di, ki;
+    const int dur_ns[] = {200000, 500000};
+    const int n_dur = 2;
+    const int frac_num[] = {0, 1, 2, 3, 4, 5, 6, 8, 10, 12};
+    const int n_k = 10;
+    double rate0 = 0.0, gf0 = 0.0, z0 = 0.0;
+    FILE* csv;
+    FILE* rep;
+
+    cudaError_t err = cudaHostAlloc((void**)&h_k, sizeof(int), cudaHostAllocMapped);
+    if (err != cudaSuccess || !h_k) {
+        fprintf(stderr, "[MASK] alloc failed: %s\n", cudaGetErrorString(err));
+        return 1;
+    }
+    err = cudaHostGetDevicePointer((void**)&d_k, (void*)h_k, 0);
+    if (err != cudaSuccess || !d_k) {
+        fprintf(stderr, "[MASK] map failed: %s\n", cudaGetErrorString(err));
+        cudaFreeHost((void*)h_k);
+        return 1;
+    }
+    *h_k = -1;
+
+    gputronic_config_gold(&cfg);
+    cfg.csv_path = "results/gputronic_transfer_mask_gold.csv";
+    cfg.max_sleep_ns = GPUTRONIC_DEFAULT_MAX_SLEEP_NS;
+    cfg.launch_selftest_kernel = 0;
+    h = gputronic_create(&cfg);
+    if (!h) {
+        cudaFreeHost((void*)h_k);
+        return 1;
+    }
+    hc = gputronic_get_control(h);
+    num_sm = (hc && hc->num_sm > 0) ? hc->num_sm : GPUTRONIC_DEFAULT_NUM_SM;
+    err = cudaHostGetDevicePointer((void**)&dc, hc, 0);
+    if (err != cudaSuccess || !dc) {
+        fprintf(stderr, "[MASK] control map failed\n");
+        gputronic_destroy(h);
+        cudaFreeHost((void*)h_k);
+        return 1;
+    }
+    transfer_persistent_kernel<<<num_sm, TRANSFER_THREADS>>>(dc, num_sm, d_k, NULL);
+    err = cudaGetLastError();
+    if (err != cudaSuccess || gputronic_start(h) != 0) {
+        fprintf(stderr, "[MASK] boot failed: %s\n", cudaGetErrorString(err));
+        gputronic_destroy(h);
+        cudaFreeHost((void*)h_k);
+        return 1;
+    }
+
+    printf("\n=== TRANSFER PER-SM MASK ===\n");
+    printf("Persistent GEMM, one block per SM, no grid barrier.\n");
+    printf("Duration is the stock command. Only the lowest k of %d SMs honour it.\n", num_sm);
+    printf("Awake SMs run the same tiles. Gold clamp %d ns. Kp/Ki untouched.\n\n",
+           GPUTRONIC_DEFAULT_MAX_SLEEP_NS);
+    fflush(stdout);
+
+    *h_k = 0;
+    __sync_synchronize();
+    gputronic_set_open_loop_sleep(h, 0);
+    usleep(2500000);
+    measure_window(h, 400000, 1500000, &rate0, &gf0, &z0, NULL);
+    printf("[FREE] k=0 sleep=0   %.1f pulse/s  %.3f GFLOP/s  Z_hat=%.3f\n", rate0, gf0, z0);
+    fflush(stdout);
+
+    csv = fopen("results/gputronic_transfer_mask.csv", "w");
+    if (csv) fprintf(csv, "sleep_ns,k,rate,gflops,z_hat,z_wall,z_if_fully_off\n");
+
+    for (di = 0; di < n_dur; di++) {
+        gputronic_set_open_loop_sleep(h, dur_ns[di]);
+        printf("\n[DUR] %d ns applied to k SMs\n", dur_ns[di]);
+        printf("%6s %12s %10s %8s %8s %8s\n", "k", "GFLOP/s", "pulse/s", "Z_wall", "Z_hat", "Z_off");
+        for (ki = 0; ki < n_k && !g_stop; ki++) {
+            int k = num_sm * frac_num[ki] / 12;
+            double rate, gflops, zhat, z_wall, z_off;
+            *h_k = k;
+            __sync_synchronize();
+            measure_window(h, 400000, 1200000, &rate, &gflops, &zhat, NULL);
+            z_wall = (rate > 1.0 && rate0 > 1.0) ? (rate0 / rate) : 0.0;
+            z_off = (k < num_sm) ? ((double)num_sm / (double)(num_sm - k)) : 0.0;
+            if (k < num_sm)
+                printf("%6d %12.3f %10.1f %8.3f %8.3f %8.3f\n",
+                       k, gflops, rate, z_wall, zhat, z_off);
+            else
+                printf("%6d %12.3f %10.1f %8.3f %8.3f %8s\n",
+                       k, gflops, rate, z_wall, zhat, "all");
+            fflush(stdout);
+            if (csv) fprintf(csv, "%d,%d,%.3f,%.6f,%.5f,%.5f,%.5f\n",
+                             dur_ns[di], k, rate, gflops, zhat, z_wall, z_off);
+        }
+        /* The first sweep stepped from 70 to 84. Fill that gap: the stall
+         * may require the last awake SMs to join. */
+        if (dur_ns[di] == 500000) {
+            const int tail[] = {76, 80, 82, 83};
+            int ti;
+            printf("[TAIL] k near the full mask, same 500 us command\n");
+            for (ti = 0; ti < 4 && !g_stop; ti++) {
+                int k = tail[ti];
+                double rate, gflops, zhat, z_wall, z_off;
+                *h_k = k;
+                __sync_synchronize();
+                measure_window(h, 400000, 1200000, &rate, &gflops, &zhat, NULL);
+                z_wall = (rate > 1.0 && rate0 > 1.0) ? (rate0 / rate) : 0.0;
+                z_off = (double)num_sm / (double)(num_sm - k);
+                printf("%6d %12.3f %10.1f %8.3f %8.3f %8.3f\n",
+                       k, gflops, rate, z_wall, zhat, z_off);
+                fflush(stdout);
+                if (csv) fprintf(csv, "%d,%d,%.3f,%.6f,%.5f,%.5f,%.5f\n",
+                                 dur_ns[di], k, rate, gflops, zhat, z_wall, z_off);
+            }
+        }
+    }
+    if (csv) fclose(csv);
+
+    rep = fopen("results/gputronic_transfer_mask_report.txt", "w");
+    if (rep) {
+        fprintf(rep, "transfer per-SM mask\n");
+        fprintf(rep, "num_sm=%d free_rate=%.3f free_gflops=%.6f free_z=%.4f clamp_ns=%d\n",
+                num_sm, rate0, gf0, z0, GPUTRONIC_DEFAULT_MAX_SLEEP_NS);
+        fprintf(rep, "csv=results/gputronic_transfer_mask.csv\n");
+        fprintf(rep, "Z_off = num_sm/(num_sm-k) if the masked SMs produced nothing.\n");
+        fprintf(rep, "Masked SMs still do their tiles, then sleep. Z_off is the ceiling, not the prediction.\n");
+        fclose(rep);
+    }
+
+    if (hc) hc->control_flags |= GPUTRONIC_FLAG_STOP;
+    gputronic_stop(h);
+    gputronic_destroy(h);
+    cudaFreeHost((void*)h_k);
+    printf("\nreport: results/gputronic_transfer_mask_report.txt\n");
+    printf("csv:    results/gputronic_transfer_mask.csv\n");
+    return 0;
+}
+
+/* Open-loop count of working SMs, then the stock PI if 56 SMs lands near Z=1.5.
+ * Idle SMs skip the tiles and do not pulse. Floor is 4 SMs. */
+static int mode_work(void) {
+    volatile int* h_n = NULL;
+    volatile int* d_n = NULL;
+    GPUTronicConfig cfg;
+    GPUTronicHandle* h;
+    GPUTronicControl* hc;
+    GPUTronicControl* dc = NULL;
+    int num_sm, i;
+    const int nsweep[] = {84, 80, 76, 72, 64, 60, 58, 57, 56, 55, 54, 52, 48, 42, 28, 14, 8, 4};
+    const int npts = (int)(sizeof(nsweep) / sizeof(nsweep[0]));
+    double rate0 = 0.0, gf0 = 0.0, z0 = 0.0;
+    double z_best = 0.0;
+    int n_best = 0;
+    double best_err = 1.0e9;
+    int mono = 1;
+    double prev_rate = 1.0e30;
+    FILE* csv;
+    FILE* rep;
+    cudaError_t err;
+
+    err = cudaHostAlloc((void**)&h_n, sizeof(int), cudaHostAllocMapped);
+    if (err != cudaSuccess || !h_n) {
+        fprintf(stderr, "[WORK] alloc failed: %s\n", cudaGetErrorString(err));
+        return 1;
+    }
+    err = cudaHostGetDevicePointer((void**)&d_n, (void*)h_n, 0);
+    if (err != cudaSuccess || !d_n) {
+        fprintf(stderr, "[WORK] map failed: %s\n", cudaGetErrorString(err));
+        cudaFreeHost((void*)h_n);
+        return 1;
+    }
+    *h_n = 84;
+
+    gputronic_config_gold(&cfg);
+    cfg.csv_path = "results/gputronic_transfer_work_gold.csv";
+    cfg.max_sleep_ns = GPUTRONIC_DEFAULT_MAX_SLEEP_NS;
+    cfg.launch_selftest_kernel = 0;
+    h = gputronic_create(&cfg);
+    if (!h) {
+        cudaFreeHost((void*)h_n);
+        return 1;
+    }
+    hc = gputronic_get_control(h);
+    num_sm = (hc && hc->num_sm > 0) ? hc->num_sm : GPUTRONIC_DEFAULT_NUM_SM;
+    err = cudaHostGetDevicePointer((void**)&dc, hc, 0);
+    if (err != cudaSuccess || !dc) {
+        fprintf(stderr, "[WORK] control map failed\n");
+        gputronic_destroy(h);
+        cudaFreeHost((void*)h_n);
+        return 1;
+    }
+    transfer_persistent_kernel<<<num_sm, TRANSFER_THREADS>>>(dc, num_sm, NULL, d_n);
+    err = cudaGetLastError();
+    if (err != cudaSuccess || gputronic_start(h) != 0) {
+        fprintf(stderr, "[WORK] boot failed: %s\n", cudaGetErrorString(err));
+        gputronic_destroy(h);
+        cudaFreeHost((void*)h_n);
+        return 1;
+    }
+
+    printf("\n=== TRANSFER WORK KNOB ===\n");
+    printf("Lowest n of %d SMs run the tiles and pulse. The rest skip the work.\n", num_sm);
+    printf("Floor is 4 SMs. Idle backoff is 5 us. No duration throttle on the workers.\n");
+    printf("Z_pred = %d/n if each working SM carries an equal share.\n\n", num_sm);
+    fflush(stdout);
+
+    *h_n = num_sm;
+    __sync_synchronize();
+    gputronic_set_open_loop_sleep(h, 0);
+    usleep(2500000);
+    measure_window(h, 400000, 1500000, &rate0, &gf0, &z0, NULL);
+    printf("[FREE] n=%d  %.1f pulse/s  %.3f GFLOP/s  Z_hat=%.3f\n\n", num_sm, rate0, gf0, z0);
+    printf("%6s %12s %10s %8s %8s %8s\n", "n", "GFLOP/s", "pulse/s", "Z_wall", "Z_hat", "Z_pred");
+    fflush(stdout);
+
+    csv = fopen("results/gputronic_transfer_work.csv", "w");
+    if (csv) fprintf(csv, "n,rate,gflops,z_hat,z_wall,z_pred\n");
+
+    for (i = 0; i < npts && !g_stop; i++) {
+        int n = nsweep[i];
+        double rate, gflops, zhat, z_wall, z_pred;
+        if (n > num_sm) n = num_sm;
+        if (n < 4) n = 4;
+        *h_n = n;
+        __sync_synchronize();
+        measure_window(h, 350000, 1200000, &rate, &gflops, &zhat, NULL);
+        z_wall = (rate > 1.0 && rate0 > 1.0) ? (rate0 / rate) : 0.0;
+        z_pred = (n > 0) ? ((double)num_sm / (double)n) : 0.0;
+        if (rate > prev_rate * 1.08) mono = 0;
+        prev_rate = rate;
+        if (fabs(z_wall - 1.5) < best_err) {
+            best_err = fabs(z_wall - 1.5);
+            z_best = z_wall;
+            n_best = n;
+        }
+        printf("%6d %12.3f %10.1f %8.3f %8.3f %8.3f\n",
+               n, gflops, rate, z_wall, zhat, z_pred);
+        fflush(stdout);
+        if (csv) fprintf(csv, "%d,%.3f,%.6f,%.5f,%.5f,%.5f\n",
+                         n, rate, gflops, zhat, z_wall, z_pred);
+    }
+    if (csv) fclose(csv);
+
+    printf("\n[SWEEP] monotonic=%s  closest n=%d Z=%.3f\n",
+           mono ? "YES" : "NO", n_best, z_best);
+    fflush(stdout);
+
+    if (mono && best_err < 0.08) {
+        int s;
+        int track_s = 12;
+        int rel_s = 6;
+        double sleep_acc = 0.0;
+        int sleep_n = 0;
+        unsigned long long p_a = 0, p_b;
+        double t_a = 0.0, t_b, z_wall, cl_gflops, rel_gflops, rel_z;
+        printf("\n[LOOP] stock PI. Command selects n: 0 → %d SMs, clamp → %d SMs.\n",
+               num_sm, num_sm / 2);
+        printf("[LOOP] open-loop n=%d held Z=%.3f. Floor remains 4.\n", n_best, z_best);
+        fflush(stdout);
+        *h_n = -1;
+        __sync_synchronize();
+        gputronic_set_target(h, GPUTRONIC_GOLD_TARGET_Z);
+        gputronic_set_open_loop_sleep(h, -1);
+        for (s = 0; s < track_s && !g_stop; s++) {
+            usleep(1000000);
+            gputronic_print_status(h, s + 1);
+            if (s == 3) {
+                p_a = hc->total_work_pulses;
+                t_a = now_us();
+            }
+            if (s >= 3) {
+                sleep_acc += (double)gputronic_get_sleep_ns(h);
+                sleep_n++;
+            }
+            fflush(stdout);
+        }
+        p_b = hc->total_work_pulses;
+        t_b = now_us();
+        {
+            double dt = (t_b - t_a) * 1e-6;
+            double rate = (dt > 1e-6) ? (double)(p_b - p_a) / dt : 0.0;
+            z_wall = (rate > 1.0) ? (rate0 / rate) : 0.0;
+            cl_gflops = gflops_from_rate(rate);
+        }
+        printf("[LOOP] Z_wall=%.3f  %.3f GFLOP/s  mean_cmd=%.0f ns\n",
+               z_wall, cl_gflops, (sleep_n > 0) ? (sleep_acc / sleep_n) : 0.0);
+        gputronic_set_target(h, 1.0f);
+        printf("[RELEASE] target 1.0\n");
+        fflush(stdout);
+        p_a = hc->total_work_pulses;
+        t_a = now_us();
+        for (s = 0; s < rel_s && !g_stop; s++) {
+            usleep(1000000);
+            gputronic_print_status(h, s + 1);
+            if (s == 2) {
+                p_a = hc->total_work_pulses;
+                t_a = now_us();
+            }
+            fflush(stdout);
+        }
+        p_b = hc->total_work_pulses;
+        t_b = now_us();
+        {
+            double dt = (t_b - t_a) * 1e-6;
+            double rate = (dt > 1e-6) ? (double)(p_b - p_a) / dt : 0.0;
+            rel_gflops = gflops_from_rate(rate);
+            rel_z = (double)gputronic_get_z(h);
+        }
+        printf("[RELEASE] %.3f GFLOP/s  Z_hat=%.3f  (free-run %.3f)\n",
+               rel_gflops, rel_z, gf0);
+        printf("[WORK] open-loop n=%d Z=%.3f  closed-loop Z=%.3f\n", n_best, z_best, z_wall);
+    } else {
+        printf("[WORK] open-loop did not place n=56 on Z=1.5. Closed loop not run.\n");
+    }
+    fflush(stdout);
+
+    rep = fopen("results/gputronic_transfer_work_report.txt", "w");
+    if (rep) {
+        fprintf(rep, "transfer work knob\n");
+        fprintf(rep, "num_sm=%d free_rate=%.3f free_gflops=%.6f n_best=%d Z_best=%.4f mono=%d\n",
+                num_sm, rate0, gf0, n_best, z_best, mono);
+        fprintf(rep, "csv=results/gputronic_transfer_work.csv\n");
+        fprintf(rep, "Idle SMs skip tiles, do not pulse, backoff 5 us. Floor 4.\n");
+        fclose(rep);
+    }
+
+    if (hc) hc->control_flags |= GPUTRONIC_FLAG_STOP;
+    gputronic_stop(h);
+    gputronic_destroy(h);
+    cudaFreeHost((void*)h_n);
+    printf("report: results/gputronic_transfer_work_report.txt\n");
+    return 0;
+}
+
 static void usage(const char* argv0) {
     printf("GPUTronic Transfer Plant (Gold 1.0 cooperative GEMM tiles)\n\n");
     printf("Usage:\n");
     printf("  %s check           # dyno + closed-loop transfer gate\n", argv0);
     printf("  %s dyno            # sleep → tile/s + GFLOP/s\n", argv0);
     printf("  %s run [sec]       # closed-loop on the transfer plant\n", argv0);
+    printf("  %s mask            # open-loop per-SM sleep count × duration\n", argv0);
+    printf("  %s work            # open-loop working-SM count, then stock PI\n", argv0);
 }
 
 int main(int argc, char** argv) {
@@ -441,6 +838,8 @@ int main(int argc, char** argv) {
         usage(argv[0]);
         return 0;
     }
+    if (!strcmp(mode, "mask")) return mode_mask();
+    if (!strcmp(mode, "work")) return mode_work();
     if (!strcmp(mode, "dyno")) return mode_dyno();
     if (!strcmp(mode, "check")) {
         int rd = mode_dyno();

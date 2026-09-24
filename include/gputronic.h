@@ -55,9 +55,12 @@ extern "C" {
  * Telemetry snapshots are host-written; the kernel must run without them. */
 struct GPUTronicControl {
     volatile unsigned int control_flags; /* F-02: bit0=STOP bit1=PAUSE bit2=RESET */
-    volatile int throttle_sleep_ns;      /* F-11 actuator command (host → device) */
-    int max_sleep_ns;                    /* clamp for F-11 */
-    int base_sleep_ns;                   /* free-run / one-sided hold */
+    volatile int throttle_sleep_ns;      /* legacy field, not the actuator */
+    int max_sleep_ns;                    /* legacy clamp, unused by the width law */
+    int base_sleep_ns;                   /* free-run marker */
+    /* Working-SM count. Lowest active_sms blocks issue and pulse.
+     * 0 or >= num_sm means every SM. Never commanded below 4. */
+    volatile int active_sms;
     /* F-04 tachometer. Device: atomicAdd only. Never last-SM assign. */
     volatile unsigned long long total_work_pulses;
     /* Host snapshots (F-07, F-08, F-10). Device may read target_z. */
@@ -112,7 +115,8 @@ void gputronic_destroy(GPUTronicHandle* h);
 /* Runtime */
 void gputronic_set_target(GPUTronicHandle* h, float target_z);
 void gputronic_set_gains(GPUTronicHandle* h, float kp, float ki);
-void gputronic_set_open_loop_sleep(GPUTronicHandle* h, int sleep_ns); /* <0 = closed loop */
+void gputronic_set_open_loop_sleep(GPUTronicHandle* h, int sleep_ns); /* <0 closed, 0 all SMs */
+void gputronic_set_open_loop_sms(GPUTronicHandle* h, int n); /* <0 closed loop, else working SMs */
 float gputronic_get_z(const GPUTronicHandle* h);
 float gputronic_get_z_raw(const GPUTronicHandle* h);
 float gputronic_get_rate(const GPUTronicHandle* h);

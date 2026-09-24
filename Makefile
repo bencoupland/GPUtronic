@@ -8,7 +8,7 @@ COMMON_FLAGS = $(ARCH) $(OPTIMIZATION) -Iinclude -Xcompiler "-Wall -Wextra" -lin
 LIBS = -lm -lpthread
 BUILD_DIR = build
 
-.PHONY: all gold lib demo check dyno step run transfer transfer-check clean help
+.PHONY: all gold lib demo watch check dyno step run transfer transfer-check episode episode-check episode-proof show clean help
 
 all: gold lib demo
 
@@ -43,6 +43,10 @@ $(BUILD_DIR)/gputronic_demo: examples/gold_demo.c $(BUILD_DIR)/libgputronic_gold
 	$(NVCC) $(COMMON_FLAGS) -o $@ examples/gold_demo.c -L$(BUILD_DIR) -lgputronic_gold $(LIBS)
 	@echo "[GPUTronic] Built: $@"
 
+# ---- Watchable Gold closed-loop (same binary as demo) ----
+watch: demo
+	./$(BUILD_DIR)/gputronic_demo
+
 # ---- Transfer plant (cooperative GEMM tiles; Gold 1.0 stays frozen) ----
 transfer: $(BUILD_DIR)/gputronic_transfer
 
@@ -53,6 +57,29 @@ $(BUILD_DIR)/gputronic_transfer: src/gputronic_transfer.cu $(BUILD_DIR)/libgputr
 
 transfer-check: transfer
 	./$(BUILD_DIR)/gputronic_transfer check
+
+# ---- Episode plant (launch-complete GEMM; Gold 1.0 stays frozen) ----
+episode: $(BUILD_DIR)/gputronic_episode
+
+$(BUILD_DIR)/gputronic_episode: src/gputronic_episode.cu $(BUILD_DIR)/libgputronic_gold.a include/gputronic.h | $(BUILD_DIR)
+	@echo "[GPUTronic] Building episode plant..."
+	$(NVCC) $(COMMON_FLAGS) -o $@ src/gputronic_episode.cu -L$(BUILD_DIR) -lgputronic_gold $(LIBS)
+	@echo "[GPUTronic] Built: $@"
+
+episode-check: episode
+	./$(BUILD_DIR)/gputronic_episode check
+
+episode-proof: episode
+	./$(BUILD_DIR)/gputronic_episode proof
+
+# ---- The floor: ceiling, width map, loop, release ----
+show: $(BUILD_DIR)/gputronic_show
+	./$(BUILD_DIR)/gputronic_show
+
+$(BUILD_DIR)/gputronic_show: src/gputronic_show.cu $(BUILD_DIR)/libgputronic_gold.a include/gputronic.h | $(BUILD_DIR)
+	@echo "[GPUTronic] Building show..."
+	$(NVCC) $(COMMON_FLAGS) -o $@ src/gputronic_show.cu -L$(BUILD_DIR) -lgputronic_gold $(LIBS)
+	@echo "[GPUTronic] Built: $@"
 
 # ---- Test gates ----
 check: gold
@@ -77,10 +104,16 @@ help:
 	@echo ""
 	@echo "  make gold           - build ./build/gputronic_gold"
 	@echo "  make lib            - build ./build/libgputronic_gold.a"
-	@echo "  make demo           - build example against the library"
+	@echo "  make demo           - build watchable Gold closed-loop example"
+	@echo "  make watch          - build and run the 30s Gold watch demo"
 	@echo "  make check          - Gold dyno + closed-loop gate"
 	@echo "  make transfer       - cooperative GEMM plant (Gold frozen)"
 	@echo "  make transfer-check - transfer dyno + closed-loop gate"
+	@echo "  make transfer && ./build/gputronic_transfer mask"
+	@echo "  make episode        - launch-complete GEMM plant (Gold frozen)"
+	@echo "  make show           - ceiling, width map, loop, release"
+	@echo "  make episode-check  - episode dyno + closed-loop gate"
+	@echo "  make episode-proof - twin / tax / open-loop hold / stock PI"
 	@echo "  make dyno           - Gold sleep→rate linearity sweep"
 	@echo "  make run            - 30s Gold closed-loop free-run"
 	@echo "  make clean"
