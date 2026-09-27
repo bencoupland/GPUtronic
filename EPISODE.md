@@ -75,17 +75,17 @@ Gate PASS is: window alive, coupled FLOPs, useful drop ≥10%, cal not swallowed
 
 tight = |Z−1.50|<0.20. N must scale with T. Gold + transfer + default episode still PASS.
 
-## Llama contract (honest)
+## What a normal launch looked like with sleep
 
-A launch-complete embed that sleeps once per op at Gold’s 500 µs clamp will look like this plant: Z visible, target 1.50 out of reach.
+These numbers are from when the control was sleep duration. A kernel that sleeps once, for at most 500 µs, at the end of a long launch does not reach Z = 1.5. The rate is visible. The target is not.
 
-To have authority on ops that already last hundreds of microseconds you need one of:
+Ways that did move a long launch, in those tests:
 
-1. Honour sleep more than once per launch (chunked epilogue), or
-2. A host-side wait between launches that actually waits, or
-3. A later Gold tag with a larger `max_sleep` / a different actuator — not an in-place 1.0 edit.
+1. Sleep more than once before the kernel returns.
+2. Wait on the CPU between launches, for a time that is a real fraction of the launch.
+3. Stop using sleep duration. The current code does this. It sets how many SMs run.
 
-Do not hide this with Kp.
+Do not paper over a weak control by raising Kp.
 
 ## Files
 
@@ -98,7 +98,7 @@ Do not hide this with Kp.
 
 Gold source, Kp, Ki, and the 500 µs clamp were not touched. `./build/gputronic_episode proof`.
 
-The batch knob is tiles per pulse. Same 8×8×8 math. The twin does not touch the cable. The sensor does one mapped `atomicAdd` per pulse and a fence per launch.
+The knob in this test was tiles per pulse. Same 8×8×8 math. The twin does not use the control block. The instrumented kernel does one mapped `atomicAdd` per pulse and a fence per launch.
 
 | tiles/pulse | twin GFLOP/s | sensor GFLOP/s | sensor/twin | launch |
 |------------:|-------------:|---------------:|------------:|-------:|

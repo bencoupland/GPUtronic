@@ -6,33 +6,31 @@ Reference: **GPUTronic 1.0 Gold**
 
 ![GPUTRONIC](docs/assets/gputronic-mark.jpg)
 
-A modern GPU is one of the last machines we still treat as a firehose. Launch a kernel. Wait. Read a temperature a few times a second. If it gets hot, the driver pulls clocks. If it does not, we assume the work happened. There is no tachometer on useful instruction flow. There is no setpoint. There is no short cable from an observer to an actuator. Thermal management is closed-loop. The work itself is not.
+A GPU driver will slow the chip if it gets hot. It will not tell you whether the work you asked for is the work that finished. You launch a kernel, wait, and take whatever rate comes out.
 
-That is strange, once you notice it. Every other plant we take seriously — a shaft, a current, a cabin, a fuel rail — has a measured rate, a hidden state we estimate, and a command we can apply faster than the plant moves. A GPU has all of those pieces. Occupancy, memory stalls, issue slots, and `__nanosleep` are not mysteries. What was missing was an honest interface: one number for useful work, one definition of impedance that is 1 when the device is free-running, and one command that actually changes the rate.
+Other machines we control have a measured rate, an estimate of what we cannot see directly, and a command that moves the rate. A GPU can have those too. What was missing was a counter of finished work, a way to say “this is full speed,” and a command that actually changes that speed.
 
 GPUTronic is that interface, checked on three test kernels. The control in this tree is how many SMs do the work (`active_sms`). An earlier version used sleep duration instead. That source is in `archive/gold-1.0.0-nanosleep/`. The long function-frame doc still describes the sleep version, with a note at the top.
 
-The specification of record is [`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md). This README is the tour.
+The function-by-function writeup is [`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md). This README is the short tour.
 
 ## The claim
 
-Instruction-flow throughput is a feedback variable.
+The rate of finished work can be a feedback signal.
 
-If you can observe useful work faster than the plant’s period, form an impedance from it, and actuate without fighting the stock thermal path, then closed-loop control of that rate is ordinary. Not a benchmark hack. Not a per-game special case. The same job a PI controller already does everywhere else.
-
-GPUTronic does not claim to control someone else’s closed shaders. It claims something smaller and, if it holds up, more important: the *plant interface* is practical. Once that is boring, the rest — workload-class setpoints, embedding, an honestly named contending mode — is control engineering, not invention.
+Count that work. Compare it with the speed you measured when nothing was holding the GPU back. Change how many SMs are allowed to run, and leave clocks and temperature to the driver. Then a normal PI controller can hold a requested rate. This does not control a program you did not build. It does not beat an unthrottled run. Full speed is every SM on.
 
 ## Three axes, one loop
 
-The names are borrowed from field-oriented control because the *job* is the same: decouple what you care about from what you must not fight, and estimate the state you cannot read directly.
+The names are borrowed from motor control because the split is the same: measure the thing you care about, estimate what you cannot read, and do not fight the limit that already owns temperature.
 
-| Axis | Quantity | Who owns it |
-|------|----------|-------------|
-| **Q** | Useful work rate | GPUTronic. Aggregate pulse tachometer. |
-| **Z** | Impedance proxy, \(Z = r_{\mathrm{ref}} / r\) | GPUTronic. Free-run calibrates to \(Z \approx 1\). |
-| **D** | Thermal and power | Stock NVIDIA driver. Not in the fast loop. |
+| Name | What it is | Who handles it |
+|------|------------|----------------|
+| **Q** | Finished work per second | GPUTronic. One running total of pulses. |
+| **Z** | \(Z = r_{\mathrm{ref}} / r\) | GPUTronic. Full speed is about 1. |
+| **D** | Temperature and power | The NVIDIA driver. Not in this loop. |
 
-Q is not “utilization.” Utilization can be high while useful work is stalled. Q is a count of completed work units, incremented with `atomicAdd` into one aggregate, `total_work_pulses`. Last-SM overwrite of that counter is forbidden. That single rule is the difference between a governor and a ghost.
+Q is not “GPU utilization.” Utilization can read 100% while useful work is stalled. Q is a count of finished work units, added with `atomicAdd` into one total, `total_work_pulses`. Do not let the last SM overwrite that total with its own count. That bug made Z stick at a floor or a ceiling.
 
 Z is not ohms and not a phase margin. \(Z = 1.5\) means the GPU is doing about two-thirds of the speed it had when nothing was holding it back. Turning SMs off lowers that speed and raises Z. There is no extra minus sign in the controller. Full speed is every SM running. The point of the loop is to land near the speed you asked for when conditions are not ideal.
 
@@ -44,9 +42,9 @@ The control value is `active_sms` in a shared control block. That many SMs run t
 
 ## Why 1.0 is tagged Gold
 
-There was a long ladder — a GTX 1080 proof of concept in this repo’s history, then persistent kernels, PI, Kalman, game coupling, many forks. The idea survived. The *contract* did not. Counters that did not aggregate. A Z that stuck at 0.25 or 4.0. A loop that looked closed because the calibration had already parked the measurement above the setpoint.
+The repo starts with a GTX 1080 prototype in January 2026, then a run of experiments through May 2026, then this 1.0 tree. Those older trees are still in `archive/`. What failed in the later experiments was the counter: it was not one total, Z stuck near 0.25 or 4.0, or the free-run measurement was a peak instead of a sustained window, so the loop thought it was already at the target and never did anything.
 
-1.0 Gold is the cleanup that makes the claim reproducible tomorrow.
+1.0 is the version you can build and check again tomorrow.
 
 Three mistakes that look like a working controller until you measure the work:
 
@@ -54,7 +52,7 @@ Three mistakes that look like a working controller until you measure the work:
 
 2. **A 10 µs rate EMA.** The persistent loop on this 5080 is about 300 µs, set by mapped atomics, not by the math inside the tile. Forming rate on a 10 µs tick and holding on empty samples leaves the EMA at free-run while a wall-clock pulse window already shows the cut. The observer is blind to the plant it is supposed to regulate. GPUTronic forms rate over ~8 ms, then a slow EMA.
 
-3. **A scale that commands 8 µs.** `__nanosleep` on this plant is almost invisible below ~200 µs and bites near 500 µs. Stock `sleep_scale = 1.2e5` at a typical error commands about 8 µs. After calibration, GPUTronic measures the loop period and sets scale so a 0.3 error maps onto roughly one period — the start of the cliff. Do not retune Kp to hide a dead-zone actuator.
+3. **A gain that commands about 8 µs of sleep.** On this 5080, `__nanosleep` does little below about 200 µs and then jumps near 500 µs. The old default gain, at a normal error, asked for about 8 µs. The GPU did not slow down. Changing Kp does not fix a control input the hardware ignores.
 
 If Z is already at or above the target, every SM runs. If Z is only a little short, the SM count stays put, so a small error does not jump back to full speed. Temperature stays with the driver. The 8 µs scale in the list above is a reason the sleep-duration control was dropped. Adjusting Kp does not fix a control that cannot move the speed smoothly.
 
@@ -80,7 +78,7 @@ Open-loop: 9.03 → 5.15 GFLOP/s at 500 µs, locked to tile rate. Free-run Z ≈
 
 Closed-loop: 8.77 → 6.55 GFLOP/s (−25%). Mean Z ≈ 1.34.
 
-That second number is the one that matters. Pulse rate and counted FLOPs moved together, in the direction the model predicts, on a plant that is not `gputronic_gold.cu`’s synthetic fmaf. If those two ever disagree in sign, the tachometer has stopped measuring the work.
+That second number is the one that matters. Pulse rate and counted FLOPs moved together, on a kernel that is not the self-test’s dummy math. If those two ever move in opposite directions, the counter is no longer measuring that work.
 
 Both gates are one command:
 
@@ -166,7 +164,7 @@ Read the function frame with the source open, starting at the control block, not
 
 ## Why it should become ordinary
 
-Closed-loop regulation of a measured work rate is not a new idea. It is what we already do wherever the plant is worth controlling. A GPU execution path is such a plant. The unusual part was getting the tachometer, the calibration, and the actuator into the same room without lying to ourselves.
+A feedback loop on a measured rate is ordinary. The work here was getting the counter, the full-speed measurement, and the SM count to agree with each other.
 
 If that holds on the workloads people actually run, instruction-throughput control belongs in the same category as any other feedback loop we no longer argue about. GPUTronic 1.0 Gold is the interface and the evidence. The rest is embedding, and then — only with a different name — contention.
 

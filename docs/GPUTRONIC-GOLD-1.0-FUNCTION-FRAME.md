@@ -16,7 +16,7 @@ This is the function frame for Gold, updated 2026-09-23 so it matches the code. 
 
 This is the function frame for Gold: what the system is, which signals exist, how each function computes, which constants are calibration parameters, where the C/CUDA lives, and what was measured. It is written to be read with the source open.
 
-The claim is narrow. Instruction-flow throughput is a feedback variable. If the tachometer is honest and the actuator has authority, closed-loop control of that rate is the same job we already do on every other plant we take seriously. Gold is the interface that makes the job reproducible after earlier forks lost the tachometer.
+The claim is narrow. The rate of finished work can be a feedback signal. Gold is the version where the counter is one total, full speed is measured over a real window, and the control is how many SMs run. Earlier versions lost the counter.
 
 ---
 

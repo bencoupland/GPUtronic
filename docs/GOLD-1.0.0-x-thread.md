@@ -58,9 +58,9 @@ Scope
 
 In: cooperative workloads that publish pulses and read throttle_sleep_ns.
 
-Out: uninstrumented third-party kernels. That needs hooks or a separate contending plant.
+Out: programs we did not modify. They do not publish pulses or read the control value.
 
-Different physics. Don’t blur them.
+That is a different problem.
 
 ---
 
@@ -78,7 +78,7 @@ CSV every run.
 7/
 Claim
 
-High-frequency feedback on GPU instruction-flow impedance is practical once the plant interface is honest.
+A feedback loop on GPU work rate is practical once the counter and the control input are real.
 
 Gold 1.0.0 is that interface, plus one second plant that moves counted FLOPs.
 
