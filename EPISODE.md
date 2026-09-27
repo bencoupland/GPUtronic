@@ -1,6 +1,6 @@
 # GPUTronic Episode Plant
 
-Third counted plant on the Gold 1.0.0 interface. Gold source is untouched.
+Third counted kernel on the Gold interface. The kernel returns. The host launches it again.
 
 ```bash
 make episode
@@ -8,18 +8,20 @@ make episode
 # === EPISODE GATE: dyno=PASS closedloop=PASS ===
 ```
 
-Uses stock Gold (`launch_selftest_kernel = 0`, auto `sleep_scale`). One `__nanosleep` per launch, at the epilogue. Host is launch + `cudaDeviceSynchronize` — the kernel returns.
+Uses stock Gold (`launch_selftest_kernel = 0`). Blocks at or above `active_sms` return without adding a pulse. The host does launch, then `cudaDeviceSynchronize`.
 
-## Why this plant exists
+## Why this kernel exists
 
-Transfer already proved a second *persistent* cooperative plant. llama.cpp is launch-complete, not `while(1)`. This plant asks the tachometer that question before anyone clones ggml.
+Transfer stays in a loop. A lot of real code launches a kernel and gets it back. This kernel asks whether the 8 ms window still sees Z in that case.
 
 ## Plant
 
 - Finite kernel, 84×64, same 8×8×8 GEMM tiles as transfer
 - 32 tiles per pulse × 4 pulses per launch, then return
 - `atomicAdd` on Gold `total_work_pulses`
-- Honours `throttle_sleep_ns` once per episode
+- 2026-09-23 closed loop: 20.3 → 15.0 GFLOP/s, Z mean ≈ 1.36
+
+The sections below about one sleep per launch are the measurements from before the control became an SM count. They explain why sleep duration was a poor control on a kernel that returns.
 
 ## Live numbers (RTX 5080, 2026-08-15)
 

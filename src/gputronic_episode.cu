@@ -1,8 +1,8 @@
 /* =============================================================================
  * GPUTronic Episode Plant — launch-complete GEMM on Gold 1.0
  * -----------------------------------------------------------------------------
- * Gold 1.0 source is untouched. Runtime knobs (env) are for observer/throw
- * campaigns; defaults preserve the original episode gate.
+ * Uses Gold's control thread. Blocks at or above active_sms return
+ * without a pulse. The honour= sleep modes below are the older experiments.
  *
  *   GPUTRONIC_EPISODE_PULSES     pulses per launch (default 4)
  *   GPUTRONIC_EPISODE_HONOUR     once | host | chunkN   (default once)

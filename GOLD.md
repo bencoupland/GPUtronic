@@ -37,14 +37,13 @@ make transfer && ./build/gputronic_transfer check
 **Gold self-test plant**
 
 - Dyno: free-run ~499 kpulse/s, Z≈1.00; 500 µs sleep → ~314 kpulse/s, Z≈1.58; R²≈0.88
-- Closed-loop: free-run 445 kpulse/s → 324 kpulse/s (−27%) at target Z=1.50
-- Z_mean ≈ 1.37, sleep ≈ 415 µs (in the authority band, not the 8 µs dead zone)
+- Closed-loop, 2026-09-23, SM count: about 582k → 426k pulse/s, Z mean ≈ 1.38
+- Older sleep-duration run: 445k → 324k pulse/s, Z mean ≈ 1.37, sleep ≈ 415 µs
 
 **Transfer plant (cooperative 8×8×8 GEMM tiles, 32768 FLOP/pulse)**
 
-- Dyno: 9.03 → 5.15 GFLOP/s at 500 µs, coupled to tile rate; free-run Z≈1.02
-- Closed-loop (stock Gold auto-scale, no override): 8.77 → 6.55 GFLOP/s (−25%)
-- Z_mean ≈ 1.34 vs target 1.50
+- Closed-loop, 2026-09-23: 7.25 → 5.39 GFLOP/s, Z mean ≈ 1.36
+- Older sleep-duration run: 9.03 → 5.15 GFLOP/s at 500 µs; closed loop 8.77 → 6.55 GFLOP/s, Z mean ≈ 1.34
 
 ## Files
 
@@ -56,11 +55,11 @@ make transfer && ./build/gputronic_transfer check
 
 ## Plant note
 
-Mapped atomics set a ~300 µs loop period on this 5080. `__nanosleep` is almost invisible below ~200 µs and bites near 500 µs. Gold therefore schedules `sleep_scale` so a typical error (~0.3) commands ~one loop period. Do not retune Kp/Ki to hide a dead-zone actuator.
+Mapped atomics set a ~300 µs loop on this 5080 when every SM runs. Sleep duration did little below ~200 µs and then jumped. The control is now how many SMs run. After free-run, one half-SM measurement sets how strongly the error changes that count. Do not change Kp or Ki to hide a control that cannot move the rate smoothly.
 
 ## Do not
 
 - Reintroduce per-SM last-writer `total_work_pulses = sm_counters[sm]`
 - Put NVML thermal in the fast loop
 - Use peak-EMA `rate_ref` (it parks free-run Z ≥ target; one-sided PI never engages)
-- Claim FOC of uninstrumented third-party kernels — that is a different plant
+- Claim this controls a program that does not add pulses or read `active_sms`

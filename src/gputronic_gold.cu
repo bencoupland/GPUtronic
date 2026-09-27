@@ -8,7 +8,7 @@
  *   F-01 gputronic_create
  *   F-12 gputronic_start / stop
  *   F-05…F-10 control_thread
- *   F-09 gold_apply_auto_scale
+ *   F-09 gold_apply_width_scale
  *   F-08 kalman_update
  *   F-13 mode_dyno / mode_closedloop_check
  *
@@ -17,9 +17,9 @@
  *   2. F-01  Periodic __threadfence_system; host __sync_synchronize after sleep
  *   3. F-06  rate_ref from a sustained free-run window (not peak EMA)
  *   4. F-07  Z = rate_ref / rate; plant gain sleep↑ ⇒ Z↑
- *   5. F-10  One-sided PI: sleep only when Z < target
+ *   5. F-10  One-sided PI: fewer SMs only when Z < target
  *   6. F-08  2-state Kalman with P_pred = F P F^T + Q
- *   7. F-09  sleep_scale from measured loop period (nanosleep cliff, not 8 µs)
+ *   7. F-09  sms_per_u from a half-SM measurement after free-run
  *   8. F-02  Batched device work between mapped atomics
  *
  * Build: make gold

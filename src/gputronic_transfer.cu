@@ -3,15 +3,14 @@
  * -----------------------------------------------------------------------------
  * Read with: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md  (F-03, F-14)
  *
- * Second plant on the Gold 1.0 interface (stock auto sleep_scale).
+ * Second kernel on the Gold interface.
  *   - launch_selftest_kernel = 0
- *   - persistent kernel does real FP32 GEMM microtiles (shared-mem 8x8x8)
- *   - block leader atomicAdd on Gold's total_work_pulses
- *   - honours throttle_sleep_ns via __nanosleep
- *   - useful work = completed tiles * FLOPS_PER_TILE
+ *   - persistent kernel does FP32 GEMM tiles (shared-mem 8x8x8)
+ *   - block leader atomicAdd on total_work_pulses
+ *   - SMs at or above active_sms skip the tiles
+ *   - counted work = completed tiles * FLOPS_PER_TILE
  *
- * Transfer claim (the only one that matters):
- *   sleep ↑ → tile rate ↓ → Z ↑  AND  GFLOP/s ↓
+ * What to check: fewer SMs → tile rate down, Z up, and GFLOP/s down with the tile rate.
  *
  * Build: make transfer
  * Run:   ./build/gputronic_transfer check | dyno | run [sec]

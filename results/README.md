@@ -1,6 +1,6 @@
 # results/
 
-Gold gate outputs (`gputronic_gold_*`) and transfer-plant outputs (`gputronic_transfer_*`).
+Gold, transfer, and episode check outputs (`gputronic_gold_*`, `gputronic_transfer_*`, `gputronic_episode_*`). `gputronic_show.html` is the strip chart. `gputronic_sweep.svg` is tiles per pulse and every SM count.
 Large CSVs are xz-compressed.
 
 Pre-Gold campaign folders live under:

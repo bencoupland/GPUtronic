@@ -8,20 +8,24 @@ make transfer
 # === TRANSFER GATE: dyno=PASS closedloop=PASS ===
 ```
 
-Uses stock Gold (`launch_selftest_kernel = 0`, auto `sleep_scale`). No transfer-side gain override.
+Uses stock Gold (`launch_selftest_kernel = 0`). No separate gain. The kernel reads `active_sms`.
 
 ## Plant
 
 - Persistent kernel, 84×64
-- Real FP32 GEMM microtiles: 8×8×8 × 32 = 32768 FLOP per tach pulse
+- Real FP32 GEMM microtiles: 8×8×8 × 32 = 32768 FLOP per pulse
 - `atomicAdd` on Gold `total_work_pulses`
-- Honours `throttle_sleep_ns`
+- SMs at or above `active_sms` skip the tiles
 
-## Release numbers (RTX 5080)
+## Current numbers (RTX 5080, 2026-09-23)
 
-Open-loop: 9.03 → 5.15 GFLOP/s at 500 µs, coupled to tile rate. Free-run Z≈1.02.
+Closed loop: 7.25 → 5.39 GFLOP/s, Z mean ≈ 1.36. Open-loop rate tracks the SM count (R² ≈ 0.99).
 
-Closed-loop (Gold auto-scale): 8.77 → 6.55 GFLOP/s (−25%), Z_mean≈1.34 vs target 1.50.
+## Older sleep-duration numbers (RTX 5080)
+
+Open-loop: 9.03 → 5.15 GFLOP/s at 500 µs, in step with the tile rate. Free-run Z≈1.02.
+
+Closed loop: 8.77 → 6.55 GFLOP/s (−25%), Z mean ≈ 1.34.
 
 That is the transfer test: measure and control Z on something that is not the Gold synthetic kernel, and move a counted FLOP metric in the predicted direction.
 

@@ -36,9 +36,9 @@ Q is not “utilization.” Utilization can be high while useful work is stalled
 
 Z is not ohms and not a phase margin. \(Z = 1.5\) means the GPU is doing about two-thirds of the speed it had when nothing was holding it back. Turning SMs off lowers that speed and raises Z. There is no extra minus sign in the controller. Full speed is every SM running. The point of the loop is to land near the speed you asked for when conditions are not ideal.
 
-D stays with NVSMC. A 25 ms NVML poll cannot sit in a 10 µs path, and fighting the driver’s thermal loop is how you get a worse plant, not a better one. If the hardware throttles, Q falls, Z rises, and the governor backs off. That is collaboration, not domination.
+Temperature and power stay with the NVIDIA driver. A 25 ms temperature poll does not belong in the 10 µs control thread. If the driver slows the chip, the work rate falls, Z rises, and this loop eases off. That is the intended split.
 
-The observer is a 2-state Kalman filter on \([Z, \dot{Z}]\). GPUTronic 1.0 publishes \(\dot{Z}\) and does not yet feed it as a D-term. The estimate is on the cable for the next honest use, not as decoration.
+A 2-state Kalman filter estimates Z and how fast Z is changing. The controller does not use the rate-of-change yet. It is logged.
 
 The control value is `active_sms` in a shared control block. That many SMs run the tiles and increment the counter. The others skip the work. At least 4 stay on, so the kernel is never empty. On this RTX 5080 the CPU and the GPU see the same memory. The kernel reads the count every pass. There is no 20–50 µs copy. If the mapping fails, startup aborts. A slow link between the two would be a different system. Sleep duration was the first attempt. On this 5080 it does little below about 200 µs, jumps near 500 µs, and then longer sleeps do not slow the chip further. Sleeping some SMs while others kept working did nothing. That is why the count replaced it.
 
@@ -162,7 +162,7 @@ GOLD.md  STATUS.md  TRANSFER.md  EPISODE.md
 archive/v0.1-github/                     first public PoC (GTX 1080)
 ```
 
-Read the function frame with the source open, starting at the cable, not at `main`. Function IDs F-01…F-14 in the spec match comments in the code.
+Read the function frame with the source open, starting at the control block, not at `main`. Function IDs F-01…F-15 in that file match comments in the code.
 
 ## Why it should become ordinary
 

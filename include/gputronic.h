@@ -2,19 +2,17 @@
  * GPUTronic Gold — Public API
  * Version: 1.0.0-gold
  *
- * This header *is* the cable. If a signal is not in GPUTronicControl, the
- * device cannot see it. Full function frame:
- *   docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md   (GT-FF-GOLD-1.0)
+ * If a signal is not in GPUTronicControl, the device cannot see it.
+ * Function list: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md
  *
- * Axes (names, not a claim that the GPU is a PMSM):
- *   Q — useful work rate     (F-04 tachometer)
- *   Z — impedance proxy      (F-07)  Z = rate_ref / rate, free-run ≈ 1
- *   D — thermal/power        stock driver; not in this header on purpose
+ * Names, not a claim that the GPU is a motor:
+ *   Q — useful work rate     (F-04 pulse counter)
+ *   Z — rate_ref / rate      (F-07)  free-run ≈ 1
+ *   D — temperature and power, left to the stock driver
  *
  * Modes:
- *   Cooperative — foreign kernel publishes pulses + honours throttle_sleep_ns
- *                 (F-03). Transfer plant is the existence proof.
- *   Self-test   — Gold launches gold_persistent_kernel (F-02).
+ *   Another kernel adds pulses and runs only active_sms SMs (F-03).
+ *   Self-test — Gold launches gold_persistent_kernel (F-02).
  * ============================================================================= */
 
 #ifndef GPUTRONIC_H
@@ -36,12 +34,11 @@ extern "C" {
 #define GPUTRONIC_DEFAULT_NUM_SM 84
 #define GPUTRONIC_DEFAULT_THREADS_PER_BLOCK 64
 #define GPUTRONIC_DEFAULT_CONTROL_DT_US 10      /* path period, not observer period (F-05) */
-#define GPUTRONIC_DEFAULT_MAX_SLEEP_NS 500000   /* must reach the nanosleep cliff (F-11) */
+#define GPUTRONIC_DEFAULT_MAX_SLEEP_NS 500000   /* unused by the SM-count law */
 #define GPUTRONIC_DEFAULT_BASE_SLEEP_NS 5
 
-/* Tracking law defaults. sleep_scale is a *fallback*; F-09 overwrites it
- * after calibration when auto_sleep_scale=1. Kp/Ki came from Cyberpunk-era
- * v1.13 and only actuate once scale is honest. */
+/* Tracking defaults. Kp and Ki stay fixed. F-09 sets sms_per_u from a
+ * half-SM measurement. GPUTRONIC_GOLD_SLEEP_SCALE is the old fallback. */
 #define GPUTRONIC_GOLD_TARGET_Z 1.5f
 #define GPUTRONIC_GOLD_KP 0.55f
 #define GPUTRONIC_GOLD_KI 0.08f
