@@ -93,6 +93,11 @@ struct GPUTronicControl {
     float z_tensor;          /* host: tensor-core Z */
     float rate_tensor_ema;   /* host: tensor pulse rate, 8 ms window + EMA */
     int ctrl_sensor;         /* host: sensor driving the PI, 0 = CUDA, 1 = tensor */
+    /* Synthetic load for tests T6/T7 (Gold kernel only). Appended at the end.
+     * 1000 (or 0) = no load. At S > 1000 each pulsing warp emits 1000 pulses per
+     * S units of work, so the pulse rate drops to 1000/S of normal: work per pulse
+     * rises by S/1000 as seen by the sensors. Host writes, device reads. */
+    volatile unsigned int work_scale_milli;
 };
 
 /* ---- Flags and handle ---- */

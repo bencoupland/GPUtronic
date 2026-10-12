@@ -99,16 +99,32 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  *   the same fence cadence. active_sms gates both.
  * Period is atomic-dominated. Do not "tune Kp" to hide that.
  */
+/* Synthetic load [T6/T7]: with work_scale_milli = S > 1000, a warp pulses once per
+ * S/1000 batches (credit counter), so measured work per pulse rises by S/1000 and
+ * the pulse rate falls to 1000/S. A literal extra-FMA multiplier would not work:
+ * the pass is about 288 us of mapped atomics and only ~1.6 us of arithmetic, so 20%
+ * more arithmetic barely moves the rate. Default 1000/0 always pulses. */
+__device__ __forceinline__ int gold_load_pulse(GPUTronicControl* ctrl, unsigned int* credit) {
+    unsigned int s = ctrl->work_scale_milli;
+    if (s <= 1000u) return 1;
+    *credit += 1000u;
+    if (*credit >= s) { *credit -= s; return 1; }
+    return 0;
+}
+
 __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        GPUTronicControl* ctrl,
                                        int num_sm,
-                                       int cuda_warps) {
+                                       int cuda_warps,
+                                       unsigned long long* work_count) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
     const int is_tensor_warp = (tid >> 5) >= cuda_warps;
     float local = 0.0f;
     unsigned int local_pulses = 0;
+    unsigned int load_credit = 0;   /* T6/T7 synthetic load, see work_scale_milli */
+    unsigned long long work_done = 0; /* T9: completed batches, this warp */
 
     if (sm >= num_sm) return;
 
@@ -137,7 +153,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         if (is_tensor_warp) {
             float t = gold_tensor_work(sm);
             if (t > 1.0e30f) local += t;   /* keep the result live */
-            if (lane == 0) {
+            if (lane == 0 && gold_load_pulse(ctrl, &load_credit)) {
                 atomicAdd((unsigned long long*)&ctrl->tensor_work_pulses, 1ULL);
                 local_pulses++;
                 if ((local_pulses & 31u) == 0u) __threadfence_system();
@@ -153,7 +169,14 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         /* Prevent compiler from DCE-ing the work */
         if (local > 1.0e30f) local = 0.0f;
 
-        if (lane == 0) {
+        /* T9 work counter: off (NULL) by default. Plain device memory, one slot
+         * per warp, one non-atomic store per pass: no PCIe traffic. */
+        if (work_count != NULL && lane == 0) {
+            work_done += GOLD_BATCH;
+            work_count[sm * 32 + (tid >> 5)] = work_done;
+        }
+
+        if (lane == 0 && gold_load_pulse(ctrl, &load_credit)) {
             atomicAdd(&sm_counters[sm], 1ULL);
             atomicAdd((unsigned long long*)&ctrl->total_work_pulses, 1ULL);
             local_pulses++;
@@ -167,11 +190,12 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    GPUTronicControl* d_ctrl,
                                    int num_sm,
                                    int threads_per_block,
-                                   int tensor_sensor) {
+                                   int tensor_sensor,
+                                   unsigned long long* work_count) {
     /* CUDA-core warps stay as configured; the tensor sensor adds one warp. */
     int cuda_warps = (threads_per_block + 31) / 32;
     int threads = cuda_warps * 32 + (tensor_sensor ? 32 : 0);
-    gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps);
+    gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps, work_count);
 }
 
 /* ---- Host handle and control thread ---- */
@@ -183,6 +207,7 @@ struct GPUTronicHandle {
     GPUTronicControl* h_ctrl;
     GPUTronicControl* d_ctrl;
     unsigned long long* d_sm;   /* per-SM diagnostic counters (device memory) */
+    unsigned long long* d_work; /* T9 work counter, num_sm*32 slots; NULL = off (default) */
     pthread_t thr;
     int running;
     int started;
@@ -287,6 +312,8 @@ void gputronic_config_gold(GPUTronicConfig* cfg) {
     if (ev && *ev) cfg->enable_tensor_sensor = atoi(ev) ? 1 : 0;
     ev = getenv("GPUTRONIC_SENSOR_RULE");   /* max (default) | min */
     if (ev && *ev) cfg->sensor_rule = (strcmp(ev, "min") == 0) ? 1 : 0;
+    ev = getenv("GPUTRONIC_INTEGRAL_CLAMP");   /* > 0 fixed clamp, e.g. 1.0 for the pre-fix baseline */
+    if (ev && *ev) cfg->integral_clamp = (float)atof(ev);
     ev = getenv("GPUTRONIC_RESERVE_SMS");
     if (ev && *ev) cfg->reserve_sms = atoi(ev) < 0 ? 0 : atoi(ev);
     cfg->csv_path = "results/gputronic_gold.csv";
@@ -888,8 +915,15 @@ int gputronic_start(GPUTronicHandle* h) {
     h->running = 1;
 
     if (h->cfg.launch_selftest_kernel) {
+        const char* wc = getenv("GPUTRONIC_WORK_COUNTER");   /* T9; off unless "1" */
+        if (wc && strcmp(wc, "1") == 0 && !h->d_work) {
+            size_t bytes = (size_t)h->cfg.num_sm * 32 * sizeof(unsigned long long);
+            if (cudaMalloc((void**)&h->d_work, bytes) == cudaSuccess) cudaMemset(h->d_work, 0, bytes);
+            else h->d_work = NULL;
+            printf("[T9] work counter %s\n", h->d_work ? "on (device memory)" : "allocation failed, off");
+        }
         gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
-                           h->cfg.enable_tensor_sensor);
+                           h->cfg.enable_tensor_sensor, h->d_work);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             fprintf(stderr, "[GPUTronic] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -943,6 +977,7 @@ void gputronic_destroy(GPUTronicHandle* h) {
     if (!h) return;
     if (h->started) gputronic_stop(h);
     if (h->d_sm) cudaFree(h->d_sm);
+    if (h->d_work) cudaFree(h->d_work);
     if (h->h_ctrl) cudaFreeHost(h->h_ctrl);
     free(h);
 }
@@ -1306,6 +1341,166 @@ static int mode_closedloop_check(int seconds) {
     return (pulses_ok && z_ok && rate_ok && model_ok) ? 0 : 2;
 }
 
+
+#ifndef GPUTRONIC_NO_MAIN
+/* ---- Synthetic load tests T6/T7 and full-width co-run for T8 ---- */
+
+#define GOLD_LOAD_MAX 4096
+typedef struct { double t_ms; unsigned int scale_milli; } GoldLoadPoint;
+
+/* Schedule file: one "t_ms scale" pair per line (scale as a factor, e.g. 1.2),
+ * '#' starts a comment. t_ms counts from the end of calibration. */
+static int gold_load_read(const char* path, GoldLoadPoint* p, int maxn) {
+    FILE* f = fopen(path, "r");
+    if (!f) { fprintf(stderr, "[LOAD] cannot open %s\n", path); return -1; }
+    char line[256];
+    int n = 0;
+    while (n < maxn && fgets(line, sizeof line, f)) {
+        double t, sc;
+        if (line[0] == '#') continue;
+        if (sscanf(line, "%lf %lf", &t, &sc) == 2 && sc > 0.0) {
+            p[n].t_ms = t;
+            p[n].scale_milli = (unsigned int)(sc * 1000.0 + 0.5);
+            n++;
+        }
+    }
+    fclose(f);
+    return n;
+}
+
+/* Bursts of 2, 4, 8, 16, 50, 200 ms at `scale`, `reps` times each in a seeded
+ * shuffled order, each followed by a 1.5-2.5 s recovery gap. Starts at 10 s. */
+static int gold_load_bursts(GoldLoadPoint* p, int maxn, double scale, unsigned int seed, int reps) {
+    const int dur[6] = {2, 4, 8, 16, 50, 200};
+    int order[6 * 16];
+    int m = 0;
+    if (reps > 16) reps = 16;
+    for (int r = 0; r < reps; r++) for (int i = 0; i < 6; i++) order[m++] = dur[i];
+    srand(seed);
+    for (int i = m - 1; i > 0; i--) { int j = rand() % (i + 1); int t = order[i]; order[i] = order[j]; order[j] = t; }
+    double t = 10000.0;
+    int n = 0;
+    for (int i = 0; i < m && n + 2 <= maxn; i++) {
+        p[n].t_ms = t; p[n].scale_milli = (unsigned int)(scale * 1000.0 + 0.5); n++;
+        t += order[i];
+        p[n].t_ms = t; p[n].scale_milli = 1000u; n++;
+        t += 1500.0 + (double)(rand() % 1001);
+    }
+    return n;
+}
+
+/* Run closed loop at Z 1.5 (or open-loop full width if full_width), wait for
+ * calibration, then apply the schedule and log one row per 10 ms bin. */
+static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, int duration_s, int full_width) {
+    GPUTronicConfig cfg;
+    gputronic_config_gold(&cfg);
+    cfg.csv_path = full_width ? "results/gputronic_gold_fullwidth.csv" : "results/gputronic_gold_load.csv";
+    GPUTronicHandle* h = gputronic_create(&cfg);
+    if (!h) return 1;
+    if (gputronic_start(h) != 0) { gputronic_destroy(h); return 1; }
+    h->h_ctrl->work_scale_milli = 1000u;
+    while (!h->calibrated && !g_signal_stop) usleep(1000);
+    if (full_width) gputronic_set_open_loop_sms(h, 0);
+    struct timespec rt;
+    clock_gettime(CLOCK_REALTIME, &rt);
+    printf("[LOAD] calibrated; schedule t=0 at wall %ld.%09ld (CLOCK_REALTIME), %d points, %d s\n",
+           (long)rt.tv_sec, rt.tv_nsec, np, duration_s);
+    FILE* f = fopen(csv_bin, "w");
+    if (f) fprintf(f, "wall_s,t_ms,scale,z_raw,z_hat,active_sms,integral,clamp,rate_ema,sensor\n");
+    double t0 = now_us();
+    double next_bin = 0.0;
+    int k = 0, last_print = -1;
+    unsigned int cur = 1000u;
+    while (!g_signal_stop) {
+        double t_ms = (now_us() - t0) / 1000.0;
+        if (t_ms >= duration_s * 1000.0) break;
+        while (k < np && p[k].t_ms <= t_ms) cur = p[k++].scale_milli;
+        h->h_ctrl->work_scale_milli = cur;
+        if (t_ms >= next_bin) {
+            clock_gettime(CLOCK_REALTIME, &rt);
+            if (f) fprintf(f, "%ld.%06ld,%.1f,%.3f,%.5f,%.5f,%d,%.5f,%.5f,%.1f,%s\n",
+                           (long)rt.tv_sec, rt.tv_nsec / 1000, t_ms, cur / 1000.0,
+                           h->h_ctrl->z_raw, h->h_ctrl->z_hat, h->h_ctrl->active_sms,
+                           h->integral, h->iclamp, h->h_ctrl->rate_ema,
+                           h->h_ctrl->ctrl_sensor ? "tensor" : "cuda");
+            next_bin += 10.0;
+        }
+        int sec = (int)(t_ms / 1000.0);
+        if (sec != last_print) { last_print = sec; if (sec > 0) gputronic_print_status(h, sec); }
+        usleep(200);
+    }
+    h->h_ctrl->work_scale_milli = 1000u;
+    if (f) fclose(f);
+    gputronic_stop(h);
+    gputronic_destroy(h);
+    printf("[LOAD] wrote %s\n", csv_bin);
+    return 0;
+}
+
+
+/* ---- T9 pulse-to-work ratio ----
+ * Open loop at each SM count (default N, 3N/4, N/2, N/4: 84, 63, 42, 21 on the
+ * 5080), settle 1 s, hold `hold_s`, and compare CUDA-core pulses with completed
+ * batches read from the device work counter (separate non-blocking stream, so the
+ * copy does not wait for the persistent kernel). ratio = pulses * GOLD_BATCH / work. */
+static unsigned long long gold_work_sum(GPUTronicHandle* h, cudaStream_t st, unsigned long long* buf) {
+    size_t n = (size_t)h->cfg.num_sm * 32;
+    if (cudaMemcpyAsync(buf, h->d_work, n * sizeof(unsigned long long), cudaMemcpyDeviceToHost, st) != cudaSuccess) return 0;
+    cudaStreamSynchronize(st);
+    unsigned long long s = 0;
+    for (size_t i = 0; i < n; i++) s += buf[i];
+    return s;
+}
+
+static int mode_ratio(int hold_s, const char* list) {
+    setenv("GPUTRONIC_WORK_COUNTER", "1", 1);
+    setenv("GPUTRONIC_TENSOR_SENSOR", "0", 1);
+    GPUTronicConfig cfg;
+    gputronic_config_gold(&cfg);
+    cfg.csv_path = "results/gputronic_gold_ratio_trace.csv";
+    GPUTronicHandle* h = gputronic_create(&cfg);
+    if (!h) return 1;
+    if (gputronic_start(h) != 0) { gputronic_destroy(h); return 1; }
+    if (!h->d_work) { gputronic_stop(h); gputronic_destroy(h); return 1; }
+    while (!h->calibrated && !g_signal_stop) usleep(1000);
+    int N = h->cfg.num_sm, counts[16], nc = 0;
+    if (list && *list) {
+        char tmp[256]; strncpy(tmp, list, sizeof tmp - 1); tmp[sizeof tmp - 1] = 0;
+        for (char* t = strtok(tmp, ","); t && nc < 16; t = strtok(NULL, ",")) {
+            int v = atoi(t); if (v >= 4 && v <= N) counts[nc++] = v;
+        }
+    }
+    if (nc == 0) { counts[0] = N; counts[1] = N * 3 / 4; counts[2] = N / 2; counts[3] = N / 4 < 4 ? 4 : N / 4; nc = 4; }
+    cudaStream_t st; cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking);
+    unsigned long long* buf = (unsigned long long*)malloc((size_t)N * 32 * sizeof(unsigned long long));
+    FILE* f = fopen("results/gputronic_gold_ratio.csv", "w");
+    if (f) fprintf(f, "active_sms,hold_s,pulses,work_batches,ratio,drift_pct_vs_first\n");
+    double r0 = 0.0;
+    printf("\n=== T9 PULSE-TO-WORK RATIO (open loop, tensor off) ===\n");
+    for (int i = 0; i < nc && !g_signal_stop; i++) {
+        gputronic_set_open_loop_sms(h, counts[i] == N ? 0 : counts[i]);
+        usleep(1000000);
+        unsigned long long p0 = h->h_ctrl->total_work_pulses, w0 = gold_work_sum(h, st, buf);
+        double t0 = now_us();
+        usleep((useconds_t)hold_s * 1000000u);
+        unsigned long long p1 = h->h_ctrl->total_work_pulses, w1 = gold_work_sum(h, st, buf);
+        double held = (now_us() - t0) / 1e6;
+        double dp = (double)(p1 - p0), dw = (double)(w1 - w0);
+        double ratio = dw > 0 ? dp * GOLD_BATCH / dw : 0.0;
+        if (i == 0) r0 = ratio;
+        double drift = r0 > 0 ? 100.0 * (ratio - r0) / r0 : 0.0;
+        printf("[T9] sms=%d hold=%.2fs pulses=%.0f work=%.0f ratio=%.5f drift=%+.3f%%\n", counts[i], held, dp, dw, ratio, drift);
+        if (f) fprintf(f, "%d,%.3f,%.0f,%.0f,%.6f,%.4f\n", counts[i], held, dp, dw, ratio, drift);
+    }
+    if (f) fclose(f);
+    free(buf);
+    cudaStreamDestroy(st);
+    gputronic_stop(h);
+    gputronic_destroy(h);
+    return 0;
+}
+#endif /* GPUTRONIC_NO_MAIN */
+
 static void usage(const char* argv0) {
     printf("GPUTronic Gold %s\n\n", GPUTRONIC_VERSION_STRING);
     printf("Usage:\n");
@@ -1315,6 +1510,11 @@ static void usage(const char* argv0) {
     printf("  %s step            # open-loop SM-count step response\n", argv0);
     printf("  %s check           # dyno + 20s closed-loop gate\n", argv0);
     printf("  %s all             # dyno + step + closed-loop\n", argv0);
+    printf("  %s loadstep [sec] [scale] [t_on_s] [t_off_s]  # T6: Z 1.5, load step (default 60 1.2 20 0=hold)\n", argv0);
+    printf("  %s bursts [scale] [seed] [reps]              # T7: 2..200 ms bursts (default 1.2 1 5)\n", argv0);
+    printf("  %s loadfile <file> [sec]                      # schedule file, lines \"t_ms scale\"\n", argv0);
+    printf("  %s ratio [hold_s] [n1,n2,...]                 # T9: pulse-to-work ratio (default 5, N,3N/4,N/2,N/4)\n", argv0);
+    printf("  %s fullwidth [sec]                            # T8: open loop, all SMs, no controller\n", argv0);
 }
 
 #ifndef GPUTRONIC_NO_MAIN
@@ -1341,6 +1541,46 @@ int main(int argc, char** argv) {
         int rc = mode_closedloop_check(20);
         printf("\n=== GOLD ALL: dyno=%d step=%d closed=%d ===\n", rd, rs, rc);
         return (rd == 0 && rs == 0 && rc == 0) ? 0 : 2;
+    }
+
+    if (strcmp(mode, "loadstep") == 0) {
+        static GoldLoadPoint pts[2];
+        int sec = argc >= 3 ? atoi(argv[2]) : 60;
+        double sc = argc >= 4 ? atof(argv[3]) : 1.2;
+        double ton = argc >= 5 ? atof(argv[4]) : 20.0;
+        double toff = argc >= 6 ? atof(argv[5]) : 0.0;
+        if (sec <= 0) sec = 60;
+        int n = 0;
+        pts[n].t_ms = ton * 1000.0; pts[n].scale_milli = (unsigned int)(sc * 1000.0 + 0.5); n++;
+        if (toff > ton) { pts[n].t_ms = toff * 1000.0; pts[n].scale_milli = 1000u; n++; }
+        return gold_load_run("results/gputronic_gold_loadstep_10ms.csv", pts, n, sec, 0);
+    }
+    if (strcmp(mode, "bursts") == 0) {
+        static GoldLoadPoint pts[GOLD_LOAD_MAX];
+        double sc = argc >= 3 ? atof(argv[2]) : 1.2;
+        unsigned int seed = argc >= 4 ? (unsigned int)atoi(argv[3]) : 1u;
+        int reps = argc >= 5 ? atoi(argv[4]) : 5;
+        if (reps <= 0) reps = 5;
+        int n = gold_load_bursts(pts, GOLD_LOAD_MAX, sc, seed, reps);
+        int sec = (int)(pts[n - 1].t_ms / 1000.0) + 5;
+        return gold_load_run("results/gputronic_gold_bursts_10ms.csv", pts, n, sec, 0);
+    }
+    if (strcmp(mode, "loadfile") == 0) {
+        static GoldLoadPoint pts[GOLD_LOAD_MAX];
+        if (argc < 3) { usage(argv[0]); return 1; }
+        int n = gold_load_read(argv[2], pts, GOLD_LOAD_MAX);
+        if (n < 0) return 1;
+        int sec = argc >= 4 ? atoi(argv[3]) : (n > 0 ? (int)(pts[n - 1].t_ms / 1000.0) + 10 : 30);
+        return gold_load_run("results/gputronic_gold_loadfile_10ms.csv", pts, n, sec, 0);
+    }
+    if (strcmp(mode, "ratio") == 0) {
+        int hold = argc >= 3 ? atoi(argv[2]) : 5;
+        return mode_ratio(hold > 0 ? hold : 5, argc >= 4 ? argv[3] : NULL);
+    }
+    if (strcmp(mode, "fullwidth") == 0) {
+        int sec = argc >= 3 ? atoi(argv[2]) : 120;
+        if (sec <= 0) sec = 120;
+        return gold_load_run("results/gputronic_gold_fullwidth_10ms.csv", NULL, 0, sec, 1);
     }
 
     /* run [sec] [Z] [Kp] [Ki]  OR bare defaults when mode omitted */
