@@ -1,0 +1,18 @@
+GPUTronic share — metered job plus the same tiles on the blocks it did not launch
+Target on the closed-loop phase is Z=1.50. Kp=0.55 Ki=0.08.
+concurrentKernels=1 num_sm=84
+Reading rule, set before the run: split shares the chip if at width 42
+B exceeds 25% of B alone and A stays above 70% of A alone at 42.
+The resident grid blocks the guest if that guest stays under 5% of B alone.
+setup_ok=1 split_shares=yes resident_blocks=no
+A_alone_84=811618.8 A_alone_42=793558.0 A_alone_21=807739.9 B_alone_84=1535571.1
+phase=metered alone, 84 blocks n=84 A=811618.8 B=0.0
+phase=metered alone, 42 blocks n=42 A=793558.0 B=0.0
+phase=metered alone, 21 blocks n=21 A=807739.9 B=0.0
+phase=guest alone, 84 blocks n=84 A=0.0 B=1535571.1
+phase=split, metered 63 n=63 A=758917.9 B=252972.6
+phase=split, metered 42 n=42 A=557895.2 B=557893.6
+phase=split, metered 21 n=21 A=325011.7 B=975053.7
+phase=split, metered 4 n=4 A=70714.0 B=1414276.4
+phase=resident grid, command 42, guest on the other stream n=42 A=114379.6 B=155871.4
+closed Z=1.3513 n_mean=48.67 n=46..52 A=621220.2 B=441337.0

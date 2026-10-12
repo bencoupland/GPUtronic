@@ -1,0 +1,31 @@
+Space Marine 2 beside the guest kernel — 2026-10-05 00:50–00:52 local
+Driver 595.91.07, kernel 7.0.0-38-generic, RTX 5080.
+Display DP-0 3840x2160 @ 60 Hz. Ben's settings: 4K, Ultra defaults, DLSS Quality, frame generation x3.
+Process: pid 19638, "Warhammer 40000 Space Marine 2 - Retail.exe", type C+G, about 9730 MiB.
+
+Game alone, about 20 s before any launch:
+  graphics clock 2842–2857 MHz (max 3090), memory 15001 MHz
+  GPU util median 49% (45–57), power median 186 W (limit 360 W)
+  57–62 C, fan 40%, pstate P0, clocks_event_reasons 0
+  game SM sample about 25–51%
+
+Probe 00:50:59–00:51:35. Guest kernel, same 8x8x8 tiles, 4 pulses per block.
+One launch, then 400 ms idle. 20 launches at each width. Every launch finished blocks*4 pulses.
+
+  blocks   pulses   sync median   sync max
+      4       16       0.31 ms     1.18 ms
+     21       84       0.19 ms     1.24 ms
+     42      168       0.69 ms     1.38 ms
+     84      336       0.38 ms     1.39 ms
+
+Then one second of back-to-back launches, twice:
+  21 blocks: 6319 launches, 531k pulses/s
+  84 blocks: 1651 launches, 555k pulses/s
+Guest alone on an empty chip the night before was 1.54M pulses/s, so this is about 0.35 of that.
+21 blocks and 84 blocks landed on the same pulse rate. The slice the game left was already full at 21 blocks.
+
+During those two seconds GPU util read 94% and 97%. Game SM sample stayed 52% and 56%.
+Our process showed up at 9–32% SM, 260 MiB. Power stayed near 190 W. No throttle flag.
+Clocks during the whole probe stayed 2835–2850 MHz.
+
+A frame at 60 Hz is 16.7 ms. The single launches were under 1.4 ms. The two one-second bursts are the part that filled the chip.

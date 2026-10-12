@@ -20,6 +20,11 @@ Transfer stays in a loop. A lot of real code launches a kernel and gets it back.
 - 32 tiles per pulse × 4 pulses per launch, then return
 - `atomicAdd` on Gold `total_work_pulses`
 - 2026-09-23 closed loop: 20.3 → 15.0 GFLOP/s, Z mean ≈ 1.36
+- 2026-10-04 check, kernel 7.0.0-38: 20.05 → 14.91 GFLOP/s, Z mean 1.35. Open loop, 21 SMs was Z 1.55 and 28 SMs was Z 1.36.
+
+The same shape ran inside `./build/gputronic_transfer follow` on 2026-10-04, sharing the transfer kernel's control thread and a fixed target of 1.5. With the half-SM probe run again after the switch, that phase held Z 1.37 at about 39 SMs. Keeping the transfer scale left it at Z 1.21. The free-run in that process was about 826k pulses/s, higher than this binary's 612k the same evening, because the host loop is not this one. The table is in `TRANSFER.md`.
+
+On 2026-10-05 the same shape was launched with only `active_sms` blocks, and a second kernel took the blocks that were not launched. Alone, 21 blocks were as fast as 84. With the second kernel present, the closed loop held Z 1.35 at about 49 SMs and the second kernel ran at 441k pulses/s. Table in `TRANSFER.md` under the share run.
 
 The sections below about one sleep per launch are the measurements from before the control became an SM count. They explain why sleep duration was a poor control on a kernel that returns.
 

@@ -1,0 +1,24 @@
+============================================================
+GPUTronic Gold 1.0 — watch report (self-test plant)
+============================================================
+Cable:  zero-copy mapped  YES
+Loop:   results/gputronic_gold_watch_loop.csv  (control-path rows)
+Live:   results/gputronic_gold_watch.csv  (200 ms samples)
+Law:    one-sided PI  target Z=1.50  Kp=0.55  Ki=0.08
+
+Free-run (last 3.0 s of open-loop sleep=0, after cal)
+  samples     15
+  Z_hat mean  1.078
+  pulse/s     448841
+  sleep mean  0 ns
+
+Closed-loop (last 8.0 s, target Z=1.50)
+  samples     40
+  Z_hat mean  1.354   |Z-target|=0.146
+  pulse/s     362871
+  sleep mean  287601 ns
+  useful drop 19.2%  (pulse/s vs free-run)
+
+Not a FLOP benchmark. Q moved because Z was commanded.
+Z = rate_ref / rate after sustained-window cal. Free-run ~ 1.0.
+============================================================

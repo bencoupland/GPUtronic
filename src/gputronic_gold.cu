@@ -158,6 +158,10 @@ struct GPUTronicHandle {
     unsigned long long cal_pulse_mark;
     double cal_mark_us;
     int cal_marked;
+    /* Host asks for F-06 again. 0 = idle, 1 = new rate_ref and keep sms_per_u,
+     * 2 = new rate_ref and the half-SM probe. Control thread consumes it. */
+    volatile int rezero_request;
+    int skip_probe;
     unsigned long long prev_pulses;
     double t0_us;
     FILE* csv;
@@ -298,6 +302,33 @@ static void* control_thread(void* arg) {
         if (dt > 0.01f) dt = 0.01f;
         last = t;
 
+        int rz = h->rezero_request;
+        if (rz) {
+            h->rezero_request = 0;
+            __sync_synchronize();
+            h->skip_probe = (rz == 1);
+            h->calibrated = 0;
+            h->probing = 0;
+            h->cal_marked = 0;
+            h->integral = 0.0f;
+            h->rate_ema = 0.0f;
+            h->rate_win_dt = 0.0;
+            h->rate_win_pulses = 0;
+            h->z_hat = 1.0f;
+            h->dzdt_hat = 0.0f;
+            h->P[0][0] = 1.0f;
+            h->P[0][1] = 0.0f;
+            h->P[1][0] = 0.0f;
+            h->P[1][1] = 1.0f;
+            h->held_sms = h->cfg.num_sm;
+            /* Same 0.7 s warmup and 1.8 s close as the boot calibration. */
+            h->cal_sustain_from_us = t + 700000.0;
+            h->calibrate_until_us = t + 1800000.0;
+            printf("[CAL] rezero %s\n",
+                   h->skip_probe ? "rate_ref only, sms_per_u kept"
+                                 : "rate_ref and half-SM probe");
+        }
+
         unsigned long long pulses = h->h_ctrl->total_work_pulses;
         unsigned long long dpulse = pulses - h->prev_pulses;
         h->prev_pulses = pulses;
@@ -343,16 +374,28 @@ static void* control_thread(void* arg) {
                     h->rate_ref = (float)((double)dp_cal / dt_cal);
                     printf("[CAL] rate_ref=%.1f pulses/s (sustained %.2fs window, %llu pulses)\n",
                            h->rate_ref, dt_cal, (unsigned long long)dp_cal);
-                    h->probing = 1;
-                    h->probe_n = h->cfg.num_sm / 2;
-                    if (h->probe_n < 4) h->probe_n = 4;
-                    h->probe_mark = pulses;
-                    h->probe_mark_us = t;
-                    h->probe_until_us = t + 500000.0;
+                    if (h->skip_probe) {
+                        h->skip_probe = 0;
+                        h->calibrated = 1;
+                        h->held_sms = h->cfg.num_sm;
+                        printf("[CAL] kept sms_per_u=%.1f\n", h->sms_per_u);
+                    } else {
+                        h->probing = 1;
+                        h->probe_n = h->cfg.num_sm / 2;
+                        if (h->probe_n < 4) h->probe_n = 4;
+                        h->probe_mark = pulses;
+                        h->probe_mark_us = t;
+                        h->probe_until_us = t + 500000.0;
+                    }
                 } else if (h->rate_ema > 1000.0f) {
                     h->rate_ref = h->rate_ema;
                     printf("[CAL] rate_ref=%.1f pulses/s (EMA fallback)\n", h->rate_ref);
-                    gold_apply_width_scale(h, 1.0);
+                    if (h->skip_probe) {
+                        h->skip_probe = 0;
+                        printf("[CAL] kept sms_per_u=%.1f\n", h->sms_per_u);
+                    } else {
+                        gold_apply_width_scale(h, 1.0);
+                    }
                     h->calibrated = 1;
                     h->held_sms = h->cfg.num_sm;
                 }
@@ -662,6 +705,20 @@ void gputronic_set_open_loop_sms(GPUTronicHandle* h, int n) {
     if (!h) return;
     h->open_loop_sms = n;
     h->open_loop_sleep = (n < 0) ? -1 : 0;
+}
+
+void gputronic_recalibrate(GPUTronicHandle* h, int probe) {
+    if (!h) return;
+    h->rezero_request = probe ? 2 : 1;
+    __sync_synchronize();
+}
+
+float gputronic_get_rate_ref(const GPUTronicHandle* h) {
+    return h ? h->rate_ref : 0.0f;
+}
+
+float gputronic_get_sms_per_u(const GPUTronicHandle* h) {
+    return h ? h->sms_per_u : 0.0f;
 }
 
 float gputronic_get_z(const GPUTronicHandle* h) {

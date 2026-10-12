@@ -110,6 +110,7 @@ help:
 	@echo "  make transfer       - cooperative GEMM plant (Gold frozen)"
 	@echo "  make transfer-check - transfer dyno + closed-loop gate"
 	@echo "  make transfer && ./build/gputronic_transfer mask"
+	@echo "  ./build/gputronic_transfer follow   - workload change, request stays 1.5"
 	@echo "  make episode        - launch-complete GEMM plant (Gold frozen)"
 	@echo "  make show           - ceiling, width map, loop, release"
 	@echo "  make episode-check  - episode dyno + closed-loop gate"

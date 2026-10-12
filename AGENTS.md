@@ -26,7 +26,11 @@ You are working on **GPUTronic**, FOC-style closed-loop control for GPU executio
 - Archive experiments; do not fork Gold in-place without a new version tag
 
 ## Next Major Milestone
-Same program, same gains, on the three test kernels we already have, including when the workload changes and the requested rate does not. Then one counter that keeps going after a kernel returns, in code we compile ourselves. A driver change is how that could apply to a program we do not modify. Integrating into llama.cpp is not the next measurement. A mode for unmodified programs stays unnamed until we can count their work without their help.
+On 2026-10-04 one control thread, same gains, held Z near 1.5 while the work changed from the transfer kernel to the episode shape and back, with the half-SM probe run on the load that was pulsing. The count moved by about 21 SMs. Keeping the previous scale missed the band on the short launches. The self-test kernel was not in that trace.
+
+On 2026-10-05 the same law held Z 1.35 while a second kernel ran on the blocks the episode shape did not launch. Alone, that short launch does not slow down at 21 blocks. The room shows up when another kernel takes it. A resident grid whose idle blocks sleep left much less for the second kernel.
+
+Next measurement: one counter that keeps going after a kernel returns, in code we compile ourselves, as the normal meter rather than a special mode. A driver change is how that could apply to a program we do not modify. Integrating into llama.cpp is not the next measurement. A mode for unmodified programs stays unnamed until we can count their work without their help.
 
 ## Communication Style
 - Think in control theory terms (setpoints, observers, plant gain)

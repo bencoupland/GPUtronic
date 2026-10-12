@@ -1,0 +1,4 @@
+transfer work knob
+num_sm=84 free_rate=259622.692 free_gflops=8.507316 n_best=48 Z_best=1.4851 mono=1
+csv=results/gputronic_transfer_work.csv
+Idle SMs skip tiles, do not pulse, backoff 5 us. Floor 4.

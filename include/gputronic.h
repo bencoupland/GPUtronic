@@ -114,6 +114,12 @@ void gputronic_set_target(GPUTronicHandle* h, float target_z);
 void gputronic_set_gains(GPUTronicHandle* h, float kp, float ki);
 void gputronic_set_open_loop_sleep(GPUTronicHandle* h, int sleep_ns); /* <0 closed, 0 all SMs */
 void gputronic_set_open_loop_sms(GPUTronicHandle* h, int n); /* <0 closed loop, else working SMs */
+/* Measure rate_ref again on the work that is pulsing now. Full width during
+ * the 1.8 s free-run sample. probe=0 keeps sms_per_u. probe!=0 runs the
+ * half-SM probe again. Kp and Ki are not changed. */
+void gputronic_recalibrate(GPUTronicHandle* h, int probe);
+float gputronic_get_rate_ref(const GPUTronicHandle* h);
+float gputronic_get_sms_per_u(const GPUTronicHandle* h);
 float gputronic_get_z(const GPUTronicHandle* h);
 float gputronic_get_z_raw(const GPUTronicHandle* h);
 float gputronic_get_rate(const GPUTronicHandle* h);

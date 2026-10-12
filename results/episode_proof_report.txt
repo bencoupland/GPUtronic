@@ -1,0 +1,28 @@
+GPUTronic Episode Proof
+gold_frozen=1 kp=0.55 ki=0.08 clamp_ns=500000 path_us=10 pulses=4
+tax_ok=1 throw_ok=1 loop_ok=1 release_ok=1 law=host clamp-scaled
+tiles=32768 twin=1366.6180 sense=1358.4667 full_free=1247.3706 tax_full=0.9127 T_us=9027.4 Zfree=1.0227
+closed Z_wall=1.3382 Z_hat=1.5933 gflops=932.1127 cmd_ns=269080 dfull_us=4513.7
+release gflops=1240.4898 Z_hat=1.0296 cmd_ns=5
+sweep:
+  tiles=32 twin=739.443 sense=50.303 ratio=0.068 T=14.8 p8=12281.1 ok=0
+  tiles=128 twin=1112.612 sense=196.459 ratio=0.177 T=39.5 p8=11990.9 ok=0
+  tiles=512 twin=1268.212 sense=708.245 ratio=0.558 T=138.9 p8=10807.0 ok=0
+  tiles=2048 twin=1320.915 sense=1194.593 ratio=0.904 T=533.4 p8=4557.0 ok=1
+  tiles=8192 twin=1354.629 sense=1323.606 ratio=0.977 T=2080.6 p8=1262.3 ok=1
+  tiles=32768 twin=1361.468 sense=1358.467 ratio=0.998 T=8280.9 p8=323.9 ok=1
+  tiles=131072 twin=1363.003 sense=1361.645 ratio=0.999 T=33086.6 p8=81.2 ok=0
+host:
+  frac=0.00 req_us=0 act_us=0 Z=0.9952 Zhat=0.9755 gflops=1253.399
+  frac=0.25 req_us=2257 act_us=2342 Z=1.2602 Zhat=1.2477 gflops=989.831
+  frac=0.50 req_us=4514 act_us=4600 Z=1.5048 Zhat=1.5218 gflops=828.911
+  frac=0.75 req_us=6771 act_us=6864 Z=1.7614 Zhat=1.7875 gflops=708.165
+  frac=1.00 req_us=9027 act_us=9121 Z=2.0130 Zhat=2.0688 gflops=619.660
+  frac=1.25 req_us=11284 act_us=11378 Z=2.2546 Zhat=2.2821 gflops=553.256
+device:
+  N=1 Z=1.0164 Zhat=1.0693 gflops=1227.255
+  N=2 Z=1.0690 Zhat=1.0349 gflops=1166.829
+  N=4 Z=1.1878 Zhat=1.2284 gflops=1050.183
+  N=8 Z=1.4249 Zhat=1.3918 gflops=875.395
+  N=16 Z=1.8903 Zhat=1.9139 gflops=659.889
+  N=32 Z=2.8572 Zhat=3.3627 gflops=436.578

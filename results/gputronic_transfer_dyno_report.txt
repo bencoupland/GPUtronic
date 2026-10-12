@@ -1,11 +1,11 @@
 GPUTronic Transfer Dyno Report
-R2=0.9923 slope=2634.500883 intercept=-5427.1 rate_cut=1 flop_cut=1 coupled=1 PASS=1
+R2=0.9862 slope=2499.249956 intercept=455.1 rate_cut=1 flop_cut=1 coupled=1 PASS=1
 flops_per_pulse=32768 tiles_per_pulse=32
-sleep=84 rate=206380.8 gflops=6.762685
-sleep=63 rate=165855.8 gflops=5.434761
-sleep=56 rate=151480.9 gflops=4.963726
-sleep=42 rate=109177.7 gflops=3.577535
-sleep=28 rate=63617.4 gflops=2.084616
-sleep=21 rate=46401.9 gflops=1.520496
-sleep=16 rate=34795.5 gflops=1.140178
-sleep=8 rate=16644.3 gflops=0.545400
+sleep=84 rate=197191.5 gflops=6.461571
+sleep=63 rate=165712.9 gflops=5.430080
+sleep=56 rate=151212.0 gflops=4.954914
+sleep=42 rate=111301.7 gflops=3.647133
+sleep=28 rate=65945.9 gflops=2.160916
+sleep=21 rate=50076.2 gflops=1.640896
+sleep=16 rate=38286.6 gflops=1.254575
+sleep=8 rate=18675.4 gflops=0.611956

@@ -270,6 +270,8 @@ During calibration and the probe, `z_raw` is published as 1.0. The PI does not r
 
 **Code.** `control_thread` cal block; then `gold_apply_width_scale` (F-09).
 
+The host can ask for this same window again with `gputronic_recalibrate`. The clock starts at the request: 0.7 s warmup, then the 1.1 s sustain, every SM on. `probe = 0` stores the new `rate_ref` and keeps `sms_per_u`. Any other value runs the half-SM probe and replaces `sms_per_u`. Kp and Ki stay at 0.55 and 0.08. Calling this is how a running loop takes the free-run of the load that is actually pulsing. A human does not type a new SM count.
+
 ---
 
 ## F-07 Impedance \(Z\)
@@ -598,6 +600,7 @@ A feedback loop on a measured work rate is ordinary. The unusual part was gettin
 |---------|------|------|
 | 1.0.0 | 2026-08-15 | First function frame. Sleep duration was the control. |
 | 1.0.0-sms | 2026-09-23 | Control changed to `active_sms`. F-09, F-10, F-11, F-13 rewritten. F-15 added. Sleep version archived. |
+| 1.0.0-sms | 2026-10-04 | Host can request F-06 again (`gputronic_recalibrate`). Gains and `active_sms` unchanged. |
 
 If the source and this frame disagree, the source and the check reports win, and this document should be updated. Do not change Kp to make a sentence in this file true.
 

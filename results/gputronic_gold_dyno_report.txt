@@ -1,10 +1,10 @@
 GPUTronic Gold Dyno Report
-R2=0.9831 slope=7130.911814 intercept=28348.3 plant_ok=1 decreasing=1 PASS=1
-active_sms=84 rate=582429.7
-active_sms=63 rate=490090.2
-active_sms=56 rate=457283.8
-active_sms=42 rate=361573.4
-active_sms=28 rate=233956.5
-active_sms=21 rate=175249.0
-active_sms=8 rate=70592.7
-active_sms=4 rate=37670.0
+R2=0.9803 slope=6684.668347 intercept=20368.5 plant_ok=1 decreasing=1 PASS=1
+active_sms=84 rate=536821.7
+active_sms=63 rate=451488.2
+active_sms=56 rate=432022.3
+active_sms=42 rate=332543.2
+active_sms=28 rate=207649.5
+active_sms=21 rate=156797.7
+active_sms=8 rate=60322.2
+active_sms=4 rate=30811.9

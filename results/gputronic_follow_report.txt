@@ -1,0 +1,12 @@
+GPUTronic follow — one control thread, target Z=1.50, Kp=0.55 Ki=0.08
+Workload changes between the persistent transfer kernel and the
+existing episode shape (4 pulses, 32 tiles, kernel returns).
+probe=1 runs F-06 and F-09. probe=0 runs F-06 and keeps sms_per_u.
+Score window is the last 6 s of each 10 s phase.
+Band: |Z-1.50|<0.25, wall rate < 0.90*rate_ref, count below full width.
+setup_ok=1 milestone=PASS n_gap=20.67
+phase=transfer, probe at boot reprobe=1 Z=1.3046 n_mean=60.50 n=58..63 wall=165319.0 ref=216610.4 sms_per_u=139.39 band=1
+phase=episode shape, sms_per_u kept reprobe=0 Z=1.2116 n_mean=50.67 n=48..56 wall=695502.9 ref=827499.2 sms_per_u=139.39 band=0
+phase=episode shape, probe again reprobe=1 Z=1.3694 n_mean=38.83 n=34..46 wall=607777.1 ref=825359.0 sms_per_u=454.55 band=1
+phase=transfer, sms_per_u kept from episode reprobe=0 Z=1.4076 n_mean=53.33 n=49..60 wall=150519.1 ref=210761.5 sms_per_u=454.55 band=1
+phase=transfer, probe again reprobe=1 Z=1.3266 n_mean=59.50 n=58..66 wall=161267.0 ref=212722.5 sms_per_u=139.39 band=1

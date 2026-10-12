@@ -20,6 +20,7 @@
 
 #include <cuda_runtime.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -821,6 +822,794 @@ static int mode_work(void) {
     return 0;
 }
 
+/* Episode shape already on this machine: 4 pulses, 32 tiles, then the kernel
+ * returns. Same 8×8×8 tiles as the persistent plant. Idle blocks return
+ * without a pulse. The host launches it again. */
+__global__ void transfer_episode_kernel(GPUTronicControl* ctrl, int num_sm) {
+    const int sm = blockIdx.x;
+    const int tid = threadIdx.x;
+    const int r = tid / TRANSFER_TILE;
+    const int c = tid % TRANSFER_TILE;
+    float acc = 0.0f;
+
+    if (sm >= num_sm) return;
+
+    int active = ctrl->active_sms;
+    if (active <= 0 || active > num_sm) active = num_sm;
+    if (active < 4) active = 4;
+    if (sm >= active) return;
+
+    if (ctrl->control_flags & GPUTRONIC_FLAG_STOP) return;
+
+    __shared__ float As[TRANSFER_TILE][TRANSFER_TILE];
+    __shared__ float Bs[TRANSFER_TILE][TRANSFER_TILE];
+
+    unsigned int iter = 0;
+    for (int p = 0; p < 4; p++) {
+        for (int t = 0; t < TRANSFER_TILES_PER_PULSE; t++) {
+            float seed = (float)((iter * 31u + (unsigned)sm * 17u + (unsigned)tid + (unsigned)t * 13u) & 1023u);
+            if (r < TRANSFER_TILE && c < TRANSFER_TILE) {
+                As[r][c] = seed * 0.001f + 0.10f;
+                Bs[r][c] = seed * 0.0007f + 0.20f;
+            }
+            __syncthreads();
+            if (r < TRANSFER_TILE && c < TRANSFER_TILE) {
+                float s = 0.0f;
+#pragma unroll
+                for (int k = 0; k < TRANSFER_TILE; k++)
+                    s = __fmaf_rn(As[r][k], Bs[k][c], s);
+                acc += s;
+            }
+            __syncthreads();
+            iter++;
+        }
+        if (acc > 1.0e30f) acc = 0.0f;
+        if (tid == 0)
+            atomicAdd((unsigned long long*)&ctrl->total_work_pulses, 1ULL);
+    }
+    if (tid == 0) __threadfence_system();
+    if (tid == 0 && acc == 3.14159265f)
+        atomicAdd((unsigned long long*)&ctrl->total_work_pulses, 0ULL);
+}
+
+struct FollowPump {
+    GPUTronicControl* d_ctrl;
+    int num_sm;
+    volatile int running;
+    pthread_t thr;
+};
+
+static void* follow_episode_pump(void* arg) {
+    FollowPump* p = (FollowPump*)arg;
+    cudaSetDevice(0);
+    while (p->running) {
+        transfer_episode_kernel<<<p->num_sm, TRANSFER_THREADS>>>(p->d_ctrl, p->num_sm);
+        cudaError_t err = cudaDeviceSynchronize();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "[FOLLOW] episode launch failed: %s\n", cudaGetErrorString(err));
+            p->running = 0;
+            break;
+        }
+    }
+    return NULL;
+}
+
+static int follow_stop_persistent(GPUTronicControl* ctrl) {
+    ctrl->control_flags |= GPUTRONIC_FLAG_STOP;
+    __sync_synchronize();
+    cudaError_t err = cudaDeviceSynchronize();
+    ctrl->control_flags &= ~GPUTRONIC_FLAG_STOP;
+    __sync_synchronize();
+    if (err != cudaSuccess) {
+        fprintf(stderr, "[FOLLOW] persistent kernel did not exit: %s\n", cudaGetErrorString(err));
+        return -1;
+    }
+    return 0;
+}
+
+typedef struct {
+    const char* name;
+    int reprobe;
+    double z_mean;
+    double wall_rate;
+    double rate_ref;
+    double sms_per_u;
+    double n_mean;
+    int n_min;
+    int n_max;
+} FollowPhase;
+
+static void follow_wait_cal(int probe) {
+    printf("[FOLLOW] free-run sample%s\n", probe ? " and half-SM probe" : ", sms_per_u kept");
+    fflush(stdout);
+    usleep(probe ? 3200000 : 2600000);
+}
+
+/* Ten seconds. The score is the last six, after the count has had time to walk. */
+static void follow_sample(GPUTronicHandle* h, FollowPhase* ph) {
+    GPUTronicControl* c = gputronic_get_control(h);
+    double z_acc = 0.0, n_acc = 0.0;
+    int n_n = 0;
+    int n_min = 1000, n_max = 0;
+    unsigned long long p0 = 0;
+    double t0 = 0.0;
+    printf("[FOLLOW] %s\n", ph->name);
+    fflush(stdout);
+    for (int s = 0; s < 10; s++) {
+        if (s == 4) {
+            p0 = c->total_work_pulses;
+            t0 = now_us();
+        }
+        usleep(1000000);
+        float z = gputronic_get_z(h);
+        int n = c->active_sms;
+        printf("[FOLLOW]   t=%2ds Z=%.3f rate=%.0f n=%d\n",
+               s + 1, z, gputronic_get_rate(h), n);
+        fflush(stdout);
+        if (s >= 4) {
+            z_acc += (double)z;
+            n_acc += (double)n;
+            n_n++;
+            if (n < n_min) n_min = n;
+            if (n > n_max) n_max = n;
+        }
+    }
+    unsigned long long p1 = c->total_work_pulses;
+    double dt = (now_us() - t0) * 1e-6;
+    if (dt < 1e-6) dt = 1e-6;
+    ph->z_mean = (n_n > 0) ? z_acc / (double)n_n : 0.0;
+    ph->n_mean = (n_n > 0) ? n_acc / (double)n_n : 0.0;
+    ph->n_min = (n_n > 0) ? n_min : 0;
+    ph->n_max = (n_n > 0) ? n_max : 0;
+    ph->wall_rate = (double)(p1 - p0) / dt;
+    ph->rate_ref = (double)gputronic_get_rate_ref(h);
+    ph->sms_per_u = (double)gputronic_get_sms_per_u(h);
+    printf("[FOLLOW]   score Z=%.3f n=%.1f (%d..%d) wall=%.0f ref=%.0f sms_per_u=%.1f\n",
+           ph->z_mean, ph->n_mean, ph->n_min, ph->n_max,
+           ph->wall_rate, ph->rate_ref, ph->sms_per_u);
+    fflush(stdout);
+}
+
+static int follow_held(const FollowPhase* ph, int num_sm) {
+    int band = fabs(ph->z_mean - 1.5) < 0.25;
+    int cut = (ph->rate_ref > 1000.0) && (ph->wall_rate < ph->rate_ref * 0.90);
+    int width = (ph->n_mean >= 4.0) && (ph->n_mean < (double)num_sm - 0.5);
+    return band && cut && width;
+}
+
+static int follow_to_episode(GPUTronicHandle* h, FollowPump* pump) {
+    GPUTronicControl* c = gputronic_get_control(h);
+    if (follow_stop_persistent(c) != 0) return -1;
+    cudaError_t err = cudaHostGetDevicePointer((void**)&pump->d_ctrl, c, 0);
+    if (err != cudaSuccess || !pump->d_ctrl) {
+        fprintf(stderr, "[FOLLOW] no device pointer for the episode shape\n");
+        return -1;
+    }
+    pump->num_sm = c->num_sm;
+    if (pump->num_sm <= 0) pump->num_sm = GPUTRONIC_DEFAULT_NUM_SM;
+    pump->running = 1;
+    if (pthread_create(&pump->thr, NULL, follow_episode_pump, pump) != 0) {
+        pump->running = 0;
+        fprintf(stderr, "[FOLLOW] episode pump failed to start\n");
+        return -1;
+    }
+    printf("[FOLLOW] episode shape running (4 pulses per launch)\n");
+    fflush(stdout);
+    return 0;
+}
+
+static int follow_to_persistent(GPUTronicHandle* h, FollowPump* pump) {
+    if (pump->running) {
+        pump->running = 0;
+        pthread_join(pump->thr, NULL);
+        pump->running = 0;
+    }
+    printf("[FOLLOW] persistent transfer kernel\n");
+    fflush(stdout);
+    return launch_transfer_plant(h);
+}
+
+/* One control thread. Target stays 1.5. The workload changes.
+ * Probe phases ask F-06 and F-09 again. Keep phases ask F-06 only. */
+static int mode_follow(void) {
+    GPUTronicConfig cfg;
+    gputronic_config_gold(&cfg);
+    cfg.csv_path = "results/gputronic_follow.csv";
+
+    GPUTronicHandle* h = transfer_boot(&cfg);
+    if (!h) return 1;
+
+    printf("\n[FOLLOW] target Z=1.50 for the whole run. Kp=0.55 Ki=0.08.\n");
+    printf("[FOLLOW] No hand-set SM count. Free-run is taken on the load that is pulsing.\n");
+    fflush(stdout);
+
+    FollowPhase ph[5];
+    memset(ph, 0, sizeof(ph));
+    ph[0].name = "transfer, probe at boot";
+    ph[0].reprobe = 1;
+    ph[1].name = "episode shape, sms_per_u kept";
+    ph[1].reprobe = 0;
+    ph[2].name = "episode shape, probe again";
+    ph[2].reprobe = 1;
+    ph[3].name = "transfer, sms_per_u kept from episode";
+    ph[3].reprobe = 0;
+    ph[4].name = "transfer, probe again";
+    ph[4].reprobe = 1;
+
+    FollowPump pump;
+    memset(&pump, 0, sizeof(pump));
+    int setup_ok = 1;
+
+    follow_wait_cal(1);
+    follow_sample(h, &ph[0]);
+
+    if (follow_to_episode(h, &pump) != 0) setup_ok = 0;
+    if (setup_ok) {
+        gputronic_recalibrate(h, 0);
+        follow_wait_cal(0);
+        follow_sample(h, &ph[1]);
+        gputronic_recalibrate(h, 1);
+        follow_wait_cal(1);
+        follow_sample(h, &ph[2]);
+    }
+    if (setup_ok && follow_to_persistent(h, &pump) != 0) setup_ok = 0;
+    if (setup_ok) {
+        gputronic_recalibrate(h, 0);
+        follow_wait_cal(0);
+        follow_sample(h, &ph[3]);
+        gputronic_recalibrate(h, 1);
+        follow_wait_cal(1);
+        follow_sample(h, &ph[4]);
+    }
+
+    if (pump.running) {
+        pump.running = 0;
+        pthread_join(pump.thr, NULL);
+    }
+
+    int num_sm = gputronic_get_control(h)->num_sm;
+    int boot_ok = follow_held(&ph[0], num_sm);
+    int ep_ok = follow_held(&ph[2], num_sm);
+    int tr_ok = follow_held(&ph[4], num_sm);
+    double n_gap = fabs(ph[2].n_mean - ph[4].n_mean);
+    int moved = n_gap >= 8.0;
+    int milestone = setup_ok && boot_ok && ep_ok && tr_ok && moved;
+
+    printf("\n[FOLLOW] phases\n");
+    printf("%-40s %8s %8s %8s %10s %10s %s\n",
+           "phase", "Z", "n", "span", "wall", "rate_ref", "band");
+    for (int i = 0; i < 5; i++) {
+        printf("%-40s %8.3f %8.1f %3d..%-3d %10.0f %10.0f %s\n",
+               ph[i].name, ph[i].z_mean, ph[i].n_mean,
+               ph[i].n_min, ph[i].n_max, ph[i].wall_rate, ph[i].rate_ref,
+               follow_held(&ph[i], num_sm) ? "yes" : "no");
+    }
+    printf("[FOLLOW] |n_episode_probe - n_transfer_probe| = %.1f\n", n_gap);
+    printf("[FOLLOW] milestone (probe on, both loads in band, count moved) = %s\n",
+           milestone ? "PASS" : "FAIL");
+    fflush(stdout);
+
+    FILE* rep = fopen("results/gputronic_follow_report.txt", "w");
+    if (rep) {
+        fprintf(rep, "GPUTronic follow — one control thread, target Z=1.50, Kp=0.55 Ki=0.08\n");
+        fprintf(rep, "Workload changes between the persistent transfer kernel and the\n");
+        fprintf(rep, "existing episode shape (4 pulses, 32 tiles, kernel returns).\n");
+        fprintf(rep, "probe=1 runs F-06 and F-09. probe=0 runs F-06 and keeps sms_per_u.\n");
+        fprintf(rep, "Score window is the last 6 s of each 10 s phase.\n");
+        fprintf(rep, "Band: |Z-1.50|<0.25, wall rate < 0.90*rate_ref, count below full width.\n");
+        fprintf(rep, "setup_ok=%d milestone=%s n_gap=%.2f\n",
+                setup_ok, milestone ? "PASS" : "FAIL", n_gap);
+        for (int i = 0; i < 5; i++) {
+            fprintf(rep,
+                    "phase=%s reprobe=%d Z=%.4f n_mean=%.2f n=%d..%d wall=%.1f ref=%.1f sms_per_u=%.2f band=%d\n",
+                    ph[i].name, ph[i].reprobe, ph[i].z_mean, ph[i].n_mean,
+                    ph[i].n_min, ph[i].n_max, ph[i].wall_rate, ph[i].rate_ref,
+                    ph[i].sms_per_u, follow_held(&ph[i], num_sm));
+        }
+        fclose(rep);
+    }
+
+    GPUTronicControl* c = gputronic_get_control(h);
+    if (c) c->control_flags |= GPUTRONIC_FLAG_STOP;
+    gputronic_stop(h);
+    gputronic_destroy(h);
+    printf("report: results/gputronic_follow_report.txt\n");
+    return milestone ? 0 : 2;
+}
+
+/* Same tiles as the metered kernel. Pulses go to a separate word so the
+ * metered job's free-run and Z stay its own. */
+__global__ void transfer_guest_kernel(unsigned long long* guest_pulses) {
+    const int sm = blockIdx.x;
+    const int tid = threadIdx.x;
+    const int r = tid / TRANSFER_TILE;
+    const int c = tid % TRANSFER_TILE;
+    float acc = 0.0f;
+
+    __shared__ float As[TRANSFER_TILE][TRANSFER_TILE];
+    __shared__ float Bs[TRANSFER_TILE][TRANSFER_TILE];
+
+    unsigned int iter = 0;
+    for (int p = 0; p < 4; p++) {
+        for (int t = 0; t < TRANSFER_TILES_PER_PULSE; t++) {
+            float seed = (float)((iter * 31u + (unsigned)sm * 17u + (unsigned)tid + (unsigned)t * 13u) & 1023u);
+            if (r < TRANSFER_TILE && c < TRANSFER_TILE) {
+                As[r][c] = seed * 0.001f + 0.10f;
+                Bs[r][c] = seed * 0.0007f + 0.20f;
+            }
+            __syncthreads();
+            if (r < TRANSFER_TILE && c < TRANSFER_TILE) {
+                float s = 0.0f;
+#pragma unroll
+                for (int k = 0; k < TRANSFER_TILE; k++)
+                    s = __fmaf_rn(As[r][k], Bs[k][c], s);
+                acc += s;
+            }
+            __syncthreads();
+            iter++;
+        }
+        if (acc > 1.0e30f) acc = 0.0f;
+        if (tid == 0 && guest_pulses)
+            atomicAdd(guest_pulses, 1ULL);
+    }
+    if (tid == 0) __threadfence_system();
+    if (tid == 0 && acc == 3.14159265f && guest_pulses)
+        atomicAdd(guest_pulses, 0ULL);
+}
+
+/* which: 0 = metered width plus the complement, 1 = metered only, 2 = guest only.
+ * fixed_n > 0 pins the metered width. fixed_n == 0 reads active_sms.
+ * guest_enable is read every launch. The closed loop turns it on after the probe. */
+struct SharePump {
+    GPUTronicControl* h_ctrl;
+    GPUTronicControl* d_ctrl;
+    volatile unsigned long long* h_guest;
+    unsigned long long* d_guest;
+    int num_sm;
+    int which;
+    int fixed_n;
+    volatile int guest_enable;
+    volatile int running;
+    cudaStream_t stream_a;
+    cudaStream_t stream_b;
+    pthread_t thr;
+};
+
+static int share_clamp_n(int n, int num_sm) {
+    if (n < 4) n = 4;
+    if (n > num_sm) n = num_sm;
+    return n;
+}
+
+static void* share_pump(void* arg) {
+    SharePump* p = (SharePump*)arg;
+    cudaSetDevice(0);
+    while (p->running) {
+        int n = 0;
+        int g = 0;
+        if (p->which == 2) {
+            g = p->num_sm;
+        } else {
+            n = (p->fixed_n > 0) ? p->fixed_n : p->h_ctrl->active_sms;
+            n = share_clamp_n(n, p->num_sm);
+            if (p->fixed_n > 0) p->h_ctrl->active_sms = n;
+            if (p->which == 0 && p->guest_enable) g = p->num_sm - n;
+        }
+        cudaError_t ea = cudaSuccess;
+        cudaError_t eb = cudaSuccess;
+        if (n > 0) {
+            transfer_episode_kernel<<<n, TRANSFER_THREADS, 0, p->stream_a>>>(p->d_ctrl, p->num_sm);
+            ea = cudaGetLastError();
+        }
+        if (g > 0 && ea == cudaSuccess) {
+            transfer_guest_kernel<<<g, TRANSFER_THREADS, 0, p->stream_b>>>(p->d_guest);
+            eb = cudaGetLastError();
+        }
+        if (n > 0 && ea == cudaSuccess) ea = cudaStreamSynchronize(p->stream_a);
+        if (g > 0 && eb == cudaSuccess) eb = cudaStreamSynchronize(p->stream_b);
+        if (ea != cudaSuccess || eb != cudaSuccess) {
+            fprintf(stderr, "[SHARE] launch failed: %s\n",
+                    cudaGetErrorString(ea != cudaSuccess ? ea : eb));
+            p->running = 0;
+            break;
+        }
+    }
+    return NULL;
+}
+
+static int share_pump_start(SharePump* p) {
+    p->running = 1;
+    if (pthread_create(&p->thr, NULL, share_pump, p) != 0) {
+        p->running = 0;
+        fprintf(stderr, "[SHARE] pump failed to start\n");
+        return -1;
+    }
+    return 0;
+}
+
+static void share_pump_stop(SharePump* p) {
+    if (!p->running) return;
+    p->running = 0;
+    pthread_join(p->thr, NULL);
+}
+
+static void share_rates(SharePump* p, int seconds, double* a_rate, double* b_rate) {
+    unsigned long long a0 = p->h_ctrl->total_work_pulses;
+    unsigned long long b0 = *p->h_guest;
+    double t0 = now_us();
+    usleep((useconds_t)seconds * 1000000u);
+    double dt = (now_us() - t0) * 1e-6;
+    if (dt < 1e-6) dt = 1e-6;
+    *a_rate = (double)(p->h_ctrl->total_work_pulses - a0) / dt;
+    *b_rate = (double)(*p->h_guest - b0) / dt;
+}
+
+typedef struct {
+    const char* name;
+    int n;
+    double a_rate;
+    double b_rate;
+} ShareRow;
+
+static int share_row(SharePump* p, ShareRow* row, int which, int fixed_n, int guest_on) {
+    p->which = which;
+    p->fixed_n = fixed_n;
+    p->guest_enable = guest_on;
+    printf("[SHARE] %s\n", row->name);
+    fflush(stdout);
+    if (share_pump_start(p) != 0) return -1;
+    usleep(400000);
+    share_rates(p, 3, &row->a_rate, &row->b_rate);
+    share_pump_stop(p);
+    row->n = fixed_n;
+    printf("[SHARE]   A=%.0f pulses/s  B=%.0f pulses/s\n", row->a_rate, row->b_rate);
+    fflush(stdout);
+    return 0;
+}
+
+/* One resident grid, idle blocks sleep 5 µs and do not exit. A guest kernel
+ * is launched again whenever the previous one finishes. If none finish, the
+ * guest rate over the window stays at zero. */
+static int share_resident(SharePump* p, ShareRow* row) {
+    p->h_ctrl->active_sms = 42;
+    p->h_ctrl->control_flags &= ~GPUTRONIC_FLAG_STOP;
+    __sync_synchronize();
+    transfer_persistent_kernel<<<p->num_sm, TRANSFER_THREADS, 0, p->stream_a>>>(
+        p->d_ctrl, p->num_sm, NULL, NULL);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        fprintf(stderr, "[SHARE] persistent launch failed: %s\n", cudaGetErrorString(err));
+        return -1;
+    }
+    printf("[SHARE] %s\n", row->name);
+    fflush(stdout);
+    unsigned long long a0 = p->h_ctrl->total_work_pulses;
+    unsigned long long b0 = *p->h_guest;
+    double t0 = now_us();
+    double t_end = t0 + 2000000.0;
+    while (now_us() < t_end) {
+        transfer_guest_kernel<<<p->num_sm, TRANSFER_THREADS, 0, p->stream_b>>>(p->d_guest);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "[SHARE] guest launch failed: %s\n", cudaGetErrorString(err));
+            break;
+        }
+        int finished = 0;
+        while (now_us() < t_end) {
+            err = cudaStreamQuery(p->stream_b);
+            if (err == cudaSuccess) { finished = 1; break; }
+            if (err != cudaErrorNotReady) {
+                fprintf(stderr, "[SHARE] guest query failed: %s\n", cudaGetErrorString(err));
+                finished = -1;
+                break;
+            }
+            usleep(2000);
+        }
+        if (finished != 1) break;
+    }
+    double dt = (now_us() - t0) * 1e-6;
+    if (dt < 1e-6) dt = 1e-6;
+    row->a_rate = (double)(p->h_ctrl->total_work_pulses - a0) / dt;
+    row->b_rate = (double)(*p->h_guest - b0) / dt;
+    row->n = 42;
+    p->h_ctrl->control_flags |= GPUTRONIC_FLAG_STOP;
+    __sync_synchronize();
+    cudaStreamSynchronize(p->stream_a);
+    cudaStreamSynchronize(p->stream_b);
+    p->h_ctrl->control_flags &= ~GPUTRONIC_FLAG_STOP;
+    printf("[SHARE]   resident window  A=%.0f pulses/s  B=%.0f pulses/s\n",
+           row->a_rate, row->b_rate);
+    fflush(stdout);
+    return 0;
+}
+
+/* Hold one job near the rate you asked for. Launch only as many blocks as
+ * active_sms, and give the other blocks the same tiles on the other stream. */
+static int mode_share(void) {
+    GPUTronicConfig cfg;
+    gputronic_config_gold(&cfg);
+    cfg.launch_selftest_kernel = 0;
+    cfg.csv_path = "results/gputronic_share.csv";
+
+    GPUTronicHandle* h = gputronic_create(&cfg);
+    if (!h) return 1;
+    GPUTronicControl* h_ctrl = gputronic_get_control(h);
+    GPUTronicControl* d_ctrl = NULL;
+    cudaError_t err = cudaHostGetDevicePointer((void**)&d_ctrl, h_ctrl, 0);
+    if (err != cudaSuccess || !d_ctrl || !h_ctrl) {
+        fprintf(stderr, "[SHARE] no mapped control block\n");
+        gputronic_destroy(h);
+        return 1;
+    }
+
+    volatile unsigned long long* h_guest = NULL;
+    err = cudaHostAlloc((void**)&h_guest, sizeof(unsigned long long),
+                        cudaHostAllocMapped | cudaHostAllocPortable);
+    if (err != cudaSuccess || !h_guest) {
+        fprintf(stderr, "[SHARE] guest counter alloc failed: %s\n", cudaGetErrorString(err));
+        gputronic_destroy(h);
+        return 1;
+    }
+    *h_guest = 0;
+    unsigned long long* d_guest = NULL;
+    err = cudaHostGetDevicePointer((void**)&d_guest, (void*)h_guest, 0);
+    if (err != cudaSuccess || !d_guest) {
+        fprintf(stderr, "[SHARE] guest counter map failed\n");
+        cudaFreeHost((void*)h_guest);
+        gputronic_destroy(h);
+        return 1;
+    }
+
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    int num_sm = h_ctrl->num_sm;
+    if (num_sm <= 0) num_sm = GPUTRONIC_DEFAULT_NUM_SM;
+
+    SharePump pump;
+    memset(&pump, 0, sizeof(pump));
+    pump.h_ctrl = h_ctrl;
+    pump.d_ctrl = d_ctrl;
+    pump.h_guest = h_guest;
+    pump.d_guest = d_guest;
+    pump.num_sm = num_sm;
+    if (cudaStreamCreateWithFlags(&pump.stream_a, cudaStreamNonBlocking) != cudaSuccess ||
+        cudaStreamCreateWithFlags(&pump.stream_b, cudaStreamNonBlocking) != cudaSuccess) {
+        fprintf(stderr, "[SHARE] stream create failed\n");
+        cudaFreeHost((void*)h_guest);
+        gputronic_destroy(h);
+        return 1;
+    }
+
+    printf("\n[SHARE] One job holds a requested rate. The blocks it does not launch\n");
+    printf("[SHARE] do the same tiles and count their own pulses.\n");
+    printf("[SHARE] concurrentKernels=%d  SMs=%d\n", prop.concurrentKernels, num_sm);
+    fflush(stdout);
+
+    ShareRow rows[9];
+    memset(rows, 0, sizeof(rows));
+    rows[0].name = "metered alone, 84 blocks";
+    rows[1].name = "metered alone, 42 blocks";
+    rows[2].name = "metered alone, 21 blocks";
+    rows[3].name = "guest alone, 84 blocks";
+    rows[4].name = "split, metered 63";
+    rows[5].name = "split, metered 42";
+    rows[6].name = "split, metered 21";
+    rows[7].name = "split, metered 4";
+    rows[8].name = "resident grid, command 42, guest on the other stream";
+
+    int ok = 1;
+    if (share_row(&pump, &rows[0], 1, 84, 0) != 0) ok = 0;
+    if (ok && share_row(&pump, &rows[1], 1, 42, 0) != 0) ok = 0;
+    if (ok && share_row(&pump, &rows[2], 1, 21, 0) != 0) ok = 0;
+    if (ok && share_row(&pump, &rows[3], 2, 84, 1) != 0) ok = 0;
+    if (ok && share_row(&pump, &rows[4], 0, 63, 1) != 0) ok = 0;
+    if (ok && share_row(&pump, &rows[5], 0, 42, 1) != 0) ok = 0;
+    if (ok && share_row(&pump, &rows[6], 0, 21, 1) != 0) ok = 0;
+    if (ok && share_row(&pump, &rows[7], 0, 4, 1) != 0) ok = 0;
+    if (ok && share_resident(&pump, &rows[8]) != 0) ok = 0;
+
+    double z_mean = 0.0, n_mean = 0.0, a_cl = 0.0, b_cl = 0.0;
+    int n_min = 0, n_max = 0;
+    if (ok) {
+        h_ctrl->active_sms = num_sm;
+        h_ctrl->control_flags = 0;
+        pump.which = 0;
+        pump.fixed_n = 0;
+        pump.guest_enable = 0;
+        printf("[SHARE] closed loop, guest off until the probe finishes\n");
+        fflush(stdout);
+        if (share_pump_start(&pump) != 0) ok = 0;
+    }
+    if (ok && gputronic_start(h) != 0) ok = 0;
+    if (ok) {
+        follow_wait_cal(1);
+        pump.guest_enable = 1;
+        printf("[SHARE] guest on, target Z=1.50\n");
+        fflush(stdout);
+        double z_acc = 0.0, n_acc = 0.0;
+        int n_n = 0;
+        n_min = 1000;
+        n_max = 0;
+        unsigned long long a0 = 0, b0 = 0, b_prev = *h_guest;
+        double t0 = 0.0;
+        for (int s = 0; s < 10; s++) {
+            if (s == 4) {
+                a0 = h_ctrl->total_work_pulses;
+                b0 = *h_guest;
+                t0 = now_us();
+            }
+            usleep(1000000);
+            unsigned long long b_now = *h_guest;
+            float z = gputronic_get_z(h);
+            int n = h_ctrl->active_sms;
+            printf("[SHARE]   t=%2ds Z=%.3f n=%d A=%.0f B=%.0f\n",
+                   s + 1, z, n, gputronic_get_rate(h), (double)(b_now - b_prev));
+            b_prev = b_now;
+            fflush(stdout);
+            if (s >= 4) {
+                z_acc += z;
+                n_acc += n;
+                n_n++;
+                if (n < n_min) n_min = n;
+                if (n > n_max) n_max = n;
+            }
+        }
+        double dt = (now_us() - t0) * 1e-6;
+        if (dt < 1e-6) dt = 1e-6;
+        z_mean = (n_n > 0) ? z_acc / n_n : 0.0;
+        n_mean = (n_n > 0) ? n_acc / n_n : 0.0;
+        a_cl = (double)(h_ctrl->total_work_pulses - a0) / dt;
+        b_cl = (double)(*h_guest - b0) / dt;
+        printf("[SHARE]   score Z=%.3f n=%.1f (%d..%d) A=%.0f B=%.0f\n",
+               z_mean, n_mean, n_min, n_max, a_cl, b_cl);
+        fflush(stdout);
+    }
+    share_pump_stop(&pump);
+
+    double a42 = rows[1].a_rate;
+    double b84 = rows[3].b_rate;
+    double split_a = rows[5].a_rate;
+    double split_b = rows[5].b_rate;
+    int split_ok = ok && a42 > 1000.0 && b84 > 1000.0 &&
+                   (split_b > 0.25 * b84) && (split_a > 0.70 * a42);
+    int resident_blocks = ok && b84 > 1000.0 && (rows[8].b_rate < 0.05 * b84);
+
+    printf("\n[SHARE] open loop\n");
+    printf("%-52s %6s %12s %12s\n", "phase", "n", "A pulses/s", "B pulses/s");
+    for (int i = 0; i < 9; i++) {
+        printf("%-52s %6d %12.0f %12.0f\n", rows[i].name, rows[i].n, rows[i].a_rate, rows[i].b_rate);
+    }
+    printf("[SHARE] split at 42: A is %.2f of A alone at 42, B is %.2f of B alone\n",
+           (a42 > 1.0) ? split_a / a42 : 0.0,
+           (b84 > 1.0) ? split_b / b84 : 0.0);
+    printf("[SHARE] closed loop Z=%.3f n=%.1f A=%.0f B=%.0f\n", z_mean, n_mean, a_cl, b_cl);
+    printf("[SHARE] split gives the other job a real rate: %s\n", split_ok ? "yes" : "no");
+    printf("[SHARE] resident grid kept the other job off the chip: %s\n",
+           resident_blocks ? "yes" : "no");
+    fflush(stdout);
+
+    FILE* rep = fopen("results/gputronic_share_report.txt", "w");
+    if (rep) {
+        fprintf(rep, "GPUTronic share — metered job plus the same tiles on the blocks it did not launch\n");
+        fprintf(rep, "Target on the closed-loop phase is Z=1.50. Kp=0.55 Ki=0.08.\n");
+        fprintf(rep, "concurrentKernels=%d num_sm=%d\n", prop.concurrentKernels, num_sm);
+        fprintf(rep, "Reading rule, set before the run: split shares the chip if at width 42\n");
+        fprintf(rep, "B exceeds 25%% of B alone and A stays above 70%% of A alone at 42.\n");
+        fprintf(rep, "The resident grid blocks the guest if that guest stays under 5%% of B alone.\n");
+        fprintf(rep, "setup_ok=%d split_shares=%s resident_blocks=%s\n",
+                ok, split_ok ? "yes" : "no", resident_blocks ? "yes" : "no");
+        fprintf(rep, "A_alone_84=%.1f A_alone_42=%.1f A_alone_21=%.1f B_alone_84=%.1f\n",
+                rows[0].a_rate, rows[1].a_rate, rows[2].a_rate, rows[3].b_rate);
+        for (int i = 0; i < 9; i++) {
+            fprintf(rep, "phase=%s n=%d A=%.1f B=%.1f\n",
+                    rows[i].name, rows[i].n, rows[i].a_rate, rows[i].b_rate);
+        }
+        fprintf(rep, "closed Z=%.4f n_mean=%.2f n=%d..%d A=%.1f B=%.1f\n",
+                z_mean, n_mean, n_min, n_max, a_cl, b_cl);
+        fclose(rep);
+    }
+
+    if (h_ctrl) h_ctrl->control_flags |= GPUTRONIC_FLAG_STOP;
+    gputronic_stop(h);
+    gputronic_destroy(h);
+    cudaStreamDestroy(pump.stream_a);
+    cudaStreamDestroy(pump.stream_b);
+    cudaFreeHost((void*)h_guest);
+    printf("report: results/gputronic_share_report.txt\n");
+    return ok ? 0 : 2;
+}
+
+/* One short launch, then the chip goes back to whoever else holds it.
+ * sync_us is how long that launch waited and ran. No control thread. */
+static int mode_beside(int reps) {
+    if (reps < 5) reps = 5;
+    if (reps > 60) reps = 60;
+
+    cudaSetDevice(0);
+    volatile unsigned long long* h_guest = NULL;
+    unsigned long long* raw = NULL;
+    cudaError_t err = cudaHostAlloc((void**)&raw, sizeof(unsigned long long),
+                                    cudaHostAllocMapped | cudaHostAllocPortable);
+    if (err != cudaSuccess || !raw) {
+        fprintf(stderr, "[BESIDE] counter alloc failed: %s\n", cudaGetErrorString(err));
+        return 1;
+    }
+    h_guest = raw;
+    *h_guest = 0;
+    unsigned long long* d_guest = NULL;
+    err = cudaHostGetDevicePointer((void**)&d_guest, raw, 0);
+    if (err != cudaSuccess || !d_guest) {
+        fprintf(stderr, "[BESIDE] counter map failed\n");
+        cudaFreeHost(raw);
+        return 1;
+    }
+    cudaStream_t stream;
+    if (cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) != cudaSuccess) {
+        fprintf(stderr, "[BESIDE] stream create failed\n");
+        cudaFreeHost(raw);
+        return 1;
+    }
+
+    const int widths[] = {4, 21, 42, 84};
+    const int nwidths = 4;
+    printf("[BESIDE] single launches, then the GPU is released. reps=%d\n", reps);
+    printf("[BESIDE] width,rep,sync_us,pulses\n");
+    fflush(stdout);
+
+    for (int w = 0; w < nwidths; w++) {
+        int blocks = widths[w];
+        for (int i = 0; i < 3; i++) {
+            transfer_guest_kernel<<<blocks, TRANSFER_THREADS, 0, stream>>>(d_guest);
+            cudaStreamSynchronize(stream);
+        }
+        for (int r = 0; r < reps; r++) {
+            unsigned long long p0 = *h_guest;
+            double t0 = now_us();
+            transfer_guest_kernel<<<blocks, TRANSFER_THREADS, 0, stream>>>(d_guest);
+            err = cudaStreamSynchronize(stream);
+            double sync_us = now_us() - t0;
+            unsigned long long dp = *h_guest - p0;
+            if (err != cudaSuccess) {
+                fprintf(stderr, "[BESIDE] sync failed: %s\n", cudaGetErrorString(err));
+                cudaStreamDestroy(stream);
+                cudaFreeHost(raw);
+                return 1;
+            }
+            printf("[BESIDE] %d,%d,%.1f,%llu\n", blocks, r, sync_us, (unsigned long long)dp);
+            fflush(stdout);
+            usleep(400000);
+        }
+    }
+
+    printf("[BESIDE] one second of back-to-back launches\n");
+    printf("[BESIDE] burst_blocks,launches,pulses,wall_us,pulses_per_s\n");
+    const int bursts[] = {21, 84};
+    for (int b = 0; b < 2; b++) {
+        int blocks = bursts[b];
+        unsigned long long p0 = *h_guest;
+        double t0 = now_us();
+        int launches = 0;
+        while ((now_us() - t0) < 1000000.0 && launches < 200000) {
+            transfer_guest_kernel<<<blocks, TRANSFER_THREADS, 0, stream>>>(d_guest);
+            err = cudaStreamSynchronize(stream);
+            if (err != cudaSuccess) break;
+            launches++;
+        }
+        double wall = now_us() - t0;
+        unsigned long long dp = *h_guest - p0;
+        double rate = (wall > 0.0) ? (double)dp / (wall * 1e-6) : 0.0;
+        printf("[BESIDE] %d,%d,%llu,%.0f,%.0f\n",
+               blocks, launches, (unsigned long long)dp, wall, rate);
+        fflush(stdout);
+        usleep(1000000);
+    }
+
+    cudaStreamDestroy(stream);
+    cudaFreeHost(raw);
+    printf("[BESIDE] done\n");
+    return err == cudaSuccess ? 0 : 1;
+}
+
 static void usage(const char* argv0) {
     printf("GPUTronic Transfer Plant (Gold 1.0 cooperative GEMM tiles)\n\n");
     printf("Usage:\n");
@@ -829,6 +1618,9 @@ static void usage(const char* argv0) {
     printf("  %s run [sec]       # closed-loop on the transfer plant\n", argv0);
     printf("  %s mask            # open-loop per-SM sleep count × duration\n", argv0);
     printf("  %s work            # open-loop working-SM count, then stock PI\n", argv0);
+    printf("  %s follow          # workload change, same request, same gains\n", argv0);
+    printf("  %s share           # metered job plus the same work on the blocks it did not launch\n", argv0);
+    printf("  %s beside [reps]   # short launches while another program holds the GPU\n", argv0);
 }
 
 int main(int argc, char** argv) {
@@ -839,6 +1631,12 @@ int main(int argc, char** argv) {
     }
     if (!strcmp(mode, "mask")) return mode_mask();
     if (!strcmp(mode, "work")) return mode_work();
+    if (!strcmp(mode, "follow")) return mode_follow();
+    if (!strcmp(mode, "share")) return mode_share();
+    if (!strcmp(mode, "beside")) {
+        int reps = (argc >= 3) ? atoi(argv[2]) : 20;
+        return mode_beside(reps);
+    }
     if (!strcmp(mode, "dyno")) return mode_dyno();
     if (!strcmp(mode, "check")) {
         int rd = mode_dyno();
