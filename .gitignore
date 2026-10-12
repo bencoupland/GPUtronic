@@ -18,3 +18,6 @@ Personal Access Token for GitHub/
 *ghp_*
 GROK-NOTES.md
 .grok-notes.md
+
+# Local agent notes (not part of the project)
+.grok/
