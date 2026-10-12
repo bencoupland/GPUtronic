@@ -16,6 +16,17 @@ Written 12 October 2026. Follows `docs/analysis/fourth-pass-2026-10-13.md` on `t
   - In the passes 0, 2, 4 set, GPC 2 ran 1.20x GPCs 0 and 4, with or without quiet.
 - Working hypothesis, not a fact: GPC 3 has a shorter or less-contended path to mapped host memory. Every working pass does a mapped PCIe atomic on `total_work_pulses`, and every block reads mapped control words. At full width, that traffic is the only shared, chip-wide path that grows with working SMs.
 
+## Who owns the mapped words (read this first)
+
+The control words are GPUtronic's own. They are fields of `struct GPUTronicControl` in `include/gputronic.h`, written by this project, not by NVIDIA's driver:
+- **Commands**, which the host writes and the device reads: `control_flags`, `active_sms` (the throttle cable), and `work_scale_milli` (test load, read only when the LOAD flag is set).
+- **Sensors**, which the device writes and the host reads: `total_work_pulses` (atomicAdd every pass), `tensor_work_pulses`, and the separate T11 per-SM tally array.
+- **Telemetry**, which only the host writes and reads: Z, `rate_ema`, the integral, and so on. The kernel never reads these.
+
+The throttle cable, the control words, and the sensors all use one method: `cudaHostAlloc(..., cudaHostAllocMapped)` plus `cudaHostGetDevicePointer` in `src/gputronic_gold.cu`. The driver only pins a page of host RAM and maps it into the GPU's address space, as opaque memory. Nothing in the driver interprets these words, and no driver code runs on each access. After setup, every device read of a `volatile` field is a load across PCIe to host memory, and every pulse is a PCIe atomic. Commands and sensors share that one path.
+
+So everything this pass tests is inside GPUtronic's own code. Moving the pulse atomic, or the command reads, off the per-pass hot path is a change to how often our kernel crosses PCIe. It needs no driver change.
+
 ## Ground rules
 
 - Put results on `test-results/2026-10-13_fifth-pass`. Never push to or merge into `main`.
@@ -27,12 +38,12 @@ For every hold, use open loop for 30 s, the tally on for every block, `%smid` re
 
 ## Experiment 1: take the mapped traffic out of the working path (first priority)
 
-Add one test-only switch, for example `GPUTRONIC_PULSE_LOCAL=1`. Each block counts its pulses in device memory or a register, and only the block leader adds its batch to the mapped `total_work_pulses` once per bin, about 1 ms. Leave the control-word reads unchanged at first.
+Add one test-only switch, for example `GPUTRONIC_PULSE_LOCAL=1`. Each block counts its pulses in device memory or a register, and only the block leader adds its batch to the mapped `total_work_pulses` once per bin, about 1 ms. This takes only the sensor write off the hot path. Leave the command reads (`control_flags`, `active_sms`, `work_scale_milli`) unchanged at first, so the two parts of the shared path are tested one at a time.
 
 Run 84 SMs, then GPC 0 alone and GPC 3 alone, each with the switch off and then on.
 
 - If GPC 3's lead at 84 falls toward 1x with the switch on, the per-pass mapped atomic is the path that favours GPC 3.
-- If it stays near 2x, add a second switch that caches the control words: the leader reads them once per bin and shares them through shared memory. Rerun 84. If the lead falls then, it is the mapped reads.
+- If it stays near 2x, add a second switch that caches the command words: the leader reads them once per bin and shares them through shared memory. Rerun 84. If the lead falls then, it is the mapped reads.
 - If neither moves it, the difference is not mapped traffic. Go to Experiment 2 with that stated plainly.
 
 ## Experiment 2: per-GPC memory path microbenchmark

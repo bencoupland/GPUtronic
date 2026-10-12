@@ -2,6 +2,17 @@
 
 Written 12 October 2026. Read `docs/analysis/fifth-pass-review-2026-10-13.md` first. Start from `test-results/2026-10-13_fifth-pass` (`1a8fdd3`).
 
+## Who owns the mapped words (read this first)
+
+The control words are GPUtronic's own. They are fields of `struct GPUTronicControl` in `include/gputronic.h`, written by this project, not by NVIDIA's driver:
+- **Commands**, which the host writes and the device reads: `control_flags`, `active_sms` (the throttle cable), and `work_scale_milli` (test load, read only when the LOAD flag is set).
+- **Sensors**, which the device writes and the host reads: `total_work_pulses` (atomicAdd every pass), `tensor_work_pulses`, and the separate T11 per-SM tally array.
+- **Telemetry**, which only the host writes and reads: Z, `rate_ema`, the integral, and so on. The kernel never reads these.
+
+The throttle cable, the control words, and the sensors all use one method: `cudaHostAlloc(..., cudaHostAllocMapped)` plus `cudaHostGetDevicePointer` in `src/gputronic_gold.cu`. The driver only pins a page of host RAM and maps it into the GPU's address space, as opaque memory. Nothing in the driver interprets these words, and no driver code runs on each access. After setup, every device read of a `volatile` field is a load across PCIe to host memory, and every pulse is a PCIe atomic. Commands and sensors share that one path.
+
+So everything this pass tests is inside GPUtronic's own code. Moving the pulse atomic, or the command reads, off the per-pass hot path is a change to how often our kernel crosses PCIe. It needs no driver change.
+
 ## Ground rules
 
 - Put results on `test-results/2026-10-13_sixth-pass`. Never push to or merge into `main`.
