@@ -142,3 +142,10 @@ Implemented, not yet run (commands in `TEST_SUITE.md`):
   needs a person at the keyboard); `scripts/analyze_mangohud.py`. A second-process load and the
   Cyberpunk co-run stay proposed.
 Copy each `results/gputronic_gold_*_10ms.csv` / `gputronic_gold_ratio.csv` into `$LOG` after each run.
+
+## 11. After 2026-10-12 code changes (not yet run)
+Default deadband is now 0.08 and device `__nanosleep` is gone. Run in this order, tensor sensor off:
+1. `GPUTRONIC_TENSOR_SENSOR=0 timeout 120 ./build/gputronic_gold check` (free-run rate vs 533k; A1–A4 gate).
+2. T10 noise floor and the closed-loop comparison at 1 ms (commands in `TEST_SUITE.md`, T10).
+3. Deadband probe 0.015 vs 0.08 with `loadstep` (TEST_SUITE, "Deadband probe").
+4. `timeout 180 ./build/gputronic_transfer check`, `timeout 300 ./build/gputronic_episode check` (free-run wait port).

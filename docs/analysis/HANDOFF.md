@@ -159,6 +159,9 @@ The order is [`NEXT.md`](NEXT.md). Short form:
    SMs of authority are what miss. That step is path C1 in `NEXT.md`, an in-kernel
    work change, not a second CUDA process.
 6. The counter that outlives a launch is path C5. Do not start it as part of this PR.
+8. Done on `controller-fixes`, not yet run on hardware: free-run wait port, deadband 0.08 default,
+   device `__nanosleep` removed (sm_61 compiles), work-scale read gated by a flag, 1 ms trace,
+   PI telemetry, T10 noise floor. See NEXT.md.
 7. New tests, implemented, not yet run: T9 pulse-to-work ratio (`gputronic_gold ratio`), T6 load step
    (`loadstep`, the C1 step; baseline with `GPUTRONIC_INTEGRAL_CLAMP=1.0`), T7 bursts, T8 Space Marine 2
    co-run (`scripts/t8_game_corun.sh`). Commands in `TEST_SUITE.md`.

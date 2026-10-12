@@ -139,3 +139,38 @@ counter does not lose or delay pulses at different widths (the host's view vs th
 whether the arithmetic per pass changes. Snapshot skew between the two reads is a small error source.
 **Pass:** |drift vs 84 SMs| ≤ 1% at every count. If it drifts, the Z math is wrong and `rate_ref` needs
 revisiting.
+
+## T10. Noise floor, open loop (implemented, not yet run)
+Is the Z noise (about ±0.1 bin to bin on 2026-10-12) made by the loop, or is it already in the sensor/plant?
+```
+GPUTRONIC_TENSOR_SENSOR=0 GPUTRONIC_TRACE_BIN_US=1000 timeout 60 ./build/gputronic_gold noise 46 30
+GPUTRONIC_TENSOR_SENSOR=0 GPUTRONIC_TRACE_BIN_US=1000 timeout 60 ./build/gputronic_gold loadfile /dev/null 30
+python3 scripts/analyze_loadstep.py results/gputronic_gold_loadfile_10ms.csv --noise results/gputronic_gold_noise.csv
+```
+`noise [sms] [sec]` calibrates, then holds the SM count fixed (no controller) and writes the trace.
+`loadfile /dev/null [sec]` is a plain closed-loop run with the same trace. (The file name says 10ms;
+the bin follows `GPUTRONIC_TRACE_BIN_US`.)
+**Pass/verdict:** closed/open bin-to-bin noise ratio < 1.5 means the noise is upstream (sensor/plant);
+a larger ratio means the loop adds it.
+
+## Trace options and loop telemetry
+- `GPUTRONIC_TRACE_BIN_US=1000` gives 1 ms bins for `loadstep`, `bursts`, `loadfile`, `noise`, `fullwidth`
+  (default 10000; minimum 500). Rows are streamed to disk.
+- Columns: `wall_s,t_ms,scale,z_raw,z_hat,active_sms,integral,clamp,rate_ema,sensor,win_pulses,p_term,
+  loop_iters,loop_hz,pi_ticks,deadband_held,integral_updates,rail_ticks,sm_moves,p_only_moves`
+  (counts are per bin; `loop_hz` is the actual control-loop rate in that bin).
+- The same totals print as a `[STATS] loop_iters=... pi_ticks=...` line at stop.
+- Note: the control thread also writes its own CSV row every tick; that file I/O is a likely reason the
+  loop runs at ~16–24 kHz rather than 100 kHz. Not changed here.
+
+## Deadband probe (0.015 vs 0.08)
+The compiled default is now **0.08** (NEXT.md A3). `GPUTRONIC_DEADBAND` overrides it.
+```
+GPUTRONIC_TENSOR_SENSOR=0 GPUTRONIC_DEADBAND=0.015 timeout 120 ./build/gputronic_gold loadstep 60 1.2 20 40
+cp results/gputronic_gold_loadstep_10ms.csv $LOG/T6_db015.csv
+GPUTRONIC_TENSOR_SENSOR=0 GPUTRONIC_DEADBAND=0.08  timeout 120 ./build/gputronic_gold loadstep 60 1.2 20 40
+cp results/gputronic_gold_loadstep_10ms.csv $LOG/T6_db08.csv
+python3 scripts/analyze_loadstep.py $LOG/T6_db015.csv; python3 scripts/analyze_loadstep.py $LOG/T6_db08.csv
+```
+The analyzer prints the SM walk (percent of bins where the count changed, distinct counts, std), Z noise,
+loop rate, and the PI counters (deadband held %, integral updated %, on rail %, SM moves, P-only moves).

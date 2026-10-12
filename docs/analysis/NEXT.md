@@ -14,6 +14,8 @@ the trace sat on 1.50.
 
 ### A1. Port the free-run wait
 
+**Done** (`4152fb9`, cherry-pick of `ff4e97c`). Not yet re-run.
+
 `mode_closedloop` in Transfer and Episode slept 2.2 s and then called that window
 the full-width rate. The four-point table runs until about 3 s, so the window landed
 on a probe step. Both gates failed with Z already near the target. Commit `ff4e97c`
@@ -40,6 +42,8 @@ is in the 550k–590k band, not the 340k band.
 
 ### A3. Deadband back near 0.08
 
+**Done** (`8a2011f`): default 0.08; `GPUTRONIC_DEADBAND` override ported (`52f4b9e`). Not yet re-run.
+
 The 0.015 band does not hold the count. Z moves by about 0.05 to 0.07, so the count
 walks. Gold with the new law and the tensor warp on sat at mean Z 1.487 with the
 count from 44 to 52.
@@ -61,6 +65,12 @@ Done when a default Gold `run 30 1.5` with the tensor sensor off holds mean Z in
 outside that Z band, write down the `n_ff` and the Z. Do not move Kp or Ki.
 
 ### A4. Take `__nanosleep` out of the device kernels
+
+**Done** (`06fdee5`): all device calls in Gold, Transfer, Episode and Show removed; no `clock64`.
+sm_120 builds; `nvcc -arch=sm_61 -c` of all four kernels compiles. **Risk to check on the 5080:** idle
+and paused blocks now re-read `control_flags`/`active_sms` from mapped host memory with no pause, so
+they may add PCIe read traffic that slows the working blocks. Compare T2/T10 free-run rate with
+the previous build. The `follow` translator in Transfer is still there.
 
 Sleep duration is not the actuator. On this 5080 a sleep command did nothing until
 about 500 µs, then Z stepped off a cliff. That is one coarse notch. The SM count
@@ -114,6 +124,13 @@ sm_61 will not be run here. Compiling it is the check that no `__nanosleep` rema
 - Do not add `clock64` as a fallback actuator. See A4.
 - Do not start the counter that keeps going after a kernel returns. That is path C5.
   It is not part of cleaning up this PR.
+
+## Telemetry and noise (new, 2026-10-12)
+
+- `GPUTRONIC_TRACE_BIN_US=1000` for 1 ms traces; PI counters in the trace and `[STATS]`; T10 `noise`
+  mode for the open-loop noise floor; analyzer prints SM walk / noise / counters. See `TEST_SUITE.md`.
+- `work_scale_milli` is now read only while `GPUTRONIC_FLAG_LOAD` is set (`52f4b9e`), so normal runs do
+  not pay the extra mapped read blamed for 435–450k vs 533k free-run.
 
 ## T9. Pulse-to-work ratio (new, run early)
 
