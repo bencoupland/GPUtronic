@@ -52,6 +52,7 @@ extern "C" {
 #define GPUTRONIC_GOLD_INTEGRAL_CLAMP 1.0f
 #define GPUTRONIC_GOLD_DEADBAND 0.015f
 #define GPUTRONIC_GOLD_PROBE_MS 300   /* per calibration point */
+#define GPUTRONIC_GOLD_SENSOR_HYSTERESIS 0.02f  /* [F-16] */
 #define GPUTRONIC_GOLD_Z_CEILING 10.0f
 #define GPUTRONIC_GOLD_Z_FLOOR 0.3f
 
@@ -79,6 +80,14 @@ struct GPUTronicControl {
     int proactive_corrections;
     int control_hz_ema;
     int num_sm;
+    /* ---- Tensor-core sensor [F-16] ----
+     * Appended at the end so earlier offsets (used by Transfer/Episode) do
+     * not move. Device: atomicAdd only on tensor_work_pulses. */
+    volatile unsigned long long tensor_work_pulses;
+    float z_cuda;            /* host: CUDA-core Z (rate_ref / rate) */
+    float z_tensor;          /* host: tensor-core Z */
+    float rate_tensor_ema;   /* host: tensor pulse rate, 8 ms window + EMA */
+    int ctrl_sensor;         /* host: sensor driving the PI, 0 = CUDA, 1 = tensor */
 };
 
 /* ---- Flags and handle ---- */
@@ -105,6 +114,9 @@ typedef struct GPUTronicConfig {
     int enable_kalman;       /* Kalman filter on Z [F-08] */
     int launch_selftest_kernel; /* 1 = launch self-test kernel [F-02]; 0 = another kernel [F-03] */
     int probe_ms;            /* ms per calibration point, default 300 [F-09] */
+    int enable_tensor_sensor; /* 1 = add a wmma warp and a second Z [F-16]; Gold default 1.
+                               * Forced to 0 for other kernels or GPUs below sm_70. */
+    float sensor_hysteresis; /* Z margin before switching sensors, default 0.02 */
     const char* csv_path;    /* NULL = results/gputronic_gold.csv */
 } GPUTronicConfig;
 
@@ -132,6 +144,11 @@ float gputronic_get_z(const GPUTronicHandle* h);
 float gputronic_get_z_raw(const GPUTronicHandle* h);
 float gputronic_get_rate(const GPUTronicHandle* h);
 int gputronic_get_active_sms(const GPUTronicHandle* h);
+/* Two-sensor telemetry [F-16]. Tensor values are 0 when the sensor is off. */
+float gputronic_get_z_cuda(const GPUTronicHandle* h);
+float gputronic_get_z_tensor(const GPUTronicHandle* h);
+float gputronic_get_rate_tensor(const GPUTronicHandle* h);
+int gputronic_get_ctrl_sensor(const GPUTronicHandle* h);   /* 0 CUDA, 1 tensor */
 struct GPUTronicControl* gputronic_get_control(GPUTronicHandle* h);
 
 /* Host-side pulse [F-03, F-04]. Host atomic add (__sync_fetch_and_add). Only

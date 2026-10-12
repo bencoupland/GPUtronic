@@ -29,6 +29,7 @@
 #include "gputronic.h"
 
 #include <cuda_runtime.h>
+#include <mma.h>
 #include <math.h>
 #include <pthread.h>
 #include <signal.h>
@@ -56,20 +57,56 @@ __device__ __forceinline__ void gold_work(float* acc, int sm, int iter) {
     *acc = val;
 }
 
+/* Tensor-core sensor work [F-16]: one 16x16x16 FP16 -> FP32 wmma per step,
+ * accumulating into the same C fragment so the chain cannot be removed.
+ * wmma needs sm_70+; older targets compile a stub that does no work. */
+#define GOLD_TENSOR_STEPS 64
+
+__device__ __forceinline__ float gold_tensor_work(int sm) {
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 700)
+    using namespace nvcuda;
+    __shared__ __align__(32) half a_tile[16 * 16];
+    __shared__ __align__(32) half b_tile[16 * 16];
+    const int lane = threadIdx.x & 31;
+    for (int i = lane; i < 256; i += 32) {
+        a_tile[i] = __float2half(0.01f * (float)((i + sm) & 15));
+        b_tile[i] = __float2half(0.02f * (float)((i * 3) & 15));
+    }
+    __syncwarp();
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> fa;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::col_major> fb;
+    wmma::fragment<wmma::accumulator, 16, 16, 16, float> fc;
+    wmma::load_matrix_sync(fa, a_tile, 16);
+    wmma::load_matrix_sync(fb, b_tile, 16);
+    wmma::fill_fragment(fc, 0.0f);
+    for (int k = 0; k < GOLD_TENSOR_STEPS; k++) wmma::mma_sync(fc, fa, fb, fc);
+    return fc.x[0];
+#else
+    (void)sm;
+    return 0.0f;
+#endif
+}
+
 /*
  * Persistent self-test kernel [F-02].
  *   grid = num_sm (one block / SM)
  *   warp leaders (lane==0) add to the pulse total and the per-SM diagnostic [F-04]
  *   Actuator: the lowest active_sms blocks do the work and pulse.
  *   Idle blocks backoff 5 µs and do not pulse. Duration is not the command.
+ *   Two sensors [F-16]: warps below cuda_warps run the CUDA-core FMA batch
+ *   and pulse total_work_pulses (unchanged). When the tensor sensor is on,
+ *   one extra warp per block runs wmma and pulses tensor_work_pulses with
+ *   the same fence cadence. active_sms gates both.
  * Period is atomic-dominated. Do not "tune Kp" to hide that.
  */
 __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        GPUTronicControl* ctrl,
-                                       int num_sm) {
+                                       int num_sm,
+                                       int cuda_warps) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
+    const int is_tensor_warp = (tid >> 5) >= cuda_warps;
     float local = 0.0f;
     unsigned int local_pulses = 0;
 
@@ -97,6 +134,17 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             continue;
         }
 
+        if (is_tensor_warp) {
+            float t = gold_tensor_work(sm);
+            if (t > 1.0e30f) local += t;   /* keep the result live */
+            if (lane == 0) {
+                atomicAdd((unsigned long long*)&ctrl->tensor_work_pulses, 1ULL);
+                local_pulses++;
+                if ((local_pulses & 31u) == 0u) __threadfence_system();
+            }
+            continue;
+        }
+
         for (int b = 0; b < GOLD_BATCH; b++) {
             for (int i = 0; i < GOLD_WORK_ITERS; i++)
                 gold_work(&local, sm, i + b * GOLD_WORK_ITERS);
@@ -118,8 +166,12 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
 extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    GPUTronicControl* d_ctrl,
                                    int num_sm,
-                                   int threads_per_block) {
-    gold_persistent_kernel<<<num_sm, threads_per_block>>>(sm_counters, d_ctrl, num_sm);
+                                   int threads_per_block,
+                                   int tensor_sensor) {
+    /* CUDA-core warps stay as configured; the tensor sensor adds one warp. */
+    int cuda_warps = (threads_per_block + 31) / 32;
+    int threads = cuda_warps * 32 + (tensor_sensor ? 32 : 0);
+    gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps);
 }
 
 /* ---- Host handle and control thread ---- */
@@ -169,6 +221,19 @@ struct GPUTronicHandle {
     double cal_mark_us;
     int cal_marked;
     unsigned long long prev_pulses;
+    /* Tensor-core sensor [F-16]: same window/EMA/reference as the CUDA path. */
+    int tensor_on;
+    unsigned long long prev_pulses_t;
+    unsigned long long rate_win_pulses_t;
+    float rate_ema_t;
+    float rate_ref_t;
+    unsigned long long cal_pulse_mark_t;
+    unsigned long long probe_mark_t;
+    double probe_rate_t[GOLD_MAX_PROBE];
+    float n_ff_s[2];      /* per-sensor starting SM count, 0 = CUDA, 1 = tensor */
+    float spu_s[2];       /* per-sensor sms_per_u */
+    int sel;              /* sensor driving the PI */
+    float z_c, z_t;       /* latest per-sensor Z */
     double t0_us;
     FILE* csv;
     long long csv_rows;
@@ -210,6 +275,8 @@ void gputronic_config_gold(GPUTronicConfig* cfg) {
     cfg->enable_kalman = 1;
     cfg->launch_selftest_kernel = 1;
     cfg->probe_ms = GPUTRONIC_GOLD_PROBE_MS;
+    cfg->enable_tensor_sensor = 1;
+    cfg->sensor_hysteresis = GPUTRONIC_GOLD_SENSOR_HYSTERESIS;
     cfg->csv_path = "results/gputronic_gold.csv";
 }
 
@@ -247,7 +314,8 @@ static void kalman_update(GPUTronicHandle* h, float z_meas, float dt) {
  * units. Expectation from the committed dyno CSVs (sanity only, not used):
  * Z(n) is concave in n on the episode plant (flat above ~42 SMs), close to
  * 1/n-shaped on gold/transfer, so a single half-width point mis-scales it. */
-static void gold_build_table(GPUTronicHandle* h) {
+static void gold_fit_table(GPUTronicHandle* h, const char* label, double rate_ref,
+                           const double* rates, float* n_ff_out, float* spu_out) {
     const int N = h->cfg.num_sm;
     const float tz = h->cfg.target_z;
     float zs[GOLD_MAX_PROBE + 1];
@@ -255,10 +323,10 @@ static void gold_build_table(GPUTronicHandle* h) {
     int m = 0;
     ns[m] = N; zs[m] = 1.0f; m++;
     for (int i = 0; i < h->n_probe; i++) {
-        if (h->probe_rate[i] < 1.0) continue;
+        if (rates[i] < 1.0) continue;
         ns[m] = h->probe_n[i];
-        zs[m] = (float)(h->rate_ref / h->probe_rate[i]);
-        printf("[CAL] table n=%3d rate=%.1f Z=%.3f\n", ns[m], h->probe_rate[i], zs[m]);
+        zs[m] = (float)(rate_ref / rates[i]);
+        printf("[CAL] %s table n=%3d rate=%.1f Z=%.3f\n", label, ns[m], rates[i], zs[m]);
         m++;
     }
     float n_ff = (float)N, g = 0.0f;
@@ -281,11 +349,27 @@ static void gold_build_table(GPUTronicHandle* h) {
         g = (m > 1) ? (zs[m - 1] - zs[0]) / (float)(ns[0] - ns[m - 1]) : 0.0f;
     }
     if (g < 1e-3f) g = 1e-3f;            /* flat segment: cap gain at 1000 SM/u */
-    h->n_ff = n_ff;
-    h->sms_per_u = 1.0f / g;
-    if (h->sms_per_u > (float)N) h->sms_per_u = (float)N;
-    printf("[CAL] target Z=%.2f → n_ff=%.1f dZ/dn=%.4f sms_per_u=%.1f%s\n",
-           tz, h->n_ff, g, h->sms_per_u, found ? "" : " (target outside table)");
+    float spu = 1.0f / g;
+    if (spu > (float)N) spu = (float)N;
+    *n_ff_out = n_ff;
+    *spu_out = spu;
+    printf("[CAL] %s target Z=%.2f → n_ff=%.1f dZ/dn=%.4f sms_per_u=%.1f%s\n",
+           label, tz, n_ff, g, spu, found ? "" : " (target outside table)");
+}
+
+/* Both sensors [F-09, F-16]. The PI starts on the sensor that reaches the
+ * target with the most SMs still on (larger n_ff), i.e. the one whose Z is
+ * higher at that count; this matches the max selector in control_thread. */
+static void gold_build_table(GPUTronicHandle* h) {
+    gold_fit_table(h, "cuda", h->rate_ref, h->probe_rate, &h->n_ff_s[0], &h->spu_s[0]);
+    h->sel = 0;
+    if (h->tensor_on) {
+        gold_fit_table(h, "tensor", h->rate_ref_t, h->probe_rate_t, &h->n_ff_s[1], &h->spu_s[1]);
+        if (h->n_ff_s[1] > h->n_ff_s[0]) h->sel = 1;
+    }
+    h->n_ff = h->n_ff_s[h->sel];
+    h->sms_per_u = h->spu_s[h->sel];
+    printf("[CAL] controller starts on the %s sensor\n", h->sel ? "tensor" : "cuda");
 }
 
 static void gold_reset_rate_state(GPUTronicHandle* h) {
@@ -293,6 +377,9 @@ static void gold_reset_rate_state(GPUTronicHandle* h) {
     h->rate_win_pulses = 0;
     h->rate_win_dt = 0.0;
     h->rate_ema = 0.0f;
+    h->prev_pulses_t = h->h_ctrl->tensor_work_pulses;
+    h->rate_win_pulses_t = 0;
+    h->rate_ema_t = 0.0f;
 }
 
 static void* control_thread(void* arg) {
@@ -312,6 +399,8 @@ static void* control_thread(void* arg) {
     h->dzdt_hat = 0.0f;
     h->integral = 0.0f;
     h->rate_ref = 0.0f;
+    h->rate_ref_t = 0.0f;
+    h->sel = 0;
     h->calibrated = 0;
     /* Warmup 0.7 s, then a ~1.1 s sustained window (not peak EMA). */
     h->calibrate_until_us = now_us() + 1800000.0;
@@ -334,6 +423,7 @@ static void* control_thread(void* arg) {
             if (h->n_probe > 0 && h->probe_n[h->n_probe - 1] == n) continue;
             h->probe_n[h->n_probe] = n;
             h->probe_rate[h->n_probe] = 0.0;
+            h->probe_rate_t[h->n_probe] = 0.0;
             h->n_probe++;
         }
     }
@@ -382,16 +472,25 @@ static void* control_thread(void* arg) {
         h->prev_pulses = pulses;
 
         /* Rate over an ~8 ms window, not one 10 µs tick [F-05]. */
+        unsigned long long pulses_t = h->h_ctrl->tensor_work_pulses;
+        h->rate_win_pulses_t += pulses_t - h->prev_pulses_t;
+        h->prev_pulses_t = pulses_t;
         h->rate_win_pulses += dpulse;
         h->rate_win_dt += (double)dt;
         if (h->rate_win_dt >= 0.008) {
             float inst_rate = (float)((double)h->rate_win_pulses / h->rate_win_dt);
+            float inst_t = (float)((double)h->rate_win_pulses_t / h->rate_win_dt);
             h->rate_win_pulses = 0;
+            h->rate_win_pulses_t = 0;
             h->rate_win_dt = 0.0;
             if (h->rate_ema <= 1.0f)
                 h->rate_ema = inst_rate;
             else
                 h->rate_ema = 0.70f * h->rate_ema + 0.30f * inst_rate;
+            if (h->rate_ema_t <= 1.0f)
+                h->rate_ema_t = inst_t;
+            else
+                h->rate_ema_t = 0.70f * h->rate_ema_t + 0.30f * inst_t;
         }
 
         /* ---- Calibration: reference rate, then table [F-06, F-09] ---- */
@@ -400,6 +499,7 @@ static void* control_thread(void* arg) {
         if (!h->calibrated) {
             if (!h->cal_marked && t >= h->cal_sustain_from_us) {
                 h->cal_pulse_mark = pulses;
+                h->cal_pulse_mark_t = pulses_t;
                 h->cal_mark_us = t;
                 h->cal_marked = 1;
             }
@@ -411,6 +511,15 @@ static void* control_thread(void* arg) {
                 else
                     h->rate_ref = h->rate_ema;
                 printf("[CAL] rate_ref=%.1f pulses/s (sustained %.2fs window)\n", h->rate_ref, dt_cal);
+                if (h->tensor_on) {
+                    unsigned long long dp_t = pulses_t - h->cal_pulse_mark_t;
+                    h->rate_ref_t = (dt_cal > 0.2) ? (float)((double)dp_t / dt_cal) : h->rate_ema_t;
+                    printf("[CAL] rate_ref_tensor=%.1f pulses/s\n", h->rate_ref_t);
+                    if (dp_t < 100ULL) {
+                        printf("[CAL] tensor sensor produced no pulses; continuing with CUDA only\n");
+                        h->tensor_on = 0;
+                    }
+                }
                 h->probing = 1;
                 h->probe_idx = 0;
                 h->probe_marked = 0;
@@ -422,6 +531,7 @@ static void* control_thread(void* arg) {
                 n_cmd = h->probe_n[i];
                 if (!h->probe_marked && t >= h->probe_measure_from_us) {
                     h->probe_mark = pulses;
+                    h->probe_mark_t = pulses_t;
                     h->probe_mark_us = t;
                     h->probe_marked = 1;
                 }
@@ -429,6 +539,8 @@ static void* control_thread(void* arg) {
                     double dt_p = (t - h->probe_mark_us) * 1e-6;
                     unsigned long long dp_p = pulses - h->probe_mark;
                     h->probe_rate[i] = (h->probe_marked && dt_p > 0.02) ? (double)dp_p / dt_p : 0.0;
+                    h->probe_rate_t[i] = (h->probe_marked && dt_p > 0.02)
+                                             ? (double)(pulses_t - h->probe_mark_t) / dt_p : 0.0;
                     h->probe_idx++;
                     if (h->probe_idx >= h->n_probe) {
                         gold_build_table(h);
@@ -450,7 +562,38 @@ static void* control_thread(void* arg) {
         } else if (h->rate_ema <= 1.0f) {
             z_raw = h->z_hat;   /* no window since reset/probe: hold */
         } else {
-            z_raw = h->rate_ref / (h->rate_ema + 1.0f);
+            /*
+             * Two sensors, one actuator [F-16]. Both Z rise as SMs drop, so
+             * the PI runs on the larger one (max selector): the target is met
+             * by removing the fewest SMs, and neither path is slowed further
+             * than requested. Hysteresis stops chatter when the two are close.
+             * On a switch the integral is recomputed so the commanded SM count
+             * does not jump (bumpless transfer), and the Kalman state is moved
+             * to the new sensor's value.
+             */
+            h->z_c = h->rate_ref / (h->rate_ema + 1.0f);
+            h->z_t = (h->tensor_on && h->rate_ema_t > 1.0f) ? h->rate_ref_t / (h->rate_ema_t + 1.0f) : 0.0f;
+            int want = h->sel;
+            if (h->tensor_on) {
+                if (h->sel == 0 && h->z_t > h->z_c + h->cfg.sensor_hysteresis) want = 1;
+                if (h->sel == 1 && h->z_c > h->z_t + h->cfg.sensor_hysteresis) want = 0;
+            }
+            float z_new = want ? h->z_t : h->z_c;
+            if (want != h->sel) {
+                h->sel = want;
+                h->n_ff = h->n_ff_s[want];
+                h->sms_per_u = h->spu_s[want];
+                float e_new = h->cfg.target_z - z_new;
+                float i_new = (h->cfg.ki > 1e-6f && h->sms_per_u > 1e-6f)
+                                  ? ((h->n_ff - (float)h->held_sms) / h->sms_per_u - h->cfg.kp * e_new) / h->cfg.ki
+                                  : 0.0f;
+                if (i_new > h->cfg.integral_clamp) i_new = h->cfg.integral_clamp;
+                if (i_new < -h->cfg.integral_clamp) i_new = -h->cfg.integral_clamp;
+                h->integral = i_new;
+                h->z_hat = z_new;
+                h->dzdt_hat = 0.0f;
+            }
+            z_raw = z_new;
         }
         if (z_raw > h->cfg.z_ceiling) z_raw = h->cfg.z_ceiling;
         if (z_raw < h->cfg.z_floor) z_raw = h->cfg.z_floor;
@@ -514,6 +657,10 @@ static void* control_thread(void* arg) {
         h->h_ctrl->z_hat = z;
         h->h_ctrl->dzdt_hat = h->dzdt_hat;
         h->h_ctrl->rate_ema = h->rate_ema;
+        h->h_ctrl->z_cuda = h->z_c;
+        h->h_ctrl->z_tensor = h->z_t;
+        h->h_ctrl->rate_tensor_ema = h->rate_ema_t;
+        h->h_ctrl->ctrl_sensor = h->sel;
         h->h_ctrl->pm_error = error;
         h->h_ctrl->integral = h->integral;
         if (n_cmd < N) h->h_ctrl->proactive_corrections++;
@@ -532,9 +679,10 @@ static void* control_thread(void* arg) {
 
         if (h->csv) {
             double t_s = (t - h->t0_us) * 1e-6;
-            fprintf(h->csv, "%.6f,%.5f,%.5f,%.5f,%.1f,%d,%.5f,%.5f,%d,%.1f\n",
+            fprintf(h->csv, "%.6f,%.5f,%.5f,%.5f,%.1f,%d,%.5f,%.5f,%d,%.1f,%.5f,%.5f,%.1f,%.1f,%d\n",
                     t_s, z_raw, z, h->dzdt_hat, h->rate_ema, n_cmd,
-                    error, h->integral, h->h_ctrl->control_hz_ema, h->rate_ref);
+                    error, h->integral, h->h_ctrl->control_hz_ema, h->rate_ref,
+                    h->z_c, h->z_t, h->rate_ema_t, h->rate_ref_t, h->sel);
             h->csv_rows++;
             if ((tick & 1023) == 0) fflush(h->csv);
         }
@@ -651,6 +799,10 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     h->held_sms = h->cfg.num_sm;
     h->n_ff = (float)h->cfg.num_sm;
     h->sms_per_u = 1.0f / 0.03f;   /* placeholder until the calibration table [F-09] */
+    /* Tensor sensor only runs inside the self-test kernel, and wmma needs sm_70+. */
+    if (!h->cfg.launch_selftest_kernel || prop.major < 7) h->cfg.enable_tensor_sensor = 0;
+    h->tensor_on = h->cfg.enable_tensor_sensor;
+    printf("[SNS] tensor sensor %s\n", h->tensor_on ? "on (one wmma warp per block)" : "off");
     h->h_ctrl->active_sms = h->cfg.num_sm;
     h->running = 0;
     h->started = 0;
@@ -680,7 +832,8 @@ int gputronic_start(GPUTronicHandle* h) {
     }
     h->csv = fopen(path, "w");
     if (h->csv) {
-        fprintf(h->csv, "time_s,z_raw,z_hat,dzdt,rate_ema,active_sms,error,integral,ctrl_hz,rate_ref\n");
+        fprintf(h->csv, "time_s,z_raw,z_hat,dzdt,rate_ema,active_sms,error,integral,ctrl_hz,rate_ref,"
+                         "z_cuda,z_tensor,rate_tensor_ema,rate_ref_tensor,ctrl_sensor\n");
         printf("[CSV] %s\n", path);
     } else {
         fprintf(stderr, "[WARN] could not open CSV %s\n", path);
@@ -690,7 +843,8 @@ int gputronic_start(GPUTronicHandle* h) {
     h->running = 1;
 
     if (h->cfg.launch_selftest_kernel) {
-        gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block);
+        gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
+                           h->cfg.enable_tensor_sensor);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             fprintf(stderr, "[GPUTronic] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -800,6 +954,22 @@ float gputronic_get_rate(const GPUTronicHandle* h) {
     return (h && h->h_ctrl) ? h->h_ctrl->rate_ema : 0.0f;
 }
 
+float gputronic_get_z_cuda(const GPUTronicHandle* h) {
+    return (h && h->h_ctrl) ? h->h_ctrl->z_cuda : 0.0f;
+}
+
+float gputronic_get_z_tensor(const GPUTronicHandle* h) {
+    return (h && h->h_ctrl) ? h->h_ctrl->z_tensor : 0.0f;
+}
+
+float gputronic_get_rate_tensor(const GPUTronicHandle* h) {
+    return (h && h->h_ctrl) ? h->h_ctrl->rate_tensor_ema : 0.0f;
+}
+
+int gputronic_get_ctrl_sensor(const GPUTronicHandle* h) {
+    return (h && h->h_ctrl) ? h->h_ctrl->ctrl_sensor : 0;
+}
+
 int gputronic_get_active_sms(const GPUTronicHandle* h) {
     return (h && h->h_ctrl) ? h->h_ctrl->active_sms : 0;
 }
@@ -821,12 +991,16 @@ int gputronic_zero_copy_ok(const GPUTronicHandle* h) {
 
 void gputronic_print_status(const GPUTronicHandle* h, int elapsed_s) {
     if (!h || !h->h_ctrl) return;
-    printf("[TEL] t=%4ds | Z_raw=%.3f Z_hat=%.3f dZ=%.3f | rate=%.0f | n=%3d | hz~%d | pulses=%llu\n",
+    printf("[TEL] t=%4ds | Z_raw=%.3f Z_hat=%.3f dZ=%.3f | Zc=%.3f Zt=%.3f sel=%s | rate=%.0f rate_t=%.0f | n=%3d | hz~%d | pulses=%llu\n",
            elapsed_s,
            h->h_ctrl->z_raw,
            h->h_ctrl->z_hat,
            h->h_ctrl->dzdt_hat,
+           h->h_ctrl->z_cuda,
+           h->h_ctrl->z_tensor,
+           h->h_ctrl->ctrl_sensor ? "tensor" : "cuda",
            h->h_ctrl->rate_ema,
+           h->h_ctrl->rate_tensor_ema,
            h->h_ctrl->active_sms,
            h->h_ctrl->control_hz_ema,
            (unsigned long long)h->h_ctrl->total_work_pulses);

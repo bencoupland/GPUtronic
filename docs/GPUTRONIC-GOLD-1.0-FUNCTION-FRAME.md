@@ -5,7 +5,7 @@ It matches `include/gputronic.h` and `src/gputronic_gold.cu` on branch `controll
 The fixes in PR #1 have **not yet been run on a GPU**. Measured numbers below come from the RTX 5080
 runs of 2026-09-23, which used the earlier controller.
 
-Function IDs (F-01 … F-15) appear in brackets in source comments so you can jump between this file
+Function IDs (F-01 … F-16) appear in brackets in source comments so you can jump between this file
 and the code.
 
 ## 1. What it is
@@ -33,6 +33,8 @@ Allocated with `cudaHostAlloc(..., cudaHostAllocMapped)`; the device pointer com
 | `active_sms` | volatile int | control thread | kernel | number of working SMs (floor 4) |
 | `total_work_pulses` | volatile u64 | kernel (`atomicAdd` only) | control thread | the pulse counter |
 | `throttle_sleep_ns`, `max_sleep_ns`, `base_sleep_ns` | int | create / Transfer / Episode | Transfer and Episode kernels | legacy sleep fields, not used by Gold's controller |
+| `tensor_work_pulses` | volatile u64 | tensor warp (`atomicAdd` only) | control thread | tensor-core pulse counter, appended at the end of the struct |
+| `z_cuda`, `z_tensor`, `rate_tensor_ema`, `ctrl_sensor` | float / int | control thread | host tools | per-sensor telemetry, appended at the end |
 | `target_z`, `z_raw`, `z_hat`, `dzdt_hat`, `rate_ema`, `pm_error`, `integral`, `proactive_corrections`, `control_hz_ema`, `num_sm` | various | control thread | host tools | telemetry snapshots |
 
 ## 3. Functions
@@ -109,6 +111,32 @@ n = round(n_ff - u * sms_per_u),  clamped to 4..num_sm
 ### Actuator [F-11]
 The control thread writes `active_sms`, then a memory barrier. The kernel reads it every pass.
 
+### Two sensors, one actuator [F-16]
+When `enable_tensor_sensor` is on (Gold default; forced off for Transfer/Episode, for
+`launch_selftest_kernel = 0`, and below sm_70), each block gets one extra warp. That warp runs 64
+chained 16×16×16 FP16→FP32 `wmma` steps per pass and adds to `tensor_work_pulses`, with the same
+fence every 32 pulses. The CUDA-core warps and `total_work_pulses` are unchanged. Blocks at or above
+`active_sms` skip both kinds of work, so one actuator gates both sensors. The wmma code is compiled
+only for sm_70 and newer.
+
+The host keeps an 8 ms window and 0.7/0.3 average for each counter, its own reference rate
+(`rate_ref`, `rate_ref_t`), and its own Z (`z_cuda`, `z_tensor`). The calibration table records both
+rates at every probe count and fits a starting SM count and `sms_per_u` for each sensor.
+
+**Control law: max selector with hysteresis.** Both Z values rise as SMs are turned off, so the PI runs
+on the larger one. The target is reached by turning off the fewest SMs, and neither kind of work is
+slowed more than requested. The controller switches sensor only when the other Z is higher by
+`sensor_hysteresis` (0.02). On a switch it loads that sensor's starting count and `sms_per_u`, then
+recomputes the integral so the commanded SM count does not jump (bumpless transfer), and moves the
+Kalman estimate to the new value. A blend was rejected because it lets the more sensitive sensor go
+past the target; in the model a 50/50 blend put the tensor Z at 1.54 when the CUDA Z was 1.42.
+If the tensor counter produces no pulses during the reference window, the controller continues on
+the CUDA-core sensor only.
+
+Getters: `gputronic_get_z_cuda`, `gputronic_get_z_tensor`, `gputronic_get_rate_tensor`,
+`gputronic_get_ctrl_sensor`. CSV columns added: `z_cuda, z_tensor, rate_tensor_ema, rate_ref_tensor,
+ctrl_sensor`.
+
 ### Lifecycle [F-12]
 `gputronic_config_gold` (defaults) → `gputronic_create` → `gputronic_start` (CSV, kernel, control
 thread) → `gputronic_stop` (stop flag, join, device sync, stats) → `gputronic_destroy`.
@@ -136,6 +164,8 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Rate window | 8 ms, average 0.7 / 0.3 | `control_thread` |
 | Threads per block | 64 | `GPUTRONIC_DEFAULT_THREADS_PER_BLOCK` |
 | SM floor | 4 | kernel and control thread |
+| Tensor sensor | on for Gold, 1 extra warp, 64 wmma steps per pulse | `enable_tensor_sensor`, `GOLD_TENSOR_STEPS` |
+| Sensor hysteresis | 0.02 | `GPUTRONIC_GOLD_SENSOR_HYSTERESIS` |
 
 ## 5. API changes in PR #1
 
@@ -143,6 +173,10 @@ Removed: `gputronic_set_open_loop_sleep`, `gputronic_get_sleep_ns`, config field
 `auto_sleep_scale`, `one_sided`, and `gold_apply_width_scale` (replaced by `gold_build_table`).
 Added: `gputronic_set_kd`, `gputronic_set_deadband`, `gputronic_reset_counters`,
 `gputronic_get_active_sms`, config fields `kd` and `probe_ms`. The control block layout is unchanged.
+
+Two-sensor change (local, after PR #1): new fields appended at the end of the control block; new config
+fields `enable_tensor_sensor`, `sensor_hysteresis`; four getters listed under F-16. `gold_launch_kernel`
+takes a fifth argument (tensor sensor on/off).
 
 ## 6. Reading order
 
@@ -157,4 +191,5 @@ Added: `gputronic_set_kd`, `gputronic_set_deadband`, `gputronic_reset_counters`,
 
 - Whole-SM steps: about 0.015–0.033 Z per SM near target on 84 SMs, about 0.1 on a 20-SM card.
 - Linear interpolation in the table leaves Transfer about 0.04 under target in the model.
-- Nothing in PR #1 has run on hardware yet.
+- Nothing in PR #1 or the two-sensor change has run on hardware yet. The tensor warp adds load on
+  each SM, so the CUDA-core rate and the measured curves will differ from the RTX 5080 runs above.

@@ -21,7 +21,8 @@
 | Gains | Kp=0.55, Ki=0.08, Kd=0 (`gputronic_set_kd`). A four-point rate-vs-SM table at calibration sets the starting SM count (`n_ff`) and `sms_per_u`. |
 | Policy | Two-sided PI around `n_ff` + 2-state Kalman. Deadband 0.015 (`gputronic_set_deadband`) holds the count. Integral clamped, no wind-up at 4 or full width. |
 | Actuator | `active_sms`. Idle SMs skip the work and do not pulse. Floor 4. |
-| Tachometer | `atomicAdd` on aggregate `total_work_pulses` |
+| Tachometer | `atomicAdd` on aggregate `total_work_pulses`; optional tensor-core counter `tensor_work_pulses` (one wmma warp per block) |
+| Two sensors | PI runs on the higher of `z_cuda` and `z_tensor`, 0.02 hysteresis, bumpless switch. Local change, not yet on hardware. |
 
 ## Verified on RTX 5080 (2026-09-23, after the width remake)
 

@@ -139,6 +139,13 @@ The transfer kernel’s few GFLOP/s are not a speed claim. The tiles are there s
 
 It is not general yet. Three kernels on one 5080. The next step is the same loop on those kernels when the workload changes, without fitting a new curve by hand.
 
+## Two sensors
+
+The Gold kernel can count two kinds of work: CUDA-core FMAs (the original counter) and tensor-core
+matrix steps (one extra warp per block, sm_70 and newer). Each has its own reference rate and its own Z.
+The SM count is still the only control. The controller follows whichever Z is higher, so it turns
+off the fewest SMs that bring either kind of work down to the target. Not yet run on a GPU.
+
 ## Test kernels
 
 - **Gold**: GPUTronic's own self-test kernel and the reference controller (`src/gputronic_gold.cu`).
