@@ -4,23 +4,23 @@
  * Read with: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md  (GT-FF-GOLD-1.0)
  *
  * Walk order (do not start at main):
- *   F-02 gold_work / gold_persistent_kernel
- *   F-01 gputronic_create
- *   F-12 gputronic_start / stop
- *   F-05…F-10 control_thread
- *   F-09 gold_build_table
- *   F-08 kalman_update
- *   F-13 mode_dyno / mode_closedloop_check
+ *   gold_work / gold_persistent_kernel        device kernel [F-02]
+ *   gputronic_create                          mapping + zero-copy check [F-01]
+ *   gputronic_start / stop                    lifecycle [F-12]
+ *   control_thread                            rate, Z, Kalman, controller [F-05..F-10]
+ *   gold_build_table                          calibration table [F-09]
+ *   kalman_update                             Z and dZ/dt filter [F-08]
+ *   mode_dyno / mode_closedloop_check         checks [F-13]
  *
  * Contracts that define Gold (lost in late v26, restored here):
- *   1. F-04  Aggregate Q via atomicAdd on total_work_pulses
- *   2. F-01  Periodic __threadfence_system; host __sync_synchronize after active_sms write
- *   3. F-06  rate_ref from a sustained free-run window (not peak EMA)
- *   4. F-07  Z = rate_ref / rate; fewer SMs ⇒ Z↑
- *   5. F-10  Two-sided PI(D) around a feed-forward SM count
- *   6. F-08  2-state Kalman with P_pred = F P F^T + Q
- *   7. F-09  n_ff / sms_per_u from a measured rate-vs-SM table
- *   8. F-02  Batched device work between mapped atomics
+ *   1. One pulse total, only ever increased with atomicAdd [F-04]
+ *   2. Periodic __threadfence_system; host barrier after writing active_sms [F-01]
+ *   3. rate_ref from a sustained full-speed window, not a peak [F-06]
+ *   4. Z = rate_ref / rate; fewer SMs raise Z [F-07]
+ *   5. Two-sided PI(D) around a starting SM count [F-10]
+ *   6. Two-state Kalman with P_pred = F P F^T + Q [F-08]
+ *   7. Starting SM count and sms_per_u from a measured rate-vs-SM table [F-09]
+ *   8. Batched device work between mapped atomics [F-02]
  *
  * Build: make gold
  * Run:   ./build/gputronic_gold check | dyno | step | run [sec] [Z] [Kp] [Ki]
@@ -38,10 +38,10 @@
 #include <time.h>
 #include <unistd.h>
 
-/* -------------------- F-02 device plant + F-04 tach + F-11 actuator -------------------- */
+/* ---- Device kernel: work, pulse counter, SM-count actuator [F-02, F-04, F-11] ---- */
 
 /* Mapped atomics set the loop period (~300 µs on this 5080). The fmaf batch
- * is real ALU so DCE cannot eat the loop; it is not a FLOP claim (see F-14). */
+ * is real ALU so DCE cannot eat the loop; it is not a FLOP claim [see F-14]. */
 #define GOLD_WORK_ITERS 8
 #define GOLD_BATCH 16
 
@@ -57,9 +57,9 @@ __device__ __forceinline__ void gold_work(float* acc, int sm, int iter) {
 }
 
 /*
- * F-02 persistent plant.
+ * Persistent self-test kernel [F-02].
  *   grid = num_sm (one block / SM)
- *   warp leaders (lane==0) pulse F-04 aggregate + per-SM diagnostic
+ *   warp leaders (lane==0) add to the pulse total and the per-SM diagnostic [F-04]
  *   Actuator: the lowest active_sms blocks do the work and pulse.
  *   Idle blocks backoff 5 µs and do not pulse. Duration is not the command.
  * Period is atomic-dominated. Do not "tune Kp" to hide that.
@@ -122,7 +122,7 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
     gold_persistent_kernel<<<num_sm, threads_per_block>>>(sm_counters, d_ctrl, num_sm);
 }
 
-/* -------------------- handle / host -------------------- */
+/* ---- Host handle and control thread ---- */
 
 #define GOLD_MAX_PROBE 8
 
@@ -137,7 +137,7 @@ struct GPUTronicHandle {
     int open_loop_sms;   /* <0 closed loop, 0 all SMs, >0 working-SM count */
     int held_sms;
     int zero_copy_ok;
-    /* F-09 calibration table: rate measured at each probe SM count. */
+    /* Calibration table: rate measured at each probe SM count [F-09]. */
     int probing;
     int probe_idx;
     int n_probe;
@@ -150,7 +150,7 @@ struct GPUTronicHandle {
     int probe_marked;
     float n_ff;          /* feed-forward working-SM count for target_z */
     float sms_per_u;     /* SMs per unit of u (= 1 / local dZ/dn) */
-    /* F-04 reset request (host API → control thread) */
+    /* Counter reset request, host API to control thread [F-04] */
     volatile int reset_req;   /* 1 = requested, 2 = flag raised, 0 = done */
     double reset_t_us;
     /* Kalman / PI state (control thread only) */
@@ -214,7 +214,7 @@ void gputronic_config_gold(GPUTronicConfig* cfg) {
 }
 
 static void kalman_update(GPUTronicHandle* h, float z_meas, float dt) {
-    /* F-08: constant-velocity model on [Z, dZ/dt].
+    /* Constant-velocity model on [Z, dZ/dt] [F-08].
      * P_pred is the explicit F P F^T + Q expansion. Do not replace with P[i]+=Q. */
     float z_pred = h->z_hat + h->dzdt_hat * dt;
     float dz_pred = h->dzdt_hat;
@@ -241,7 +241,7 @@ static void kalman_update(GPUTronicHandle* h, float z_meas, float dt) {
     h->P[1][1] = p11 - K1 * p01;
 }
 
-/* F-09: rate-vs-SM table → feed-forward count and local slope at target_z.
+/* Calibration table: rate vs SM count gives the starting count and local slope at target_z [F-09].
  * Points are (n, Z(n) = rate_ref / rate(n)), n descending. Interpolate to
  * target_z; sms_per_u = 1 / |dZ/dn| on the bracketing segment, so u is in Z
  * units. Expectation from the committed dyno CSVs (sanity only, not used):
@@ -296,7 +296,7 @@ static void gold_reset_rate_state(GPUTronicHandle* h) {
 }
 
 static void* control_thread(void* arg) {
-    /* F-12 ECU thread. Per accepted tick: F-05 rate → F-06/F-07 Z → F-08 → F-10 → cable. */
+    /* Control thread [F-12]. Each tick: rate [F-05], Z [F-06, F-07], Kalman [F-08], controller [F-10], write active_sms. */
     GPUTronicHandle* h = (GPUTronicHandle*)arg;
     const float dt_target = h->cfg.control_dt_us * 1e-6f;
     double last = now_us();
@@ -355,7 +355,7 @@ static void* control_thread(void* arg) {
         if (dt > 0.01f) dt = 0.01f;
         last = t;
 
-        /* ---- F-04 counter reset (requested by gputronic_reset_counters) ----
+        /* ---- Counter reset, requested by gputronic_reset_counters [F-04] ----
          * Raise RESET so blocks stop pulsing, wait out an in-flight batch
          * (~300 µs period; 2 ms margin), then zero the mapped total from the
          * host while no device atomics are issuing, and restart rate state. */
@@ -381,7 +381,7 @@ static void* control_thread(void* arg) {
         unsigned long long dpulse = pulses - h->prev_pulses;
         h->prev_pulses = pulses;
 
-        /* F-05: form rate over ~8 ms, not a 10 µs tick. */
+        /* Rate over an ~8 ms window, not one 10 µs tick [F-05]. */
         h->rate_win_pulses += dpulse;
         h->rate_win_dt += (double)dt;
         if (h->rate_win_dt >= 0.008) {
@@ -394,7 +394,7 @@ static void* control_thread(void* arg) {
                 h->rate_ema = 0.70f * h->rate_ema + 0.30f * inst_rate;
         }
 
-        /* ---- F-06 / F-09 calibration ---- */
+        /* ---- Calibration: reference rate, then table [F-06, F-09] ---- */
         float z_raw;
         int n_cmd = N;
         if (!h->calibrated) {
@@ -478,7 +478,7 @@ static void* control_thread(void* arg) {
             h->integral = 0.0f;
         } else {
             /*
-             * F-10 two-sided PI(D) around the feed-forward count:
+             * Two-sided PI(D) around the starting count [F-10]:
              *   u = Kp*e + Ki*I - Kd*dZ/dt,  n = n_ff - u*sms_per_u.
              * e > 0 (Z below target) drops SMs; e < 0 adds them back
              * gradually. Inside the deadband the count is held and the
@@ -543,7 +543,7 @@ static void* control_thread(void* arg) {
     return NULL;
 }
 
-/* F-01 round trip: device reads a host-written word through the mapped
+/* Zero-copy round trip [F-01]: device reads a host-written word through the mapped
  * pointer and writes back its complement. */
 __global__ void gold_zc_probe_kernel(GPUTronicControl* ctrl) {
     if (blockIdx.x == 0 && threadIdx.x == 0) {
@@ -582,7 +582,7 @@ static int gold_verify_zero_copy(GPUTronicHandle* h) {
     return type_ok && host_ok && dev_ok && rt_ok;
 }
 GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
-    /* F-01: map the cable. Query SM count. No PCIe fallback. */
+    /* Map the shared control block and query the SM count. No copy-based fallback [F-01]. */
     GPUTronicHandle* h = (GPUTronicHandle*)calloc(1, sizeof(GPUTronicHandle));
     if (!h) return NULL;
 
@@ -650,7 +650,7 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     h->open_loop_sms = -1;
     h->held_sms = h->cfg.num_sm;
     h->n_ff = (float)h->cfg.num_sm;
-    h->sms_per_u = 1.0f / 0.03f;   /* placeholder until the F-09 table */
+    h->sms_per_u = 1.0f / 0.03f;   /* placeholder until the calibration table [F-09] */
     h->h_ctrl->active_sms = h->cfg.num_sm;
     h->running = 0;
     h->started = 0;
@@ -832,7 +832,7 @@ void gputronic_print_status(const GPUTronicHandle* h, int elapsed_s) {
            (unsigned long long)h->h_ctrl->total_work_pulses);
 }
 
-/* -------------------- CLI modes -------------------- */
+/* ---- Command-line modes [F-13] ---- */
 
 static int mode_run(int duration_s, float target, float kp, float ki) {
     GPUTronicConfig cfg;

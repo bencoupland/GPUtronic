@@ -1,7 +1,7 @@
 /* GPUTronic Gold — watchable closed-loop embed demo
  *
  * Self-test plant only (Gold persistent kernel). Not a FLOP benchmark.
- * Protocol: ~8 s free-run (open-loop sleep=0, includes F-06 cal),
+ * Protocol: ~8 s free-run (open-loop sleep=0, includes calibration [F-06]),
  * then ~22 s one-sided PI tracking target Z=1.50.
  *
  *   make demo && ./build/gputronic_demo
@@ -228,12 +228,12 @@ int main(void) {
             s.z_hat = ctrl->z_hat;
             s.z_raw = ctrl->z_raw;
             s.rate = ctrl->rate_ema;
-            s.sleep_ns = ctrl->throttle_sleep_ns;
+            s.sleep_ns = ctrl->active_sms;  /* field reused: working SMs */
             s.hz = ctrl->control_hz_ema;
             s.pulses = (unsigned long long)ctrl->total_work_pulses;
             samples[n++] = s;
             bar_z(bar, (int)sizeof(bar), s.z_hat, target);
-            printf(" t=%5.1fs  %-5s  Z=%5.3f %s  rate=%9.0f  sleep=%7d  hz~%d\n",
+            printf(" t=%5.1fs  %-5s  Z=%5.3f %s  rate=%9.0f  sms=%3d  hz~%d\n",
                    s.t, phase == PHASE_FREE ? "FREE" : "TRACK", s.z_hat, bar, s.rate,
                    s.sleep_ns, s.hz);
             fflush(stdout);

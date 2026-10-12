@@ -1,6 +1,10 @@
-/* GPUTronic show — one cooperative kernel, one strip chart.
- * Ceiling, width map, the same step again, stock loop, release.
- * Free-run is the fastest this interface gets. */
+/* =============================================================================
+ * GPUTronic Show: one cooperative kernel, one strip chart
+ *
+ * Phases: full-speed rate, SM-count map, the same step again, stock
+ * controller, release back to full speed. Full speed (all SMs) is the
+ * fastest this interface gets.
+ * ============================================================================= */
 #include "gputronic.h"
 
 #include <cuda_runtime.h>
@@ -37,6 +41,8 @@ struct Sample {
     double z;
     double gflops;
 };
+
+/* ---- Kernels ---- */
 
 static double now_us(void) {
     struct timespec ts;
@@ -132,6 +138,8 @@ __global__ void show_kernel(GPUTronicControl* ctrl, int num_sm, int tiles) {
     if (tid == 0 && acc == 3.14159265f)
         atomicAdd((unsigned long long*)&ctrl->total_work_pulses, 0ULL);
 }
+
+/* ---- Sampling and chart output ---- */
 
 static int sample_at(GPUTronicHandle* h, struct Sample* s, double t0, int phase,
                      unsigned long long* p_prev, double* t_prev) {
@@ -311,6 +319,8 @@ static void write_chart(const struct Sample* s, int n, double twin_gflops,
     fprintf(fp, "</main></body></html>\n");
     fclose(fp);
 }
+
+/* ---- Phases and sweep ---- */
 
 static double run_twin(int num_sm, int tiles, double seconds) {
     volatile int* run_h = NULL;
@@ -525,6 +535,8 @@ static int sweep_main(int num_sm) {
     printf("\ncsv  results/gputronic_sweep_tiles.csv  results/gputronic_sweep_sms.csv\n");
     return 0;
 }
+
+/* ---- Command-line entry ---- */
 
 int main(int argc, char** argv) {
     cudaDeviceProp prop;

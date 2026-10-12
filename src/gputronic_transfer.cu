@@ -1,7 +1,7 @@
 /* =============================================================================
  * GPUTronic Transfer Plant — cooperative GEMM microtiles on Gold 1.0
  * -----------------------------------------------------------------------------
- * Read with: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md  (F-03, F-14)
+ * Read with: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md [F-03, F-14]
  *
  * Second kernel on the Gold interface.
  *   - launch_selftest_kernel = 0
@@ -57,7 +57,7 @@ static inline double now_us(void) {
     return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1000.0;
 }
 
-/* -------------------- cooperative plant -------------------- */
+/* ---- Transfer kernel: cooperative GEMM tiles ---- */
 
 /* sleep_sms == NULL, or *sleep_sms < 0: every SM honours the command (the
  * gate). *sleep_sms >= 0: only the lowest blocks take __nanosleep. Awake
@@ -253,7 +253,7 @@ static void measure_window(GPUTronicHandle* h, int settle_us, int window_us,
     if (dp_out) *dp_out = p1 - p0;
 }
 
-/* -------------------- modes -------------------- */
+/* ---- Command-line modes ---- */
 
 static int mode_dyno(void) {
     GPUTronicConfig cfg;
@@ -367,7 +367,7 @@ static int mode_closedloop(int seconds) {
     cfg.csv_path = "results/gputronic_transfer_closedloop.csv";
     cfg.max_sleep_ns = 500000;
     cfg.launch_selftest_kernel = 0;
-    /* Gold 1.0 auto-schedules sleep_scale from the measured loop period. */
+    /* Gold sets n_ff and sms_per_u from its calibration table. */
 
     GPUTronicHandle* h = transfer_boot(&cfg);
     if (!h) return 1;
@@ -461,11 +461,11 @@ static int mode_closedloop(int seconds) {
                 "pulses=%llu z=%.4f z_mean=%.4f target=%.3f sleep=%d "
                 "fr_rate=%.1f fr_gflops=%.6f cl_rate=%.1f cl_gflops=%.6f "
                 "tach=%d track=%d useful_drop=%d model=%d cal_swallow=%d "
-                "sleep_scale=%.0f(removed) PASS=%d\n",
+                "PASS=%d\n",
                 pulses, z, z_mean, target, sleep_ns,
                 fr_rate, fr_gflops, cl_rate, cl_gflops,
                 pulses_ok, track_ok, useful_drop, model_ok, cal_swallow,
-                0.0f, pass);
+                pass);
         fclose(rf);
     }
 

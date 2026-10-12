@@ -6,13 +6,13 @@
  * Function list: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md
  *
  * Names, not a claim that the GPU is a motor:
- *   Q — useful work rate     (F-04 pulse counter)
- *   Z — rate_ref / rate      (F-07)  free-run ≈ 1
+ *   Q — useful work rate, the pulse counter [F-04]
+ *   Z — rate_ref / rate, about 1 at full speed [F-07]
  *   D — temperature and power, left to the stock driver
  *
  * Modes:
- *   Another kernel adds pulses and runs only active_sms SMs (F-03).
- *   Self-test — Gold launches gold_persistent_kernel (F-02).
+ *   Another kernel adds pulses and runs only active_sms SMs [F-03].
+ *   Self-test: Gold launches gold_persistent_kernel [F-02].
  * ============================================================================= */
 
 #ifndef GPUTRONIC_H
@@ -30,17 +30,18 @@ extern "C" {
 #define GPUTRONIC_VERSION_STRING "1.0.0-gold"
 
 /* RTX 5080 (GB203) defaults — override via config.num_sm after query.
- * Calibration constants: function frame §3. Changing these is a Gold tag. */
+ * Calibration constants are listed in docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md, section 4.
+ * Changing them needs a new version number. */
 #define GPUTRONIC_DEFAULT_NUM_SM 84
 #define GPUTRONIC_DEFAULT_THREADS_PER_BLOCK 64
-#define GPUTRONIC_DEFAULT_CONTROL_DT_US 10      /* path period, not observer period (F-05) */
+#define GPUTRONIC_DEFAULT_CONTROL_DT_US 10      /* control tick, not the rate window [F-05] */
 /* Legacy sleep values. Gold no longer reads or writes them after create; they
  * are copied into the control block only for the transfer/episode plants,
  * whose kernels still honour throttle_sleep_ns. */
 #define GPUTRONIC_DEFAULT_MAX_SLEEP_NS 500000
 #define GPUTRONIC_DEFAULT_BASE_SLEEP_NS 5
 
-/* Tracking defaults. Kp and Ki unchanged. F-09 measures a rate-vs-SM table at
+/* Controller defaults. Kp and Ki unchanged. Calibration [F-09] measures a rate-vs-SM table at
  * calibration and sets the feed-forward SM count (n_ff) and sms_per_u (local
  * slope) from it. The law is two-sided around n_ff:
  *   u = Kp*e + Ki*I - Kd*dZ/dt,  n = n_ff - u*sms_per_u,  e = target - Z     */
@@ -54,19 +55,20 @@ extern "C" {
 #define GPUTRONIC_GOLD_Z_CEILING 10.0f
 #define GPUTRONIC_GOLD_Z_FLOOR 0.3f
 
-/* F-01 cable. Mapped pinned memory. Host writes actuators; device atomicAdds Q.
+/* ---- Shared control block [F-01] ----
+ * Mapped pinned memory. Host writes the commands; the device adds pulses.
  * Telemetry snapshots are host-written; the kernel must run without them. */
 struct GPUTronicControl {
-    volatile unsigned int control_flags; /* F-02: bit0=STOP bit1=PAUSE bit2=RESET */
+    volatile unsigned int control_flags; /* bit0 STOP, bit1 PAUSE, bit2 RESET [F-02] */
     volatile int throttle_sleep_ns;      /* legacy: read only by transfer/episode kernels */
     int max_sleep_ns;                    /* legacy: transfer/episode clamp */
     int base_sleep_ns;                   /* legacy: initial throttle_sleep_ns */
     /* Working-SM count. Lowest active_sms blocks issue and pulse.
      * 0 or >= num_sm means every SM. Never commanded below 4. */
     volatile int active_sms;
-    /* F-04 tachometer. Device: atomicAdd only. Never last-SM assign. */
+    /* Pulse total [F-04]. Device: atomicAdd only; never assign it from one SM. */
     volatile unsigned long long total_work_pulses;
-    /* Host snapshots (F-07, F-08, F-10). Device may read target_z. */
+    /* Host-written telemetry [F-07, F-08, F-10]. The kernel does not read these. */
     float target_z;
     float z_raw;
     float z_hat;
@@ -79,6 +81,7 @@ struct GPUTronicControl {
     int num_sm;
 };
 
+/* ---- Flags and handle ---- */
 #define GPUTRONIC_FLAG_STOP 0x1u
 #define GPUTRONIC_FLAG_PAUSE 0x2u
 #define GPUTRONIC_FLAG_RESET 0x4u
@@ -99,22 +102,24 @@ typedef struct GPUTronicConfig {
     float deadband;
     float z_ceiling;
     float z_floor;
-    int enable_kalman;       /* F-08 */
-    int launch_selftest_kernel; /* 1 = F-02; 0 = F-03 foreign plant */
-    int probe_ms;            /* F-09 time per calibration point (default 300) */
+    int enable_kalman;       /* Kalman filter on Z [F-08] */
+    int launch_selftest_kernel; /* 1 = launch self-test kernel [F-02]; 0 = another kernel [F-03] */
+    int probe_ms;            /* ms per calibration point, default 300 [F-09] */
     const char* csv_path;    /* NULL = results/gputronic_gold.csv */
 } GPUTronicConfig;
+
+/* ---- Configuration ---- */
 
 /* Fill config with Gold calibration defaults. */
 void gputronic_config_gold(GPUTronicConfig* cfg);
 
-/* F-12 lifecycle */
+/* ---- Lifecycle [F-12] ---- */
 GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg);
-int gputronic_start(GPUTronicHandle* h);   /* control thread (+ F-02 if configured) */
+int gputronic_start(GPUTronicHandle* h);   /* control thread, plus self-test kernel if configured [F-02] */
 void gputronic_stop(GPUTronicHandle* h);
 void gputronic_destroy(GPUTronicHandle* h);
 
-/* Runtime */
+/* ---- Runtime ---- */
 void gputronic_set_target(GPUTronicHandle* h, float target_z);
 void gputronic_set_gains(GPUTronicHandle* h, float kp, float ki);
 void gputronic_set_kd(GPUTronicHandle* h, float kd);
@@ -129,7 +134,7 @@ float gputronic_get_rate(const GPUTronicHandle* h);
 int gputronic_get_active_sms(const GPUTronicHandle* h);
 struct GPUTronicControl* gputronic_get_control(GPUTronicHandle* h);
 
-/* F-03 / F-04 host path. Host atomic add (__sync_fetch_and_add). Only
+/* Host-side pulse [F-03, F-04]. Host atomic add (__sync_fetch_and_add). Only
  * coherent with concurrent device atomicAdd on platforms with
  * hostNativeAtomicSupported; otherwise do not mix with a pulsing kernel. */
 void gputronic_pulse(GPUTronicHandle* h, unsigned long long units);

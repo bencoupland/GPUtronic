@@ -17,7 +17,7 @@
  *
  * `proof` is the demo on this same plant (Gold untouched, stock Kp/Ki/clamp):
  *   1 uninstrumented twin
- *   2 tachometer on, actuator at base — the tax
+ *   2 counter on, actuator at base — the cost of counting ("tax")
  *   3 open-loop stall sized to the launch, near Z=1.5, on a slope
  *   4 stock PI, then release, only if phase 3 could already sit there
  * ============================================================================= */
@@ -112,7 +112,7 @@ static void episode_load_env(void) {
     }
 }
 
-/* -------------------- launch-complete plant -------------------- */
+/* ---- Episode kernel: launch-complete GEMM ---- */
 
 __global__ void episode_kernel(GPUTronicControl* ctrl, int num_sm,
                                int pulses_per_episode, int sleep_shots) {
@@ -347,7 +347,7 @@ static void path_join(char* out, size_t n, const char* suffix) {
     snprintf(out, n, "%s%s", g_prefix, suffix);
 }
 
-/* -------------------- modes -------------------- */
+/* ---- Command-line modes ---- */
 
 static int mode_dyno(void) {
     GPUTronicConfig cfg;
@@ -642,11 +642,10 @@ static int mode_run(int seconds) {
     return 0;
 }
 
-/* =============================================================================
- * Proof demo. Same episode math, Gold frozen.
+/* ---- Proof demo: same episode math, Gold controller unchanged ----
  *
- * Phase 1 — twin. Same tiles, no mapped atomic, no fence, no sleep.
- * Phase 2 — tachometer on, actuator at base. Tax is phase2 / phase1.
+ * Phase 1 — reference kernel ("twin"): same tiles, no mapped atomic, no fence, no sleep.
+ * Phase 2 — counter on, actuator at base. Counting cost = phase2 / phase1 ("tax").
  * Phase 3 — open-loop stall sized to the measured launch T.
  *   Host: clock wait after sync (real wall time, not __nanosleep).
  *   Device: N sleeps of the stock 500 µs clamp. max_sleep stays 500 µs,

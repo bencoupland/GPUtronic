@@ -72,7 +72,7 @@ episode-check: episode
 episode-proof: episode
 	./$(BUILD_DIR)/gputronic_episode proof
 
-# ---- The floor: ceiling, width map, loop, release ----
+# ---- Show: full-speed rate, SM-count map, closed loop, release ----
 show: $(BUILD_DIR)/gputronic_show
 	./$(BUILD_DIR)/gputronic_show
 
@@ -113,7 +113,7 @@ help:
 	@echo "  make episode        - launch-complete GEMM plant (Gold frozen)"
 	@echo "  make show           - ceiling, width map, loop, release"
 	@echo "  make episode-check  - episode dyno + closed-loop gate"
-	@echo "  make episode-proof - twin / tax / open-loop hold / stock PI"
-	@echo "  make dyno           - Gold sleep→rate linearity sweep"
+	@echo "  make episode-proof - reference run, counting cost, open-loop hold, stock PI"
+	@echo "  make dyno           - Gold SM-count → rate sweep"
 	@echo "  make run            - 30s Gold closed-loop free-run"
 	@echo "  make clean"
