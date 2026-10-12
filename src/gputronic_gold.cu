@@ -104,7 +104,11 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  * the pulse rate falls to 1000/S. A literal extra-FMA multiplier would not work:
  * the pass is about 288 us of mapped atomics and only ~1.6 us of arithmetic, so 20%
  * more arithmetic barely moves the rate. Default 1000/0 always pulses. */
-__device__ __forceinline__ int gold_load_pulse(GPUTronicControl* ctrl, unsigned int* credit) {
+__device__ __forceinline__ int gold_load_pulse(unsigned int flags, GPUTronicControl* ctrl,
+                                               unsigned int* credit) {
+    /* work_scale_milli is only read while the host has set GPUTRONIC_FLAG_LOAD in
+     * control_flags, which every pass already reads. Normal runs add no mapped read. */
+    if (!(flags & GPUTRONIC_FLAG_LOAD)) return 1;
     unsigned int s = ctrl->work_scale_milli;
     if (s <= 1000u) return 1;
     *credit += 1000u;
@@ -153,7 +157,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         if (is_tensor_warp) {
             float t = gold_tensor_work(sm);
             if (t > 1.0e30f) local += t;   /* keep the result live */
-            if (lane == 0 && gold_load_pulse(ctrl, &load_credit)) {
+            if (lane == 0 && gold_load_pulse(flags, ctrl, &load_credit)) {
                 atomicAdd((unsigned long long*)&ctrl->tensor_work_pulses, 1ULL);
                 local_pulses++;
                 if ((local_pulses & 31u) == 0u) __threadfence_system();
@@ -176,7 +180,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             work_count[sm * 32 + (tid >> 5)] = work_done;
         }
 
-        if (lane == 0 && gold_load_pulse(ctrl, &load_credit)) {
+        if (lane == 0 && gold_load_pulse(flags, ctrl, &load_credit)) {
             atomicAdd(&sm_counters[sm], 1ULL);
             atomicAdd((unsigned long long*)&ctrl->total_work_pulses, 1ULL);
             local_pulses++;
@@ -314,6 +318,11 @@ void gputronic_config_gold(GPUTronicConfig* cfg) {
     if (ev && *ev) cfg->sensor_rule = (strcmp(ev, "min") == 0) ? 1 : 0;
     ev = getenv("GPUTRONIC_INTEGRAL_CLAMP");   /* > 0 fixed clamp, e.g. 1.0 for the pre-fix baseline */
     if (ev && *ev) cfg->integral_clamp = (float)atof(ev);
+    ev = getenv("GPUTRONIC_DEADBAND");   /* hold the count when |Z - target| is inside z (port of 42b88c9) */
+    if (ev && *ev) {
+        float db = (float)atof(ev);
+        if (db >= 0.0f && db < 1.0f) cfg->deadband = db;
+    }
     ev = getenv("GPUTRONIC_RESERVE_SMS");
     if (ev && *ev) cfg->reserve_sms = atoi(ev) < 0 ? 0 : atoi(ev);
     cfg->csv_path = "results/gputronic_gold.csv";
@@ -1415,7 +1424,12 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
         double t_ms = (now_us() - t0) / 1000.0;
         if (t_ms >= duration_s * 1000.0) break;
         while (k < np && p[k].t_ms <= t_ms) cur = p[k++].scale_milli;
-        h->h_ctrl->work_scale_milli = cur;
+        if (cur != h->h_ctrl->work_scale_milli) {
+            h->h_ctrl->work_scale_milli = cur;
+            __sync_synchronize();
+            if (cur > 1000u) __sync_fetch_and_or(&h->h_ctrl->control_flags, GPUTRONIC_FLAG_LOAD);
+            else __sync_fetch_and_and(&h->h_ctrl->control_flags, ~GPUTRONIC_FLAG_LOAD);
+        }
         if (t_ms >= next_bin) {
             clock_gettime(CLOCK_REALTIME, &rt);
             if (f) fprintf(f, "%ld.%06ld,%.1f,%.3f,%.5f,%.5f,%d,%.5f,%.5f,%.1f,%s\n",
@@ -1429,6 +1443,7 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
         if (sec != last_print) { last_print = sec; if (sec > 0) gputronic_print_status(h, sec); }
         usleep(200);
     }
+    __sync_fetch_and_and(&h->h_ctrl->control_flags, ~GPUTRONIC_FLAG_LOAD);
     h->h_ctrl->work_scale_milli = 1000u;
     if (f) fclose(f);
     gputronic_stop(h);

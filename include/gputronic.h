@@ -65,7 +65,7 @@ extern "C" {
  * Mapped pinned memory. Host writes the commands; the device adds pulses.
  * Telemetry snapshots are host-written; the kernel must run without them. */
 struct GPUTronicControl {
-    volatile unsigned int control_flags; /* bit0 STOP, bit1 PAUSE, bit2 RESET [F-02] */
+    volatile unsigned int control_flags; /* bit0 STOP, bit1 PAUSE, bit2 RESET, bit3 LOAD [F-02] */
     volatile int throttle_sleep_ns;      /* legacy: read only by transfer/episode kernels */
     int max_sleep_ns;                    /* legacy: transfer/episode clamp */
     int base_sleep_ns;                   /* legacy: initial throttle_sleep_ns */
@@ -104,6 +104,7 @@ struct GPUTronicControl {
 #define GPUTRONIC_FLAG_STOP 0x1u
 #define GPUTRONIC_FLAG_PAUSE 0x2u
 #define GPUTRONIC_FLAG_RESET 0x4u
+#define GPUTRONIC_FLAG_LOAD 0x8u   /* T6/T7: kernel reads work_scale_milli only while set */
 
 typedef struct GPUTronicHandle GPUTronicHandle;
 
