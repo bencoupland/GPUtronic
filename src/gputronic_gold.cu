@@ -243,6 +243,16 @@ struct GPUTronicHandle {
     float rate_ref; /* free-run rate for Z = rate_ref / rate */
     double rate_win_dt;
     unsigned long long rate_win_pulses;
+    /* Loop telemetry (control thread writes; trace/stats read; diagnostic only). */
+    unsigned long long st_loop;      /* control-loop iterations, all phases */
+    unsigned long long st_ticks;     /* closed-loop PI ticks after calibration */
+    unsigned long long st_db_skip;   /* ticks held inside the deadband */
+    unsigned long long st_int_upd;   /* ticks where the integral changed (> 1e-6) */
+    unsigned long long st_rail;      /* ticks with |integral| at the clamp */
+    unsigned long long st_moves;     /* ticks where the SM count changed */
+    unsigned long long st_p_only;    /* SM-count changes with the integral unchanged */
+    unsigned long long last_win_pulses; /* pulses in the last closed 8 ms window */
+    float last_p_term;               /* Kp*e - Kd*dZ/dt on the last PI tick */
     int calibrated;
     double calibrate_until_us;
     double cal_sustain_from_us;
@@ -547,6 +557,7 @@ static void* control_thread(void* arg) {
         if (h->rate_win_dt >= 0.008) {
             float inst_rate = (float)((double)h->rate_win_pulses / h->rate_win_dt);
             float inst_t = (float)((double)h->rate_win_pulses_t / h->rate_win_dt);
+            h->last_win_pulses = h->rate_win_pulses;
             h->rate_win_pulses = 0;
             h->rate_win_pulses_t = 0;
             h->rate_win_dt = 0.0;
@@ -711,8 +722,12 @@ static void* control_thread(void* arg) {
             error = h->cfg.target_z - z;
             n_cmd = h->held_sms;
             if (n_cmd < 4 || n_cmd > N) n_cmd = N;
+            float i_before = h->integral;
+            h->st_ticks++;
+            if (fabsf(error) < h->cfg.deadband) h->st_db_skip++;
             if (fabsf(error) >= h->cfg.deadband) {
                 float u_p = h->cfg.kp * error - h->cfg.kd * h->dzdt_hat;
+                h->last_p_term = u_p;
                 float i_new = h->integral + error * dt;
                 if (i_new > h->iclamp) i_new = h->iclamp;
                 if (i_new < -h->iclamp) i_new = -h->iclamp;
@@ -724,7 +739,13 @@ static void* control_thread(void* arg) {
                 float nf = h->n_ff - u * h->sms_per_u;
                 n_cmd = (int)floorf(nf + 0.5f);
             }
+            int i_changed = fabsf(h->integral - i_before) > 1e-6f;
+            if (i_changed) h->st_int_upd++;
+            if (h->iclamp > 0.0f && fabsf(h->integral) >= 0.999f * h->iclamp) h->st_rail++;
+            int nc = n_cmd < 4 ? 4 : (n_cmd > N ? N : n_cmd);
+            if (nc != h->held_sms) { h->st_moves++; if (!i_changed) h->st_p_only++; }
         }
+        h->st_loop++;
 
         if (n_cmd < 4) n_cmd = 4;
         if (n_cmd > N) n_cmd = N;
@@ -974,6 +995,9 @@ void gputronic_stop(GPUTronicHandle* h) {
         double mean = h->sum_z / (double)h->n_z;
         double var = h->sum_z2 / (double)h->n_z - mean * mean;
         if (var < 0) var = 0;
+        printf("\n[STATS] loop_iters=%llu pi_ticks=%llu deadband_held=%llu integral_updates=%llu "
+               "integral_on_rail=%llu sm_moves=%llu p_only_moves=%llu\n",
+               h->st_loop, h->st_ticks, h->st_db_skip, h->st_int_upd, h->st_rail, h->st_moves, h->st_p_only);
         printf("\n[STATS] samples=%lld mean_Z=%.4f std_Z=%.4f active_sms=%d..%d rows_csv=%lld\n",
                (long long)h->n_z, mean, sqrt(var), h->min_sms, h->max_sms,
                (long long)h->csv_rows);
@@ -1400,6 +1424,9 @@ static int gold_load_bursts(GoldLoadPoint* p, int maxn, double scale, unsigned i
 
 /* Run closed loop at Z 1.5 (or open-loop full width if full_width), wait for
  * calibration, then apply the schedule and log one row per 10 ms bin. */
+/* full_width: 0 closed loop, 1 open loop all SMs, >1 open loop at that many SMs (T10).
+ * Bin size: GPUTRONIC_TRACE_BIN_US (default 10000 = 10 ms, minimum 500). Rows are
+ * streamed to the file, so memory use does not grow with run length. */
 static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, int duration_s, int full_width) {
     GPUTronicConfig cfg;
     gputronic_config_gold(&cfg);
@@ -1409,13 +1436,19 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
     if (gputronic_start(h) != 0) { gputronic_destroy(h); return 1; }
     h->h_ctrl->work_scale_milli = 1000u;
     while (!h->calibrated && !g_signal_stop) usleep(1000);
-    if (full_width) gputronic_set_open_loop_sms(h, 0);
+    if (full_width) gputronic_set_open_loop_sms(h, full_width > 1 ? full_width : 0);
+    double bin_ms = 10.0;
+    { const char* bv = getenv("GPUTRONIC_TRACE_BIN_US"); if (bv && atoi(bv) >= 500) bin_ms = atoi(bv) / 1000.0; }
     struct timespec rt;
     clock_gettime(CLOCK_REALTIME, &rt);
     printf("[LOAD] calibrated; schedule t=0 at wall %ld.%09ld (CLOCK_REALTIME), %d points, %d s\n",
            (long)rt.tv_sec, rt.tv_nsec, np, duration_s);
     FILE* f = fopen(csv_bin, "w");
-    if (f) fprintf(f, "wall_s,t_ms,scale,z_raw,z_hat,active_sms,integral,clamp,rate_ema,sensor\n");
+    if (f) fprintf(f, "wall_s,t_ms,scale,z_raw,z_hat,active_sms,integral,clamp,rate_ema,sensor,"
+                      "win_pulses,p_term,loop_iters,loop_hz,pi_ticks,deadband_held,integral_updates,"
+                      "rail_ticks,sm_moves,p_only_moves\n");
+    unsigned long long pv[7] = {h->st_loop, h->st_ticks, h->st_db_skip, h->st_int_upd,
+                                h->st_rail, h->st_moves, h->st_p_only};
     double t0 = now_us();
     double next_bin = 0.0;
     int k = 0, last_print = -1;
@@ -1432,12 +1465,18 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
         }
         if (t_ms >= next_bin) {
             clock_gettime(CLOCK_REALTIME, &rt);
-            if (f) fprintf(f, "%ld.%06ld,%.1f,%.3f,%.5f,%.5f,%d,%.5f,%.5f,%.1f,%s\n",
+            unsigned long long cv[7] = {h->st_loop, h->st_ticks, h->st_db_skip, h->st_int_upd,
+                                        h->st_rail, h->st_moves, h->st_p_only};
+            if (f) fprintf(f, "%ld.%06ld,%.2f,%.3f,%.5f,%.5f,%d,%.5f,%.5f,%.1f,%s,%llu,%.5f,%llu,%.0f,%llu,%llu,%llu,%llu,%llu,%llu\n",
                            (long)rt.tv_sec, rt.tv_nsec / 1000, t_ms, cur / 1000.0,
                            h->h_ctrl->z_raw, h->h_ctrl->z_hat, h->h_ctrl->active_sms,
                            h->integral, h->iclamp, h->h_ctrl->rate_ema,
-                           h->h_ctrl->ctrl_sensor ? "tensor" : "cuda");
-            next_bin += 10.0;
+                           h->h_ctrl->ctrl_sensor ? "tensor" : "cuda",
+                           h->last_win_pulses, h->last_p_term,
+                           cv[0] - pv[0], (cv[0] - pv[0]) * 1000.0 / bin_ms,
+                           cv[1] - pv[1], cv[2] - pv[2], cv[3] - pv[3], cv[4] - pv[4], cv[5] - pv[5], cv[6] - pv[6]);
+            for (int q = 0; q < 7; q++) pv[q] = cv[q];
+            next_bin += bin_ms;
         }
         int sec = (int)(t_ms / 1000.0);
         if (sec != last_print) { last_print = sec; if (sec > 0) gputronic_print_status(h, sec); }
@@ -1528,6 +1567,7 @@ static void usage(const char* argv0) {
     printf("  %s loadstep [sec] [scale] [t_on_s] [t_off_s]  # T6: Z 1.5, load step (default 60 1.2 20 0=hold)\n", argv0);
     printf("  %s bursts [scale] [seed] [reps]              # T7: 2..200 ms bursts (default 1.2 1 5)\n", argv0);
     printf("  %s loadfile <file> [sec]                      # schedule file, lines \"t_ms scale\"\n", argv0);
+    printf("  %s noise [sms] [sec]                         # T10: open loop at fixed SMs, Z noise floor (default 46 30)\n", argv0);
     printf("  %s ratio [hold_s] [n1,n2,...]                 # T9: pulse-to-work ratio (default 5, N,3N/4,N/2,N/4)\n", argv0);
     printf("  %s fullwidth [sec]                            # T8: open loop, all SMs, no controller\n", argv0);
 }
@@ -1587,6 +1627,13 @@ int main(int argc, char** argv) {
         if (n < 0) return 1;
         int sec = argc >= 4 ? atoi(argv[3]) : (n > 0 ? (int)(pts[n - 1].t_ms / 1000.0) + 10 : 30);
         return gold_load_run("results/gputronic_gold_loadfile_10ms.csv", pts, n, sec, 0);
+    }
+    if (strcmp(mode, "noise") == 0) {   /* T10: open loop at a fixed SM count, no control */
+        int nsm = argc >= 3 ? atoi(argv[2]) : 46;
+        int sec = argc >= 4 ? atoi(argv[3]) : 30;
+        if (nsm < 4) nsm = 4;
+        if (sec <= 0) sec = 30;
+        return gold_load_run("results/gputronic_gold_noise.csv", NULL, 0, sec, nsm);
     }
     if (strcmp(mode, "ratio") == 0) {
         int hold = argc >= 3 ? atoi(argv[2]) : 5;

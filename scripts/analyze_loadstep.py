@@ -4,7 +4,13 @@
 Input: the 10 ms bin CSV written by `gputronic_gold loadstep|bursts|loadfile`
 (columns wall_s,t_ms,scale,z_raw,z_hat,active_sms,integral,clamp,rate_ema,sensor).
 
-Usage: python3 scripts/analyze_loadstep.py results/gputronic_gold_loadstep_10ms.csv [--target 1.5] [--tol 0.02] [--recover-s 2]
+Also T10 (`gputronic_gold noise`) and any trace with the newer telemetry columns:
+SM-walk (fraction of bins where the count changed, distinct counts, std), Z noise
+(std and bin-to-bin step of z_raw / z_hat), loop rate and PI counters.
+--noise FILE compares Z noise against an open-loop noise-floor trace (T10): if the
+noise is the same without control, it comes from the sensor/plant, not the loop.
+
+Usage: python3 scripts/analyze_loadstep.py TRACE.csv [--target 1.5] [--tol 0.02] [--recover-s 2] [--noise NOISE.csv]
 Pure Python, no third-party modules.
 """
 import csv
@@ -44,6 +50,54 @@ def segments(rows):
     return segs
 
 
+def load_raw(path):
+    with open(path, newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def stdev(xs):
+    if len(xs) < 2:
+        return float("nan")
+    m = sum(xs) / len(xs)
+    return (sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5
+
+
+def fnum(r, k):
+    try:
+        return float(r[k])
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+def walk_and_noise(path, label):
+    """SM-walk, Z-noise and telemetry summary. Returns z_raw bin-to-bin std."""
+    raw = load_raw(path)
+    n = [fnum(r, "active_sms") for r in raw]
+    n = [x for x in n if x is not None]
+    zr = [x for x in (fnum(r, "z_raw") for r in raw) if x is not None]
+    zh = [x for x in (fnum(r, "z_hat") for r in raw) if x is not None]
+    if not n or not zr:
+        return float("nan")
+    changes = sum(1 for a, b in zip(n, n[1:]) if a != b)
+    dzr = [b - a for a, b in zip(zr, zr[1:])]
+    print(f"[{label}] {len(n)} bins: SM count changed in {100 * changes / max(1, len(n) - 1):.1f}% of bins, "
+          f"{len(set(n))} distinct counts, std {stdev(n):.2f}")
+    print(f"[{label}] Z noise: z_raw std {stdev(zr):.4f}, bin-to-bin step std {stdev(dzr):.4f}; z_hat std {stdev(zh):.4f}")
+    if raw and "loop_hz" in raw[0]:
+        hz = [x for x in (fnum(r, "loop_hz") for r in raw) if x is not None]
+        tot = {k: sum(int(float(r[k])) for r in raw if r.get(k) not in (None, ""))
+               for k in ("pi_ticks", "deadband_held", "integral_updates", "rail_ticks", "sm_moves", "p_only_moves")}
+        t = max(1, tot["pi_ticks"])
+        print(f"[{label}] control loop {mean(hz):.0f} Hz mean (min {min(hz):.0f}); PI ticks {tot['pi_ticks']}: "
+              f"deadband held {100 * tot['deadband_held'] / t:.1f}%, integral updated {100 * tot['integral_updates'] / t:.1f}%, "
+              f"on rail {100 * tot['rail_ticks'] / t:.1f}%, SM moves {tot['sm_moves']} (P-only {tot['p_only_moves']})")
+        wp = [x for x in (fnum(r, "win_pulses") for r in raw) if x]
+        if wp:
+            print(f"[{label}] pulses per 8 ms window: mean {mean(wp):.0f}, min {min(wp):.0f} "
+                  f"(counting noise ~{100 / max(1.0, mean(wp)) ** 0.5:.2f}% if Poisson-like)")
+    return stdev(dzr)
+
+
 def mean(xs):
     return sum(xs) / len(xs) if xs else float("nan")
 
@@ -70,6 +124,14 @@ def main():
     if not rows:
         print("no rows")
         return 1
+    step_std = walk_and_noise(path, "trace")
+    if "--noise" in a:
+        nstd = walk_and_noise(a[a.index("--noise") + 1], "noise floor")
+        if nstd == nstd and step_std == step_std and nstd > 0:
+            ratio = step_std / nstd
+            verdict = ("mostly upstream (sensor/plant): noise is there without control" if ratio < 1.5
+                       else "the loop adds noise beyond the open-loop floor")
+            print(f"Z bin-to-bin noise, closed/open = {ratio:.2f}: {verdict}")
     segs = segments(rows)
     at_clamp = mean([1.0 if r["c"] > 0 and abs(r["i"]) >= 0.999 * r["c"] else 0.0 for r in rows])
     hist = {}
