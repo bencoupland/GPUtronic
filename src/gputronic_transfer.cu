@@ -26,6 +26,20 @@
 #include <time.h>
 #include <unistd.h>
 
+/* Legacy sleep throttle for this plant's kernel, which still honours
+ * throttle_sleep_ns. Gold 1.0 removed gputronic_set_open_loop_sleep /
+ * gputronic_get_sleep_ns; the control thread no longer writes this field, so
+ * the value set here persists. ns < 0 = closed loop with base sleep. */
+static void legacy_set_sleep(GPUTronicHandle* h, int ns) {
+    struct GPUTronicControl* c = gputronic_get_control(h);
+    gputronic_set_open_loop_sms(h, ns < 0 ? -1 : 0);
+    if (c) c->throttle_sleep_ns = (ns < 0) ? c->base_sleep_ns : ns;
+}
+static int legacy_get_sleep(GPUTronicHandle* h) {
+    struct GPUTronicControl* c = gputronic_get_control(h);
+    return c ? c->throttle_sleep_ns : 0;
+}
+
 #define TRANSFER_TILE 8
 #define TRANSFER_THREADS 64
 /* Inner GEMM tiles per tach pulse. Mapped atomics dominate a single 8x8x8
@@ -359,11 +373,11 @@ static int mode_closedloop(int seconds) {
     if (!h) return 1;
 
     printf("\n=== TRANSFER CLOSED-LOOP ===\n");
-    printf("[LAW] target=%.2f | Gold auto_sleep_scale (no transfer override)\n",
+    printf("[LAW] target=%.2f | Gold SM-count table (no transfer override)\n",
            GPUTRONIC_GOLD_TARGET_Z);
 
     usleep(2200000);
-    gputronic_set_open_loop_sleep(h, 0);
+    legacy_set_sleep(h, 0);
     double fr_rate = 0, fr_gflops = 0, fr_z = 0;
     measure_window(h, 300000, 1000000, &fr_rate, &fr_gflops, &fr_z, NULL);
     float z_free = gputronic_get_z(h);
@@ -378,7 +392,7 @@ static int mode_closedloop(int seconds) {
                z_free, target);
     }
     gputronic_set_target(h, target);
-    gputronic_set_open_loop_sleep(h, -1);
+    legacy_set_sleep(h, -1);
 
     printf("[LOOP] closed-loop target Z=%.2f for %ds\n", target, seconds);
 
@@ -408,7 +422,7 @@ static int mode_closedloop(int seconds) {
 
     float z = gputronic_get_z(h);
     float rate_ema = gputronic_get_rate(h);
-    int sleep_ns = gputronic_get_sleep_ns(h);
+    int sleep_ns = legacy_get_sleep(h);
     GPUTronicControl* c = gputronic_get_control(h);
     unsigned long long pulses = c ? c->total_work_pulses : 0ULL;
     float z_mean = (z_n > 0) ? (float)(z_acc / z_n) : z;
@@ -447,11 +461,11 @@ static int mode_closedloop(int seconds) {
                 "pulses=%llu z=%.4f z_mean=%.4f target=%.3f sleep=%d "
                 "fr_rate=%.1f fr_gflops=%.6f cl_rate=%.1f cl_gflops=%.6f "
                 "tach=%d track=%d useful_drop=%d model=%d cal_swallow=%d "
-                "sleep_scale=%.0f PASS=%d\n",
+                "sleep_scale=%.0f(removed) PASS=%d\n",
                 pulses, z, z_mean, target, sleep_ns,
                 fr_rate, fr_gflops, cl_rate, cl_gflops,
                 pulses_ok, track_ok, useful_drop, model_ok, cal_swallow,
-                cfg.sleep_scale, pass);
+                0.0f, pass);
         fclose(rf);
     }
 
@@ -550,7 +564,7 @@ static int mode_mask(void) {
 
     *h_k = 0;
     __sync_synchronize();
-    gputronic_set_open_loop_sleep(h, 0);
+    legacy_set_sleep(h, 0);
     usleep(2500000);
     measure_window(h, 400000, 1500000, &rate0, &gf0, &z0, NULL);
     printf("[FREE] k=0 sleep=0   %.1f pulse/s  %.3f GFLOP/s  Z_hat=%.3f\n", rate0, gf0, z0);
@@ -560,7 +574,7 @@ static int mode_mask(void) {
     if (csv) fprintf(csv, "sleep_ns,k,rate,gflops,z_hat,z_wall,z_if_fully_off\n");
 
     for (di = 0; di < n_dur; di++) {
-        gputronic_set_open_loop_sleep(h, dur_ns[di]);
+        legacy_set_sleep(h, dur_ns[di]);
         printf("\n[DUR] %d ns applied to k SMs\n", dur_ns[di]);
         printf("%6s %12s %10s %8s %8s %8s\n", "k", "GFLOP/s", "pulse/s", "Z_wall", "Z_hat", "Z_off");
         for (ki = 0; ki < n_k && !g_stop; ki++) {
@@ -695,7 +709,7 @@ static int mode_work(void) {
 
     *h_n = num_sm;
     __sync_synchronize();
-    gputronic_set_open_loop_sleep(h, 0);
+    legacy_set_sleep(h, 0);
     usleep(2500000);
     measure_window(h, 400000, 1500000, &rate0, &gf0, &z0, NULL);
     printf("[FREE] n=%d  %.1f pulse/s  %.3f GFLOP/s  Z_hat=%.3f\n\n", num_sm, rate0, gf0, z0);
@@ -749,7 +763,7 @@ static int mode_work(void) {
         *h_n = -1;
         __sync_synchronize();
         gputronic_set_target(h, GPUTRONIC_GOLD_TARGET_Z);
-        gputronic_set_open_loop_sleep(h, -1);
+        legacy_set_sleep(h, -1);
         for (s = 0; s < track_s && !g_stop; s++) {
             usleep(1000000);
             gputronic_print_status(h, s + 1);
@@ -758,7 +772,7 @@ static int mode_work(void) {
                 t_a = now_us();
             }
             if (s >= 3) {
-                sleep_acc += (double)gputronic_get_sleep_ns(h);
+                sleep_acc += (double)legacy_get_sleep(h);
                 sleep_n++;
             }
             fflush(stdout);

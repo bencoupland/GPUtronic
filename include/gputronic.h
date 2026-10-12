@@ -34,17 +34,23 @@ extern "C" {
 #define GPUTRONIC_DEFAULT_NUM_SM 84
 #define GPUTRONIC_DEFAULT_THREADS_PER_BLOCK 64
 #define GPUTRONIC_DEFAULT_CONTROL_DT_US 10      /* path period, not observer period (F-05) */
-#define GPUTRONIC_DEFAULT_MAX_SLEEP_NS 500000   /* unused by the SM-count law */
+/* Legacy sleep values. Gold no longer reads or writes them after create; they
+ * are copied into the control block only for the transfer/episode plants,
+ * whose kernels still honour throttle_sleep_ns. */
+#define GPUTRONIC_DEFAULT_MAX_SLEEP_NS 500000
 #define GPUTRONIC_DEFAULT_BASE_SLEEP_NS 5
 
-/* Tracking defaults. Kp and Ki stay fixed. F-09 sets sms_per_u from a
- * half-SM measurement. GPUTRONIC_GOLD_SLEEP_SCALE is the old fallback. */
+/* Tracking defaults. Kp and Ki unchanged. F-09 measures a rate-vs-SM table at
+ * calibration and sets the feed-forward SM count (n_ff) and sms_per_u (local
+ * slope) from it. The law is two-sided around n_ff:
+ *   u = Kp*e + Ki*I - Kd*dZ/dt,  n = n_ff - u*sms_per_u,  e = target - Z     */
 #define GPUTRONIC_GOLD_TARGET_Z 1.5f
 #define GPUTRONIC_GOLD_KP 0.55f
 #define GPUTRONIC_GOLD_KI 0.08f
-#define GPUTRONIC_GOLD_SLEEP_SCALE 120000.0f
+#define GPUTRONIC_GOLD_KD 0.0f   /* see function frame note; 0 = dZ/dt logged only */
 #define GPUTRONIC_GOLD_INTEGRAL_CLAMP 1.0f
-#define GPUTRONIC_GOLD_DEADBAND 0.08f
+#define GPUTRONIC_GOLD_DEADBAND 0.015f
+#define GPUTRONIC_GOLD_PROBE_MS 300   /* per calibration point */
 #define GPUTRONIC_GOLD_Z_CEILING 10.0f
 #define GPUTRONIC_GOLD_Z_FLOOR 0.3f
 
@@ -52,9 +58,9 @@ extern "C" {
  * Telemetry snapshots are host-written; the kernel must run without them. */
 struct GPUTronicControl {
     volatile unsigned int control_flags; /* F-02: bit0=STOP bit1=PAUSE bit2=RESET */
-    volatile int throttle_sleep_ns;      /* legacy field, not the actuator */
-    int max_sleep_ns;                    /* legacy clamp, unused by the width law */
-    int base_sleep_ns;                   /* free-run marker */
+    volatile int throttle_sleep_ns;      /* legacy: read only by transfer/episode kernels */
+    int max_sleep_ns;                    /* legacy: transfer/episode clamp */
+    int base_sleep_ns;                   /* legacy: initial throttle_sleep_ns */
     /* Working-SM count. Lowest active_sms blocks issue and pulse.
      * 0 or >= num_sm means every SM. Never commanded below 4. */
     volatile int active_sms;
@@ -88,15 +94,14 @@ typedef struct GPUTronicConfig {
     float target_z;
     float kp;
     float ki;
-    float sleep_scale;       /* fallback; F-09 overwrites if auto_sleep_scale */
+    float kd;                /* dZ/dt gain (Kalman slope); default 0 */
     float integral_clamp;
     float deadband;
     float z_ceiling;
     float z_floor;
-    int one_sided;           /* F-10: only add sleep when z < target */
     int enable_kalman;       /* F-08 */
     int launch_selftest_kernel; /* 1 = F-02; 0 = F-03 foreign plant */
-    int auto_sleep_scale;    /* F-09 after F-06 */
+    int probe_ms;            /* F-09 time per calibration point (default 300) */
     const char* csv_path;    /* NULL = results/gputronic_gold.csv */
 } GPUTronicConfig;
 
@@ -112,15 +117,21 @@ void gputronic_destroy(GPUTronicHandle* h);
 /* Runtime */
 void gputronic_set_target(GPUTronicHandle* h, float target_z);
 void gputronic_set_gains(GPUTronicHandle* h, float kp, float ki);
-void gputronic_set_open_loop_sleep(GPUTronicHandle* h, int sleep_ns); /* <0 closed, 0 all SMs */
-void gputronic_set_open_loop_sms(GPUTronicHandle* h, int n); /* <0 closed loop, else working SMs */
+void gputronic_set_kd(GPUTronicHandle* h, float kd);
+void gputronic_set_deadband(GPUTronicHandle* h, float deadband);
+void gputronic_set_open_loop_sms(GPUTronicHandle* h, int n); /* <0 closed loop, 0 all, else working SMs */
+/* Zero total_work_pulses, per-SM counters and host rate state. Blocks up to
+ * ~50 ms. rate_ref and the calibration table are kept. Returns 0 on success. */
+int gputronic_reset_counters(GPUTronicHandle* h);
 float gputronic_get_z(const GPUTronicHandle* h);
 float gputronic_get_z_raw(const GPUTronicHandle* h);
 float gputronic_get_rate(const GPUTronicHandle* h);
-int gputronic_get_sleep_ns(const GPUTronicHandle* h);
+int gputronic_get_active_sms(const GPUTronicHandle* h);
 struct GPUTronicControl* gputronic_get_control(GPUTronicHandle* h);
 
-/* F-03 / F-04 host path. Single-writer. Do not mix with device atomicAdd. */
+/* F-03 / F-04 host path. Host atomic add (__sync_fetch_and_add). Only
+ * coherent with concurrent device atomicAdd on platforms with
+ * hostNativeAtomicSupported; otherwise do not mix with a pulsing kernel. */
 void gputronic_pulse(GPUTronicHandle* h, unsigned long long units);
 
 int gputronic_zero_copy_ok(const GPUTronicHandle* h);

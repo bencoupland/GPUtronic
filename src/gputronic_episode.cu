@@ -34,6 +34,20 @@
 #include <time.h>
 #include <unistd.h>
 
+/* Legacy sleep throttle for this plant's kernel, which still honours
+ * throttle_sleep_ns. Gold 1.0 removed gputronic_set_open_loop_sleep /
+ * gputronic_get_sleep_ns; the control thread no longer writes this field, so
+ * the value set here persists. ns < 0 = closed loop with base sleep. */
+static void legacy_set_sleep(GPUTronicHandle* h, int ns) {
+    struct GPUTronicControl* c = gputronic_get_control(h);
+    gputronic_set_open_loop_sms(h, ns < 0 ? -1 : 0);
+    if (c) c->throttle_sleep_ns = (ns < 0) ? c->base_sleep_ns : ns;
+}
+static int legacy_get_sleep(GPUTronicHandle* h) {
+    struct GPUTronicControl* c = gputronic_get_control(h);
+    return c ? c->throttle_sleep_ns : 0;
+}
+
 #define EPISODE_TILE 8
 #define EPISODE_THREADS 64
 #define EPISODE_TILES_PER_PULSE 32
@@ -487,11 +501,11 @@ static int mode_closedloop(int seconds) {
     if (!h) return 1;
 
     printf("\n=== EPISODE CLOSED-LOOP ===\n");
-    printf("[LAW] target=%.2f | Gold auto_sleep_scale | max_sleep=500us (stock) | honour=%s shots=%d host=%d\n",
+    printf("[LAW] target=%.2f | Gold SM-count table | max_sleep=500us (stock) | honour=%s shots=%d host=%d\n",
            GPUTRONIC_GOLD_TARGET_Z, g_honour, g_sleep_shots, g_host_wait);
 
     usleep(2200000);
-    gputronic_set_open_loop_sleep(h, 0);
+    legacy_set_sleep(h, 0);
     double fr_rate = 0, fr_gflops = 0, fr_z = 0;
     measure_window(h, 300000, 1000000, &fr_rate, &fr_gflops, &fr_z, NULL);
     float z_free = gputronic_get_z(h);
@@ -505,7 +519,7 @@ static int mode_closedloop(int seconds) {
         printf("[CAL] WARN free-run Z=%.3f still near/above target %.2f\n", z_free, target);
     }
     gputronic_set_target(h, target);
-    gputronic_set_open_loop_sleep(h, -1);
+    legacy_set_sleep(h, -1);
 
     printf("[LOOP] closed-loop target Z=%.2f for %ds\n", target, seconds);
 
@@ -535,7 +549,7 @@ static int mode_closedloop(int seconds) {
 
     float z = gputronic_get_z(h);
     float rate_ema = gputronic_get_rate(h);
-    int sleep_ns = gputronic_get_sleep_ns(h);
+    int sleep_ns = legacy_get_sleep(h);
     GPUTronicControl* c = gputronic_get_control(h);
     unsigned long long pulses = c ? c->total_work_pulses : 0ULL;
     float z_mean = (z_n > 0) ? (float)(z_acc / z_n) : z;
@@ -1231,7 +1245,7 @@ static int mode_proof(void) {
         }
         /* Cal at base, then force open-loop zero so phase 2 is sleep 0. */
         usleep(2500000);
-        gputronic_set_open_loop_sleep(h, 0);
+        legacy_set_sleep(h, 0);
         proof_window(h, &pump, PROOF_SETTLE_US, PROOF_POINT_US,
                      &rate, &gflops, &zhat, &launch_us, &act_us);
         T_us = launch_us;
@@ -1257,7 +1271,7 @@ static int mode_proof(void) {
             h = proof_boot(&pump, rows[cand[c]].tiles, 250);
             if (!h) continue;
             usleep(2500000);
-            gputronic_set_open_loop_sleep(h, 0);
+            legacy_set_sleep(h, 0);
             proof_window(h, &pump, PROOF_SETTLE_US, PROOF_POINT_US,
                          &rate, &gflops, &zhat, &launch_us, &act_us);
             T_us = launch_us;
@@ -1327,7 +1341,7 @@ static int mode_proof(void) {
         /* Device quanta at the stock clamp. Recorded on every candidate so the
          * report shows whether N × 500 µs accumulates. Scored only if host missed. */
         n_dev = 0;
-        gputronic_set_open_loop_sleep(h, PROOF_CLAMP_NS);
+        legacy_set_sleep(h, PROOF_CLAMP_NS);
         for (fi = 1; fi <= 48 && n_dev < 10; fi *= 2) {
             double z_wall;
             if ((double)fi * 500.0 > T_us * 2.0 && fi > 4) break;
@@ -1351,7 +1365,7 @@ static int mode_proof(void) {
             if (z_wall > 2.2) break;
         }
         g_proof_shots = 0;
-        gputronic_set_open_loop_sleep(h, 0);
+        legacy_set_sleep(h, 0);
 
         dev_pick = -1;
         {
@@ -1406,7 +1420,7 @@ static int mode_proof(void) {
             fflush(stdout);
 
             gputronic_set_target(h, GPUTRONIC_GOLD_TARGET_Z);
-            gputronic_set_open_loop_sleep(h, -1);
+            legacy_set_sleep(h, -1);
             p_a = 0;
             t_a = 0.0;
             for (s = 0; s < track_s && !g_stop; s++) {
@@ -1417,7 +1431,7 @@ static int mode_proof(void) {
                     t_a = now_us();
                 }
                 if (s >= 3) {
-                    sleep_acc += (double)gputronic_get_sleep_ns(h);
+                    sleep_acc += (double)legacy_get_sleep(h);
                     sleep_n++;
                 }
                 fflush(stdout);
@@ -1452,7 +1466,7 @@ static int mode_proof(void) {
                     t_a = now_us();
                 }
                 if (s >= 2) {
-                    sleep_acc += (double)gputronic_get_sleep_ns(h);
+                    sleep_acc += (double)legacy_get_sleep(h);
                     sleep_n++;
                 }
             }

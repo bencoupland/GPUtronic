@@ -14,6 +14,16 @@
 #include <time.h>
 #include <unistd.h>
 
+/* Legacy sleep throttle for this plant's kernel, which still honours
+ * throttle_sleep_ns. Gold 1.0 removed gputronic_set_open_loop_sleep /
+ * gputronic_get_sleep_ns; the control thread no longer writes this field, so
+ * the value set here persists. ns < 0 = closed loop with base sleep. */
+static void legacy_set_sleep(GPUTronicHandle* h, int ns) {
+    struct GPUTronicControl* c = gputronic_get_control(h);
+    gputronic_set_open_loop_sms(h, ns < 0 ? -1 : 0);
+    if (c) c->throttle_sleep_ns = (ns < 0) ? c->base_sleep_ns : ns;
+}
+
 #define FREE_S 8.0
 #define TRACK_S 22.0
 #define TICK_US 200000
@@ -184,7 +194,7 @@ int main(void) {
     }
 
     zc_ok = gputronic_zero_copy_ok(gov);
-    gputronic_set_open_loop_sleep(gov, 0);
+    legacy_set_sleep(gov, 0);
 
     live = fopen(LIVE_CSV, "w");
     if (live)
@@ -203,7 +213,7 @@ int main(void) {
         if (t >= FREE_S + TRACK_S) break;
 
         if (!switched && t >= FREE_S) {
-            gputronic_set_open_loop_sleep(gov, -1);
+            legacy_set_sleep(gov, -1);
             phase = PHASE_TRACK;
             switched = 1;
             printf("--- closed-loop ON  target Z=%.2f ---\n", target);
