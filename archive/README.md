@@ -4,7 +4,7 @@ Older GPUTronic work stays here. Do not delete it to tidy the repo. Current code
 
 | Path | What it is |
 |------|------------|
-| `v0.1-github/` | First public tree, committed 11 January 2026. GTX 1080, 10 Hz loop, `main.cu`. |
+| `v0.1-gtx1080-2026-01/` | First public tree, committed 11 January 2026. GTX 1080, 10 Hz loop, `main.cu`. |
 | `pre-gold-2026-05/` | Experiments from early 2026 through May 2026. Source ladder v14–v26, logs, scripts. Many of the long writeups in `docs/` are only on disk, not all of them are in git. |
 | `gold-1.0.0-nanosleep/` | 1.0 as first posted, when the control was sleep duration. Kept when the control became an SM count on 2026-09-23. |
 

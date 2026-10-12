@@ -18,8 +18,8 @@
 | Control period | 10 µs path; rate formed over about 1–8 ms (8 ms is the steady end) |
 | Z model | Sustained-window `Z = rate_ref / rate` (free-run ≈ 1.0) |
 | Target Z | 1.5 |
-| Gains | Kp=0.55, Ki=0.08. Half-population probe sets `sms_per_u`. Do not retune Kp. |
-| Policy | One-sided PI + 2-state Kalman. Deadband holds the count. At target, full width. |
+| Gains | Kp=0.55, Ki=0.08, Kd=0 (`gputronic_set_kd`). A four-point rate-vs-SM table at calibration sets the starting SM count (`n_ff`) and `sms_per_u`. |
+| Policy | Two-sided PI around `n_ff` + 2-state Kalman. Deadband 0.015 (`gputronic_set_deadband`) holds the count. Integral clamped, no wind-up at 4 or full width. |
 | Actuator | `active_sms`. Idle SMs skip the work and do not pulse. Floor 4. |
 | Tachometer | `atomicAdd` on aggregate `total_work_pulses` |
 
@@ -38,6 +38,7 @@ make episode && ./build/gputronic_episode check
 
 - Zero-copy: host_ctrl == device_ctrl (mapped)
 - Free-run Z ≈ 1.0 after the sustained calibration
+- PR #1 (not yet run on hardware): calibration is about 3 s, about 0.7 s longer than the measured runs above, because four 300 ms table steps replace the 0.5 s half-width probe
 - Width dyno: rate falls as SMs drop, R² 0.98 (Gold) and 0.99 (transfer), 84 down to 4
 - Closed-loop average Z about 1.36–1.38 on all three kernels, about a tenth under 1.50. The SM count moves a little around that. Setting the target back to full speed brings every SM back on.
 - The count that holds 1.5 is not one number. Transfer ~48. Short episode ~21. Show kernel ~54–58. Tiles from 1024 to 65536 on the show kernel barely moved it.
@@ -57,7 +58,7 @@ make demo
 
 1. Peak-EMA `rate_ref` inflates Z and can swallow target 1.5
 2. 10 µs rate EMA cannot observe a ~300 µs plant
-3. Stock `sleep_scale=1.2e5` commands ~8 µs — inside the nanosleep dead zone
+3. (History, sleep control) The old default `sleep_scale=1.2e5` commanded ~8 µs — inside the nanosleep dead zone
 4. Mapped atomics dominate the loop; batch work between pulses
 5. With sleep as the control, the limit had to reach about 500 µs or the command did nothing
 
@@ -65,11 +66,11 @@ make demo
 
 `./build/gputronic_episode proof` — 2026-09-21, this 5080, stock 10 µs path.
 
-32768 tiles/pulse. Twin 1367 GFLOP/s. Tachometer on, Z_hat 1.02: 1247 GFLOP/s (tax 0.91). Host wait of half the launch holds Z 1.50 with FLOPs on the same slope. Stock PI then releases to 1240 GFLOP/s. Closed-loop wall Z is 1.34, banging on the clamp, same character as Gold. Detail in `EPISODE.md`.
+32768 tiles/pulse. Without the counter (reference kernel): 1367 GFLOP/s. With the counter on, Z_hat 1.02: 1247 GFLOP/s, so counting costs about 9%. Host wait of half the launch holds Z 1.50 with FLOPs on the same slope. Stock PI then releases to 1240 GFLOP/s. Closed-loop wall Z is 1.34, banging on the clamp, same character as Gold. Detail in `EPISODE.md`.
 
 ## Next
 
-1. Same binary, half-SM probe left on, no hand-adjusted gain. Hold a band under 1.5 on the self-test, transfer, and episode kernels while the workload changes and the request stays the same.
+1. Same binary, calibration table left on, no hand-adjusted gain. Hold a band under 1.5 on the self-test, transfer, and episode kernels while the workload changes and the request stays the same.
 2. One shared counter that keeps going after a kernel returns, in code we compile ourselves.
 3. Only then try a hardware counter through the stock driver, on a program we do not modify. That will show whether we still need a driver change for the count, for holding blocks back, or for both.
 4. Keep the three checks passing. Do not clone llama.cpp in place of 1–3.

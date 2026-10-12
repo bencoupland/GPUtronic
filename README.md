@@ -54,7 +54,7 @@ Three mistakes that look like a working controller until you measure the work:
 
 3. **A gain that commands about 8 µs of sleep.** On this 5080, `__nanosleep` does little below about 200 µs and then jumps near 500 µs. The old default gain, at a normal error, asked for about 8 µs. The GPU did not slow down. Changing Kp does not fix a control input the hardware ignores.
 
-If Z is already at or above the target, every SM runs. If Z is only a little short, the SM count stays put, so a small error does not jump back to full speed. Temperature stays with the driver. The 8 µs scale in the list above is a reason the sleep-duration control was dropped. Adjusting Kp does not fix a control that cannot move the speed smoothly.
+The controller works in both directions around a starting SM count measured at calibration: below target it turns SMs off, above target it turns them back on. If Z is within 0.015 of the target, the SM count stays put, so a small error does not jump back to full speed. Temperature stays with the driver. The 8 µs scale in the list above is a reason the sleep-duration control was dropped. Adjusting Kp does not fix a control that cannot move the speed smoothly.
 
 ## What it does on this machine
 
@@ -139,6 +139,14 @@ The transfer kernel’s few GFLOP/s are not a speed claim. The tiles are there s
 
 It is not general yet. Three kernels on one 5080. The next step is the same loop on those kernels when the workload changes, without fitting a new curve by hand.
 
+## Test kernels
+
+- **Gold**: GPUTronic's own self-test kernel and the reference controller (`src/gputronic_gold.cu`).
+- **Transfer**: a persistent kernel doing small GEMM tiles that reports its own work (`src/gputronic_transfer.cu`).
+- **Episode**: a GEMM kernel launched once per work episode, closer to a normal application (`src/gputronic_episode.cu`).
+
+Calibration takes about 3 s from start: a 1.8 s full-speed reference, then four 300 ms steps at fewer SMs. That is about 0.7 s longer than before PR #1 (the old half-width probe took 0.5 s).
+
 ## Quick start (RTX 5080 / CUDA 12.8)
 
 ```bash
@@ -153,20 +161,20 @@ make demo && ./build/gputronic_demo
 ```
 include/gputronic.h                      public C API
 src/gputronic_gold.cu                    core + CLI
-src/gputronic_transfer.cu                second plant (persistent)
-src/gputronic_episode.cu                 third plant (launch-complete)
+src/gputronic_transfer.cu                Transfer kernel (persistent)
+src/gputronic_episode.cu                 Episode kernel (launch-complete)
 docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md
 GOLD.md  STATUS.md  TRANSFER.md  EPISODE.md
-archive/v0.1-github/                     first public PoC (GTX 1080)
+archive/v0.1-gtx1080-2026-01/            first public PoC (GTX 1080)
 ```
 
 Read the function frame with the source open, starting at the control block, not at `main`. Function IDs F-01…F-15 in that file match comments in the code.
 
-## Why it should become ordinary
+## Next
 
 A feedback loop on a measured rate is ordinary. The work here was getting the counter, the full-speed measurement, and the SM count to agree with each other.
 
-If that holds on the workloads people actually run, instruction-throughput control belongs in the same category as any other feedback loop we no longer argue about. GPUTronic 1.0 Gold is the interface and the evidence. The rest is embedding, and then — only with a different name — contention.
+Next: test on more workloads.
 
 ## License
 

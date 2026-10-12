@@ -1,34 +1,34 @@
-# AGENTS.md – GPUTronic Project
+# Contributor notes
 
-You are working on **GPUTronic**, FOC-style closed-loop control for GPU execution.
+## What this is
+GPUTronic is closed-loop control of a GPU's useful-work rate. A persistent kernel counts finished work,
+a host thread computes `Z = rate_ref / rate`, and a PI controller sets how many SMs do the work
+(`active_sms`). Temperature and power stay with the NVIDIA driver. Details:
+`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`.
 
-## Core Identity
-- Treat the GPU as a controllable dynamical system
-- Q-axis = useful work rate (aggregate atomic pulses)
-- Z-axis = impedance proxy `Z = rate_ref / rate` after free-run calibration
-- D-axis = stock driver (do not put thermal in the 100 kHz loop)
-- Persistent kernels + zero-copy + high-frequency observer
+## Build
+CUDA 12.8, RTX 5080 (`sm_120`) by default:
 
-## Current Reference: Gold 1.0.0
-- Binary: `build/gputronic_gold` (`make gold`)
-- Source: `src/gputronic_gold.cu` + `include/gputronic.h`
-- Gate: `./build/gputronic_gold check` must PASS
-- Actuator: `active_sms`. Idle SMs skip the work and do not pulse. Floor is 4. Nanosleep duration is not the command. Previous sources: `archive/gold-1.0.0-nanosleep/`
-- Target Z = 1.5, one-sided tracking PI, 2-state Kalman. Kp=0.55, Ki=0.08. Do not retune them to shave the tenth.
-- Observer: rate over about 1–8 ms. Path is 10 µs. Do not bring back a 10 µs rate EMA.
-- Do not reintroduce last-SM overwrite of `total_work_pulses`
+    make gold lib demo
+    make NVCC=/path/to/nvcc ARCH=-arch=sm_XX gold   # other toolkits / GPUs
 
-## Key Principles
-- Never sacrifice the ability to measure and control Z
-- Prefer fundamental control over workload-specific hacks
-- Keep the control loop clean and model-based
-- Document the why behind every tuning decision
-- Archive experiments; do not fork Gold in-place without a new version tag
+Pascal (sm_61) does not build yet because the kernels use `__nanosleep`; see
+`docs/analysis/gtx1080-bringup-plan.md`.
 
-## Next Major Milestone
-Same program, same gains, on the three test kernels we already have, including when the workload changes and the requested rate does not. Then one counter that keeps going after a kernel returns, in code we compile ourselves. A driver change is how that could apply to a program we do not modify. Integrating into llama.cpp is not the next measurement. A mode for unmodified programs stays unnamed until we can count their work without their help.
+## Checks
+Run on a GPU before merging controller changes:
 
-## Communication Style
-- Think in control theory terms (setpoints, observers, plant gain)
-- Be precise about timescales (GPU cycles vs control loop period)
-- Celebrate when Z tracking and performance improve together
+    ./build/gputronic_gold check
+    make transfer-check
+    make episode-check
+
+A pass means the counter works and the rate moves the right way. Also report mean Z against the 1.5
+target.
+
+## Rules
+- `total_work_pulses` is only ever increased with `atomicAdd`; never assign it from one SM.
+- Do not form the rate over a single 10 µs tick; use the 8 ms window.
+- The actuator is the SM count. Sleep duration is history (`archive/gold-1.0.0-nanosleep/`).
+- Keep Kp and Ki at their defaults unless a hardware run justifies a change; record why.
+- Put experiments in `archive/` or a branch, not in the main source files.
+- Say clearly which results are measured on hardware and which are modelled.

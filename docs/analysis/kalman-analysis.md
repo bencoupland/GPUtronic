@@ -1,22 +1,37 @@
-GPUTronic Gold: Kalman filter (Z, dZ/dt) analysis, branch controller-fixes
+# GPUTronic Gold: Kalman filter (Z, dZ/dt) analysis, branch controller-fixes
+
 Model and simulation only. Not run on a GPU. Code: src/gputronic_gold.cu, kalman_update().
 
-1. What the code actually does
+## 1. What the code actually does
+
 State x = [z_hat, dzdt_hat] (Z and dZ/dt). Measurement z_meas = z_raw = rate_ref / (rate_ema + 1),
 clamped to [z_floor 0.3, z_ceiling 10]. Constant-velocity model:
-  F = [[1, dt],[0, 1]]   H = [1, 0]
-  Q = 0.0008 added to BOTH diagonal terms of P per tick (no off-diagonal Q, and not scaled by dt)
-  R = 0.018
+
+```
+F = [[1, dt],[0, 1]]   H = [1, 0]
+Q = 0.0008 added to BOTH diagonal terms of P per tick (no off-diagonal Q, and not scaled by dt)
+R = 0.018
+```
+
 Predict (code variable names):
+
+```
   z_pred  = z_hat + dzdt_hat*dt ;  dz_pred = dzdt_hat
   p00 = P00 + 2 dt P01 + dt^2 P11 + Q ;  p01 = P01 + dt P11 ;  p10 = P10 + dt P11 ;  p11 = P11 + Q
+```
+
 Correct:
+
+```
   y = z_meas - z_pred ;  S = p00 + R ;  K0 = p00/S ;  K1 = p10/S
   z_hat = z_pred + K0 y ;  dzdt_hat = dz_pred + K1 y
   P00=(1-K0)p00 ; P01=(1-K0)p01 ; P10=p10-K1 p00 ; P11=p11-K1 p01
+```
+
 Runs once per control tick (dt ~10 us), initial P = I, z_hat = 1.
 
-2. Observations
+## 2. Observations
+
 - Tick-rate vs data-rate mismatch: z_raw only changes when the 8 ms rate window closes and the
   0.7/0.3 EMA updates (~every 800 ticks). Between windows the filter sees the same z_raw 800 times.
 - Q is per tick and not scaled by dt, so the process noise per 8 ms is ~800 x 0.0008 = 0.64 on Z and
@@ -26,7 +41,8 @@ Runs once per control tick (dt ~10 us), initial P = I, z_hat = 1.
   very large in Z/s), which then decays as the repeated identical samples pull the slope back to ~0.
   It is a spike train at window boundaries, not a smooth slope estimate. Units are Z per second.
 
-3. Could dZ/dt anticipate deadband/target crossings?
+## 3. Could dZ/dt anticipate deadband/target crossings?
+
 Idea: predicted Z one window ahead, z_pred_8ms = z_hat + dzdt_hat * 0.008, or a D term
 u = Kp e + Ki I - Kd dzdt_hat. With a smooth slope this would brake the actuator before Z
 crosses the target and reduce overshoot. With the current filter tuning it can't work: the slope is
@@ -35,15 +51,20 @@ moment z_raw already moved. The plant also has no meaningful dynamics at that sc
 active_sms within one ~300 us kernel pass (docs claim), so the delay is the 8 ms window plus EMA, not
 plant inertia. What there is to anticipate is mostly the measurement's own lag.
 
-4. Simulation (gputronic_sim/sim2.py; plant = measured dyno curves, 1% or 3% noise per window,
+## 4. Simulation (model script not in the repo; plant = measured dyno curves, 1% or 3% noise per window,
+
    10 us ticks, Kalman exactly as coded, new two-sided law with feed-forward)
+```
   kernel    Kd=0         Kd=0.02      Kd=0.1       3% noise Kd=0   3% noise Kd=0.1
   Gold      1.492±.011   1.492±.011   1.492±.011   1.491±.013      1.491±.014
   Transfer  1.451±.008   1.451±.008   1.451±.008   1.458±.014      1.458±.015
   Episode   1.503±.002   1.503±.002   1.499±.013   1.501±.012      1.501±.014
+```
+
 Kd has no benefit on any kernel. At Kd=0.1 it adds jitter (Episode sd .002 -> .013).
 
-5. Recommendation (consistent with fix 9 on controller-fixes)
+## 5. Recommendation (consistent with fix 9 on controller-fixes)
+
 - Keep the D term in the law, configurable via cfg.kd / gputronic_set_kd(), DEFAULT 0. dZ/dt
   stays logged (CSV column dzdt, control block dzdt_hat).
 - Before enabling Kd on hardware, make dZ/dt meaningful: run the Kalman update once per closed

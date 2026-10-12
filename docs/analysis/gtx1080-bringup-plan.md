@@ -1,9 +1,11 @@
-GPUTronic on a GTX 1080 (Pascal GP104, sm_61, 20 SMs): bring-up plan
-Branch: controller-fixes (local). Nothing here has been run on a GTX 1080. The January v0.1
-(archive/v0.1-github/main.cu) did run on a GTX 1080, but it used clock64() busy-wait idle, a
+# GPUTronic on a GTX 1080 (Pascal GP104, sm_61, 20 SMs): bring-up plan
+
+Branch: controller-fixes (PR #1). Nothing here has been run on a GTX 1080. The January v0.1
+(archive/v0.1-gtx1080-2026-01/main.cu) did run on a GTX 1080, but it used clock64() busy-wait idle, a
 single mapped atomic counter, and kernel relaunch with more/fewer blocks, not this code.
 
-1. Toolkit / driver
+## 1. Toolkit / driver
+
 - CUDA 12.x still targets sm_61. Verified locally: nvcc 12.8 --list-gpu-arch includes compute_61.
 - CUDA 13.0 removed offline compilation for pre-Turing (< CC 7.5), including Pascal. Use CUDA
   12.8 or 12.9 (12.9 is the last that targets Pascal).
@@ -12,13 +14,19 @@ single mapped atomic counter, and kernel relaunch with more/fewer blocks, not th
 - Host compiler: on glibc 2.41 (e.g. Debian 13) CUDA 12.8's crt/math_functions.h conflicts on
   sinpi/cospi noexcept. Use a distro where 12.8/12.9 is supported or patch locally.
 
-2. Makefile
+## 2. Makefile
+
 NVCC and ARCH are plain assignments, so a command-line override works:
-  make NVCC=/usr/local/cuda-12.9/bin/nvcc ARCH=-arch=sm_61 gold lib demo
+
+```
+make NVCC=/usr/local/cuda-12.9/bin/nvcc ARCH=-arch=sm_61 gold lib demo
+```
+
 Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
   -gencode arch=compute_61,code=sm_61 -gencode arch=compute_120,code=sm_120.
 
-3. Code blockers on sm_61 (must fix before it compiles)
+## 3. Code blockers on sm_61 (must fix before it compiles)
+
 - __nanosleep needs CC 7.0+. Verified: nvcc -arch=sm_61 errors "identifier __nanosleep is
   undefined" in gold_persistent_kernel (pause 5 us, reset 1 us, idle-SM 5 us backoff). The transfer
   and episode kernels also call it.
@@ -32,7 +40,8 @@ Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
 - The legacy sleep throttle in transfer/episode becomes a spin on Pascal, so any sleep-sweep numbers
   are not comparable with the 5080.
 
-4. Zero-copy / mapped memory on Pascal
+## 4. Zero-copy / mapped memory on Pascal
+
 - cudaHostAlloc(cudaHostAllocMapped) + cudaHostGetDevicePointer work on Pascal with UVA (64-bit
   Linux). Pointers are usually equal under UVA. gold_verify_zero_copy() checks type, host and device
   pointer, and a round trip, and aborts if any fail.
@@ -43,7 +52,8 @@ Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
   gputronic_pulse() while the kernel runs.
 - __threadfence_system is supported.
 
-5. SM floor and resolution
+## 5. SM floor and resolution
+
 - 20 SMs, floor 4: the actuator range is 4..20 = 17 levels (vs 4..84 = 81 on the 5080).
 - Scaling the 5080 Gold curve proportionally (assumption: shape scales by n/N), Z=1.5 sits near
   n ~ 11 of 20 and each SM step moves Z by about 0.1 near target, larger than the 0.015 deadband. The
@@ -53,7 +63,8 @@ Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
   the floor to 2 on 20 SMs (it's hard-coded to 4 in the kernel and the control thread).
 - Probe counts in gold_build_table become 15, 10, 5, 4. The 5 and 4 points are close together, fine.
 
-6. Verification order
+## 6. Verification order
+
  a) Device query: nvidia-smi; deviceQuery or cudaGetDeviceProperties: name, CC 6.1,
     multiProcessorCount 20, canMapHostMemory=1, unifiedAddressing=1, hostNativeAtomicSupported,
     clockRate, pciBusID.
@@ -67,7 +78,8 @@ Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
     range, and limit cycling.
  g) Only then transfer/episode (which need the spin fallback too).
 
-7. Logs to capture
+## 7. Logs to capture
+
 - CSV (results/gputronic_gold*.csv): time_s, z_raw, z_hat, dzdt, rate_ema, active_sms, error,
   integral, ctrl_hz, rate_ref.
 - Console: [GPU], [ZC ], [LAW], [CTRL], [CAL] rate_ref + table rows + n_ff/sms_per_u, [TEL] per

@@ -6,9 +6,8 @@
 | `GOLD-1.0.0-release-post.md` | Launch note |
 | `GOLD-1.0.0-x-thread.md` | X thread draft |
 | `GPUTronic-essay.md` | Project philosophy essay |
-| `assets/gputronic-mark.jpg` | Optional project mark (not used on the README) |
+| `assets/gputronic-mark.jpg` | Project mark shown at the top of the README |
 | `RTX_50_Series_Hardware_Reference.md` | SM / thread table |
-| `gpu-tronic-z-axis-kalman-observer-pm-control/` | Pre-Gold Kalman notes |
-| `references-pre-gold/` | Older reference scraps |
+| `analysis/` | Kalman analysis, GTX 1080 bring-up plan, modelled pulse-rate table (not GPU-tested) |
 
 Root: `GOLD.md`, `STATUS.md`, `AGENTS.md`, `README.md`, `TRANSFER.md`.

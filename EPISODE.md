@@ -35,7 +35,7 @@ The sections below about one sleep per launch are the measurements from before t
 | 1 ms | 318739 | 10.44 | 2.235 |
 | 2 ms | 318812 | 10.45 | 2.233 |
 
-- Free-run Z ≈ 0.98. The ~8 ms window sees Z on a bursty plant. That is the load-bearing result.
+- Free-run Z ≈ 0.98. The ~8 ms window sees Z on a bursty plant. That is the main result: Z is still measurable on a bursty kernel.
 - Tile rate and GFLOP/s stay coupled.
 - R² ≈ 0.85.
 - Stock Gold 500 µs is a **13%** cut (Z ≈ 1.13). It does **not** reach target 1.50.
@@ -98,9 +98,9 @@ Do not paper over a weak control by raising Kp.
 
 Gold source, Kp, Ki, and the 500 µs clamp were not touched. `./build/gputronic_episode proof`.
 
-The knob in this test was tiles per pulse. Same 8×8×8 math. The twin does not use the control block. The instrumented kernel does one mapped `atomicAdd` per pulse and a fence per launch.
+The knob in this test was tiles per pulse. Same 8×8×8 math. The reference kernel ("twin" in the table) does not use the control block. The instrumented kernel does one mapped `atomicAdd` per pulse and a fence per launch.
 
-| tiles/pulse | twin GFLOP/s | sensor GFLOP/s | sensor/twin | launch |
+| tiles/pulse | reference GFLOP/s | with counter GFLOP/s | ratio | launch |
 |------------:|-------------:|---------------:|------------:|-------:|
 | 32 | 739 | 50 | 0.07 | 15 µs |
 | 2048 | 1321 | 1195 | 0.90 | 0.53 ms |
@@ -111,8 +111,8 @@ The atomic is the plant at 32 tiles. By 8192 it is noise. Past that, more tiles 
 
 Chosen cell: **32768 tiles, 4 pulses/launch**. Paired measurement, Gold in the process:
 
-- Twin 1367 GFLOP/s
-- Tachometer on, sleep 0, Z_hat 1.02: **1247 GFLOP/s, tax 0.913**
+- Reference kernel without the counter: 1367 GFLOP/s
+- Counter on, sleep 0, Z_hat 1.02: **1247 GFLOP/s, 0.913 of the reference (counting costs about 9%)**
 - Launch T = 9.03 ms. About 320 pulses in each 8 ms window.
 
 Open-loop host wait after `cudaDeviceSynchronize`, device sleep held at 0. Wall \(Z = r_\mathrm{free}/r\):
