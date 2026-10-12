@@ -130,4 +130,15 @@ Compare each result with the "Model prediction" lines in `TEST_SUITE.md` and say
 The order is `docs/analysis/NEXT.md`. Section A of that file is the PR cleanup
 (free-run wait, tensor sensor off, deadband 0.08, `__nanosleep` removed). The
 integral clamp is not scaled until the in-kernel plant-gain step in that file has
-been measured. T6 as a second process, T7, and the Cyberpunk co-run stay proposed.
+been measured. (Since then the user decided to scale it; see HANDOFF.)
+
+Implemented, not yet run (commands in `TEST_SUITE.md`):
+- **T9** pulse-to-work ratio: `timeout 120 ./build/gputronic_gold ratio 5`, then `scripts/analyze_ratio.py`.
+  Run it right after T1.
+- **T6** load step: `timeout 120 ./build/gputronic_gold loadstep 60 1.2 20 40`, once with
+  `GPUTRONIC_INTEGRAL_CLAMP=1.0` (baseline) and once without; `scripts/analyze_loadstep.py`.
+- **T7** bursts: `timeout 200 ./build/gputronic_gold bursts 1.2 1 5`; `scripts/analyze_loadstep.py`.
+- **T8** Space Marine 2 co-run: `scripts/t8_game_corun.sh alone|fullwidth|closed <run>` (manual route,
+  needs a person at the keyboard); `scripts/analyze_mangohud.py`. A second-process load and the
+  Cyberpunk co-run stay proposed.
+Copy each `results/gputronic_gold_*_10ms.csv` / `gputronic_gold_ratio.csv` into `$LOG` after each run.

@@ -55,53 +55,87 @@ per reserve SM. Bursts shorter than 8 ms are not seen by the controller. A susta
 near 1.65 because the integral clamp limits correction.
 **Pass:** steady Z decreases as k increases; report peak Z and time above 1.5 for any external load.
 
-## Proposed: synthetic load generator (not implemented)
+## Synthetic load (implemented, not yet run on hardware)
+Mechanism: field `work_scale_milli`, appended at the end of `GPUTronicControl` (default 0/1000 = no load).
+At S > 1000 the Gold kernel's pulsing warps emit one pulse per S/1000 batches, so the pulse rate falls to
+1000/S and the sensors see S/1000 times more work per pulse. Why not literally more FMAs: a Gold pass is
+~288 µs of mapped atomics and ~1.6 µs of arithmetic, so 20% more arithmetic would barely move the rate.
+Limitation: this is a sensor-side load (the plant "gets slower" as seen by Z); it is not interference
+from another program. Only the Gold kernel reads it; Transfer and Episode ignore it.
+Schedules start at the end of calibration. Every mode writes one row per 10 ms with
+`wall_s` (CLOCK_REALTIME) `,t_ms,scale,z_raw,z_hat,active_sms,integral,clamp,rate_ema,sensor`; the start
+wall time is printed in the `[LOAD] calibrated` line.
 
-The order for this work is `NEXT.md`. The plant-gain step (C1 there) is an in-kernel
-change to the work per pulse, run once before any edit to the integral clamp. A
-second CUDA process is the coexistence question, not this one. The 1.62–1.74 figure
-below is the simulator. It has not been measured.
-Nothing below exists in the code yet. It is a plan for a companion program, `gputronic_load`, used by
-T6 and T7. Purpose: reproduce and then tune the integral-clamp recovery bug (after a sustained 20% load
-step Z hangs about 1.62–1.74; the clamp is hard-coded 1.0 in `include/gputronic.h`, which gives only
-about 4 SMs of authority).
+| Command | What |
+|---|---|
+| `./build/gputronic_gold loadstep [sec] [scale] [t_on_s] [t_off_s]` | default `60 1.2 20 0` (hold to end); writes `results/gputronic_gold_loadstep_10ms.csv` |
+| `./build/gputronic_gold bursts [scale] [seed] [reps]` | 2, 4, 8, 16, 50, 200 ms bursts, seeded shuffle, 1.5–2.5 s gaps, from 10 s; default `1.2 1 5`; `results/gputronic_gold_bursts_10ms.csv` |
+| `./build/gputronic_gold loadfile <file> [sec]` | schedule file, one `t_ms scale` per line (`#` comments); `results/gputronic_gold_loadfile_10ms.csv` |
 
-**Mechanisms and trade-offs**
-- *Separate competing CUDA process* (proposed default): a second program runs a persistent kernel that
-  occupies a set number of SMs or streams memory/PCIe traffic. Realistic (it is how a real co-tenant
-  behaves) and needs no change to GPUTronic, but the scheduler decides how SMs are shared, so the
-  effective load is not exact; time-slicing between contexts adds jitter.
-- *Separate stream in the same process*: tighter timing, same caveat on sharing; needs code inside
-  the GPUTronic binaries.
-- *In-kernel work multiplier on the pulse batch* (e.g. 1.2× FMAs per pulse via a control-block field):
-  exact and repeatable, maps directly to "the plant got 20% slower", but changes the owned kernel, so it
-  does not test interference from outside work.
-
-**Proposed interface**
+## T6. Sustained 20% load step (implemented, not yet run)
 ```
-gputronic_load --mode sms|membw|pcie --schedule FILE [--seed N] [--log FILE] [--device 0]
-gputronic_load --step 0.20 --at 10 --hold 20           # one sustained step
-gputronic_load --bursts 2,4,8,16,50,200 --gap 500 --seed 7
+timeout 120 ./build/gputronic_gold loadstep 60 1.2 20 40      # on at 20 s, off at 40 s
+python3 scripts/analyze_loadstep.py results/gputronic_gold_loadstep_10ms.csv --recover-s 2
+GPUTRONIC_INTEGRAL_CLAMP=1.0 timeout 120 ./build/gputronic_gold loadstep 60 1.2 20 40   # pre-fix baseline
 ```
-Schedule file (CSV, one line per segment, times in seconds from start):
-`t_start_s,duration_s,level,shape` with `level` a fraction of full load and `shape` = `step` or `burst`.
-A seed controls any random gaps, so a schedule replays exactly.
-Log columns: `wall_ns` (CLOCK_REALTIME), `t_s`, `level_cmd`, `level_applied`, `sms_busy`, `segment_id`.
-`wall_ns` aligns with GPUTronic's 10 µs samples by recording CLOCK_REALTIME at GPUTronic start.
+Reports Z before the step, peak Z, time to stay within 0.02 of 1.5 (or "never"), % of bins with the
+integral at the clamp, SM-count distribution. For the **pre-fix baseline** run the same command with
+`GPUTRONIC_INTEGRAL_CLAMP=1.0` (the old fixed clamp), then without it (scaled clamp). Keep both logs.
+Scales below 1.0 are not supported (no 0.8× step).
+**Model prediction (fixed clamp):** Z parks near 1.62–1.74.
+**Pass:** recovered within 2 s. If not, and the integral is at the clamp most of the step, the analyzer
+prints "parked at clamp": that reproduces the bug.
 
-## T6. Sustained load steps (proposed; needs `gputronic_load`)
-Gold, Transfer, Episode at Z 1.5. After calibration plus 10 s, apply +20% load for 20 s, release,
-then −20% for 20 s. Run once before the clamp fix (**baseline, record it**) and once after.
-**Model prediction (pre-fix):** Z holds near 1.62–1.74 and does not return within 0.02 of 1.5.
-**Pass (post-fix):** Z back within 0.02 of 1.5 within **2 s** of each step (X = 2 s, revisit after the
-first baseline), no integral sample on the clamp for longer than 1 s.
+## T7. Bursts (implemented, not yet run)
+```
+timeout 200 ./build/gputronic_gold bursts 1.2 1 5
+python3 scripts/analyze_loadstep.py results/gputronic_gold_bursts_10ms.csv
+```
+Per burst: peak Z, ms above target, whether the controller moved SMs; summary per burst length.
+**Model prediction:** 2–8 ms bursts are not seen (no SM change); 16 ms and longer move SMs within 8–16 ms.
+**Pass:** recorded for all lengths; for ≥50 ms bursts Z back within 0.02 within 200 ms after the burst.
 
-## T7. Bursts (proposed; needs `gputronic_load`)
-Bursts of 2, 4, 8, 16, 50 and 200 ms, 500 ms apart, seeded, 10 of each.
-**Model prediction:** bursts under 8 ms are not seen by the controller; 16 ms and longer cause an SM
-change within 8–16 ms.
-**Pass:** peak Z and time above 1.5 recorded per burst length; for ≥50 ms bursts Z returns within 0.02
-within 200 ms after the burst ends.
+## T8. Game co-run (implemented as a script, not yet run)
+Game on this box: Warhammer 40,000: Space Marine 2 (Steam app id 2183900). Cyberpunk 2077 remains the
+alternative (`cyberpunk-benchmark-plan.md`). GPUTronic throttles only its own kernel, never the game.
+```
+scripts/t8_game_corun.sh alone 1        # repeat runs 1..5 per condition, discard run 1
+scripts/t8_game_corun.sh fullwidth 1    # Gold open loop, all SMs (`gputronic_gold fullwidth`)
+scripts/t8_game_corun.sh closed 1       # Gold closed loop Z 1.5, tensor sensor off
+python3 scripts/analyze_mangohud.py logs/t8/<cond>_run<k>/mangohud/*.csv
+```
+Gold starts and calibrates before the game is launched. Space Marine 2 has **no built-in benchmark**, so
+each run is a manual fixed route; MangoHud starts logging after `WARMUP` s and logs for `DUR` s.
+Steam launch options for the game must be `mangohud %command%`. Fixed settings: one preset, fixed
+resolution, upscaler fixed, frame generation off, vsync off.
 
-## T8. Cyberpunk 2077 co-run (proposed)
-See `cyberpunk-benchmark-plan.md`.
+| Fact | Status | Source |
+|---|---|---|
+| Space Marine 2 Steam app id 2183900 | verified | https://store.steampowered.com/app/2183900/ |
+| No built-in benchmark in Space Marine 2 | verified (press) | https://www.dsogaming.com/pc-performance-analyses/warhammer-40k-space-marine-2-benchmarks-pc-performance-analysis/ |
+| MangoHud `output_folder`, `autostart_log`, `log_duration`, `MANGOHUD_CONFIG`, `mangohud %command%` | verified | https://github.com/flightlessmango/MangoHud (README) |
+| `steam -applaunch <appid>` passes through env vars to the game | **unverified** (an already-running Steam client may not inherit `MANGOHUD_CONFIG`; the launch option `mangohud %command%` plus a MangoHud config file is the fallback) | — |
+| MangoHud log column named `frametime` (ms) | **unverified** for the installed version; the analyzer stops with an error if absent | — |
+| EasyAntiCheat behaviour under Proton with MangoHud | **unverified** | — |
+
+**Metrics:** average FPS, 1% and 0.1% lows (1000 / mean of the slowest 1% / 0.1% of frame times),
+frame-time standard deviation, 99th-percentile frame time; Gold Z, SM count and rate from its CSV.
+**Pass (proposed):** closed loop's 1% low within 5% of game-alone while Gold delivers ≥50% of its
+free-run rate; full-width visibly worse than closed loop.
+
+## T9. Pulse-to-work ratio (implemented, not yet run)
+```
+timeout 120 ./build/gputronic_gold ratio 5                  # default counts N, 3N/4, N/2, N/4 (84,63,42,21 on the 5080)
+timeout 120 ./build/gputronic_gold ratio 5 84,63,42,21      # explicit list
+python3 scripts/analyze_ratio.py results/gputronic_gold_ratio.csv
+```
+Open loop, tensor sensor off, 1 s settle, then `hold_s` per count. Work is counted independently of the
+pulses: a per-warp counter of completed batches in plain device memory (not mapped, no PCIe traffic),
+one store per pass, read by `cudaMemcpyAsync` on a non-blocking stream. It is enabled only by this mode
+(`GPUTRONIC_WORK_COUNTER=1`); default runs pass a null pointer and do not touch it.
+`ratio = pulses × GOLD_BATCH / work_batches` (1.0 means one pulse per completed pass).
+**Note:** in Gold the pulse and the work happen in the same pass, so this checks that the mapped
+counter does not lose or delay pulses at different widths (the host's view vs the device's), not
+whether the arithmetic per pass changes. Snapshot skew between the two reads is a small error source.
+**Pass:** |drift vs 84 SMs| ≤ 1% at every count. If it drifts, the Z math is wrong and `rate_ref` needs
+revisiting.

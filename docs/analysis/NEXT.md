@@ -115,9 +115,19 @@ sm_61 will not be run here. Compiling it is the check that no `__nanosleep` rema
 - Do not start the counter that keeps going after a kernel returns. That is path C5.
   It is not part of cleaning up this PR.
 
+## T9. Pulse-to-work ratio (new, run early)
+
+`timeout 120 ./build/gputronic_gold ratio 5` then `python3 scripts/analyze_ratio.py results/gputronic_gold_ratio.csv`.
+Open loop at 84, 63, 42, 21 SMs (N, 3N/4, N/2, N/4 on other cards). Compares mapped-counter pulses with a
+device-memory count of completed batches. Pass: drift within 1% of the 84-SM ratio. If it drifts, the Z
+math is wrong and `rate_ref` needs revisiting. Details in `TEST_SUITE.md`.
+
 ## C. Paths, after A is on the 5080
 
 ### C1. Plant-gain step, before any clamp change
+
+**Implemented as T6** (`gputronic_gold loadstep`, field `work_scale_milli`, see `TEST_SUITE.md`); 1.2× only, no 0.8×.
+Baseline with `GPUTRONIC_INTEGRAL_CLAMP=1.0`, then the scaled clamp. Not yet run.
 
 This is the load test that matches the model. Change the work per pulse in the
 kernel we own, by a field in the control block, something like 0.8× and 1.2× the

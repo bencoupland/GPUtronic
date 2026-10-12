@@ -155,10 +155,13 @@ The order is [`NEXT.md`](NEXT.md). Short form:
    integral frozen. The 0.015 band is what lets the count walk. Kp and Ki stay.
 4. Remove device `__nanosleep`. It is not the actuator. Do not replace it with a
    `clock64` spin.
-5. Do not scale the integral clamp until a measured plant-gain step says the four
+5. *(Superseded: the clamp is now scaled by user decision, `e2da984`.)* Do not scale the integral clamp until a measured plant-gain step says the four
    SMs of authority are what miss. That step is path C1 in `NEXT.md`, an in-kernel
    work change, not a second CUDA process.
 6. The counter that outlives a launch is path C5. Do not start it as part of this PR.
+7. New tests, implemented, not yet run: T9 pulse-to-work ratio (`gputronic_gold ratio`), T6 load step
+   (`loadstep`, the C1 step; baseline with `GPUTRONIC_INTEGRAL_CLAMP=1.0`), T7 bursts, T8 Space Marine 2
+   co-run (`scripts/t8_game_corun.sh`). Commands in `TEST_SUITE.md`.
 
 ## 8. Git state
 

@@ -196,3 +196,12 @@ takes a fifth argument (tensor sensor on/off).
 - Linear interpolation in the table leaves Transfer about 0.04 under target in the model.
 - Nothing in PR #1 or the two-sensor change has run on hardware yet. The tensor warp adds load on
   each SM, so the CUDA-core rate and the measured curves will differ from the RTX 5080 runs above.
+
+## Test hooks (T6–T9)
+
+- `GPUTronicControl.work_scale_milli` (appended last; host writes, Gold kernel reads; 0/1000 = no load).
+  At S > 1000 a pulsing warp emits one pulse per S/1000 batches (`gold_load_pulse`).
+- Kernel argument `work_count` (device memory, `num_sm*32` slots, NULL by default): per-warp count of
+  completed batches, enabled by `GPUTRONIC_WORK_COUNTER=1` (set by `ratio` mode).
+- Environment: `GPUTRONIC_INTEGRAL_CLAMP` (> 0 fixes the clamp; unset = scaled).
+- CLI modes: `loadstep`, `bursts`, `loadfile`, `ratio`, `fullwidth` (see `gputronic_gold help` and `TEST_SUITE.md`).
