@@ -1,0 +1,257 @@
+
+== checks ==
+-- gold-check
+[SNS] tensor sensor off
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[SNS] tensor sensor off
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[CHECK] pulses=9242932 z=1.454 z_mean=1.449 rate=383189.9 n=52
+[CHECK] free-run 554983.0 pulse/s | closed 386666.9 pulse/s
+[CHECK] tach=OK z_sane=OK rate_sane=OK track=OK useful_drop=YES (err=0.051)
+=== GOLD GATE: dyno=PASS closedloop=PASS ===
+switches printed: none
+-- transfer-check
+[SNS] tensor sensor off
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[SNS] tensor sensor off
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[CHECK] pulses=5418999 z=1.458 z_mean=1.460 target=1.50 ema=180473.4 sleep=5
+[CHECK] free-run 257120.7 pulse/s (8.4253 GFLOP/s) | closed 179955.1 pulse/s (5.8968 GFLOP/s)
+[CHECK] tach=OK z_sane=OK track=OK engaged=YES useful_drop=YES cal_swallow=NO
+=== TRANSFER GATE: dyno=PASS closedloop=PASS ===
+switches printed: none
+-- episode-check
+[SNS] tensor sensor off
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[SNS] tensor sensor off
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[CHECK] pulses=14594708 z=1.506 z_mean=1.499 target=1.50 ema=472131.2 sleep=5
+[CHECK] free-run 712298.9 pulse/s (23.3406 GFLOP/s) | closed 474907.3 pulse/s (15.5618 GFLOP/s)
+[CHECK] tach=OK z_sane=OK track=OK engaged=YES useful_drop=YES cal_swallow=NO window=OK
+=== EPISODE GATE: dyno=PASS closedloop=PASS ===
+switches printed: none
+
+== t6-off ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[CAL] rate_ref=586736.2 pulses/s (sustained 1.10s window)
+[CAL] cuda table n= 63 rate=424879.7 Z=1.381
+[CAL] cuda table n= 42 rate=281912.5 Z=2.081
+[CAL] cuda table n= 21 rate=124586.2 Z=4.709
+[CAL] cuda table n=  4 rate=20889.8 Z=28.087
+[CAL] cuda target Z=1.50 → n_ff=59.4 dZ/dn=0.0333 sms_per_u=30.0
+[CAL] controller starts on the cuda sensor
+[CAL] integral clamp=1.401 (scaled, max integral correction 3.36 SMs of 84)
+[SNS] tensor sensor off
+trace rows 59993 t 0.0..59999.0
+median bin 1.060 ms
+before 10-19s: scale 1.000
+  Z n=9000 mean=1.4711 std=0.0492 min=1.3422 max=1.6249
+  SMs n=9000 mean=57.59 std=1.13 min=56.00 max=61.00
+  integral n=9000 mean=0.2831 std=0.0481 min=0.1791 max=0.3180
+  pulse rate 400870 /s  (mean win_pulses / 0.008)
+held 25-55s: scale 1.200
+  Z n=29993 mean=1.7236 std=0.0368 min=1.5925 max=1.9249
+  SMs n=29993 mean=66.36 std=0.68 min=64.00 max=70.00
+  integral n=29993 mean=-1.3908 std=0.0481 min=-1.4006 max=-1.0277
+  pulse rate 342049 /s  (mean win_pulses / 0.008)
+first 1s of load 20-21s: scale 1.200
+  Z n=1000 mean=1.7985 std=0.0449 min=1.5559 max=1.9080
+  SMs n=1000 mean=63.92 std=0.98 min=57.00 max=66.00
+  integral n=1000 mean=0.1670 std=0.0876 min=0.0182 max=0.3161
+  pulse rate 326671 /s  (mean win_pulses / 0.008)
+first 2s of load 20-22s: scale 1.200
+  Z n=2000 mean=1.7960 std=0.0429 min=1.5559 max=1.9194
+  SMs n=2000 mean=64.27 std=0.91 min=57.00 max=67.00
+  integral n=2000 mean=0.0190 std=0.1718 min=-0.2755 max=0.3161
+  pulse rate 327758 /s  (mean win_pulses / 0.008)
+held/before 0.8533  first1s/before 0.8149  expected 0.8333
+left the 0.08 band in the 5 s after the step: True
+first return at 0.2 ms after the step (t=20000.2)
+sustained 200 ms inside the band: never
+held SM histogram 66:18881 67:8004 68:1843 65:1081 64:98 69:71
+
+== t6-on ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[CAL] rate_ref=356352416.0 pulses/s (sustained 1.10s window)
+[CAL] cuda table n= 63 rate=268401999.6 Z=1.328
+[CAL] cuda table n= 42 rate=180625450.4 Z=1.973
+[CAL] cuda table n= 21 rate=90399614.5 Z=3.942
+[CAL] cuda table n=  4 rate=16999439.3 Z=20.963
+[CAL] cuda target Z=1.50 → n_ff=57.4 dZ/dn=0.0307 sms_per_u=32.5
+[CAL] controller starts on the cuda sensor
+[CAL] integral clamp=1.290 (scaled, max integral correction 3.36 SMs of 84)
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[SNS] tensor sensor off
+trace rows 60000 t 0.0..59999.2
+median bin 1.050 ms
+before 10-19s: scale 1.000
+  Z n=9000 mean=1.4866 std=0.0392 min=1.3933 max=1.6249
+  SMs n=9000 mean=56.30 std=0.90 min=55.00 max=60.00
+  integral n=9000 mean=0.0204 std=0.0022 min=0.0143 max=0.0226
+  pulse rate 241051548 /s  (mean win_pulses / 0.008)
+held 25-55s: scale 1.200
+  Z n=30000 mean=1.6292 std=0.0347 min=1.5483 max=1.7646
+  SMs n=30000 mean=63.02 std=0.69 min=61.00 max=65.00
+  integral n=30000 mean=-1.2647 std=0.0852 min=-1.2904 max=-0.8247
+  pulse rate 219714736 /s  (mean win_pulses / 0.008)
+first 1s of load 20-21s: scale 1.200
+  Z n=1000 mean=1.6848 std=0.0406 min=1.5336 max=1.8173
+  SMs n=1000 mean=60.91 std=0.90 min=56.00 max=63.00
+  integral n=1000 mean=-0.0706 std=0.0541 min=-0.1625 max=0.0218
+  pulse rate 212063171 /s  (mean win_pulses / 0.008)
+first 2s of load 20-22s: scale 1.200
+  Z n=2000 mean=1.6800 std=0.0369 min=1.5336 max=1.8173
+  SMs n=2000 mean=61.05 std=0.79 min=56.00 max=63.00
+  integral n=2000 mean=-0.1608 std=0.1042 min=-0.3377 max=0.0218
+  pulse rate 212945690 /s  (mean win_pulses / 0.008)
+held/before 0.9115  first1s/before 0.8797  expected 0.8333
+left the 0.08 band in the 5 s after the step: True
+first return at 0.0 ms after the step (t=20000.0)
+sustained 200 ms inside the band: never
+held SM histogram 63:18061 62:5893 64:5300 65:706 61:40
+
+== q-n4 ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=358460512.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=56.9 dZ/dn=0.0285 sms_per_u=35.1
+[CAL] integral clamp=1.195 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=10.0000 std=0.0000 min=10.0000 max=10.0000
+settled SMs n=2500 mean=4.00 std=0.00 min=4.00 max=4.00
+pulse rate 18409563 /s  Z_wall=rate_ref/rate 19.471  rate_ref 358460512
+t0=4 samples 7..32 of 33 n=25 pwr mean 89.5 min 89.0 max 90.0  temp 51..53  pclk mean 2889 min 2887 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== q-n12 ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=355922304.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=55.1 dZ/dn=0.0286 sms_per_u=34.9
+[CAL] integral clamp=1.203 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=6.4702 std=0.1498 min=6.1363 max=7.0413
+settled SMs n=2500 mean=12.00 std=0.00 min=12.00 max=12.00
+pulse rate 55297231 /s  Z_wall=rate_ref/rate 6.437  rate_ref 355922304
+t0=4 samples 7..32 of 33 n=25 pwr mean 88.0 min 88.0 max 88.0  temp 49..51  pclk mean 2895 min 2895 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== q-n24 ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=358742272.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=56.0 dZ/dn=0.0261 sms_per_u=38.3
+[CAL] integral clamp=1.096 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=3.2647 std=0.0752 min=3.0986 max=3.5385
+settled SMs n=2500 mean=24.00 std=0.00 min=24.00 max=24.00
+pulse rate 110429173 /s  Z_wall=rate_ref/rate 3.249  rate_ref 358742272
+t0=4 samples 7..32 of 33 n=25 pwr mean 87.0 min 87.0 max 87.0  temp 48..49  pclk mean 2895 min 2895 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== q-n36 ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=359680256.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=55.6 dZ/dn=0.0274 sms_per_u=36.6
+[CAL] integral clamp=1.149 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=2.1992 std=0.0523 min=2.0873 max=2.3965
+settled SMs n=2500 mean=36.00 std=0.00 min=36.00 max=36.00
+pulse rate 164335206 /s  Z_wall=rate_ref/rate 2.189  rate_ref 359680256
+t0=4 samples 7..32 of 33 n=25 pwr mean 87.0 min 87.0 max 87.0  temp 47..47  pclk mean 2895 min 2895 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== q-n48 ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=360150784.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=56.5 dZ/dn=0.0288 sms_per_u=34.7
+[CAL] integral clamp=1.210 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=1.6780 std=0.0388 min=1.5871 max=1.8308
+settled SMs n=2500 mean=48.00 std=0.00 min=48.00 max=48.00
+pulse rate 215626102 /s  Z_wall=rate_ref/rate 1.670  rate_ref 360150784
+t0=4 samples 7..32 of 33 n=25 pwr mean 86.0 min 86.0 max 86.0  temp 46..47  pclk mean 2895 min 2895 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== q-n56 ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=358422144.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=55.7 dZ/dn=0.0272 sms_per_u=36.8
+[CAL] integral clamp=1.142 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=1.4500 std=0.0349 min=1.3671 max=1.5932
+settled SMs n=2500 mean=56.00 std=0.00 min=56.00 max=56.00
+pulse rate 248365132 /s  Z_wall=rate_ref/rate 1.443  rate_ref 358422144
+t0=4 samples 7..32 of 33 n=25 pwr mean 86.0 min 86.0 max 86.0  temp 45..46  pclk mean 2895 min 2895 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== q-n72 ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=357600992.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=55.9 dZ/dn=0.0287 sms_per_u=34.8
+[CAL] integral clamp=1.207 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=1.1495 std=0.0280 min=1.0743 max=1.2502
+settled SMs n=2500 mean=72.00 std=0.00 min=72.00 max=72.00
+pulse rate 312787212 /s  Z_wall=rate_ref/rate 1.143  rate_ref 357600992
+t0=4 samples 7..32 of 33 n=25 pwr mean 85.0 min 85.0 max 85.0  temp 45..45  pclk mean 2895 min 2895 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== q-n84 ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=353737920.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=55.3 dZ/dn=0.0275 sms_per_u=36.4
+[CAL] integral clamp=1.154 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=0.9858 std=0.0256 min=0.9261 max=1.1663
+settled SMs n=2500 mean=84.00 std=0.00 min=84.00 max=84.00
+pulse rate 360625626 /s  Z_wall=rate_ref/rate 0.981  rate_ref 353737920
+t0=4 samples 7..32 of 33 n=25 pwr mean 84.0 min 84.0 max 84.0  temp 44..45  pclk mean 2895 min 2895 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== q-n4-spin ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=360684928.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=57.8 dZ/dn=0.0323 sms_per_u=31.0
+[CAL] integral clamp=1.355 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=10.0000 std=0.0000 min=10.0000 max=10.0000
+settled SMs n=2500 mean=4.00 std=0.00 min=4.00 max=4.00
+pulse rate 17071874 /s  Z_wall=rate_ref/rate 21.127  rate_ref 360684928
+t0=4 samples 7..32 of 33 n=25 pwr mean 83.4 min 83.0 max 84.0  temp 44..44  pclk mean 2895 min 2895 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== q-n36-spin ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=358614208.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=57.1 dZ/dn=0.0302 sms_per_u=33.1
+[CAL] integral clamp=1.268 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=2.3163 std=0.0561 min=2.1523 max=2.5222
+settled SMs n=2500 mean=36.00 std=0.00 min=36.00 max=36.00
+pulse rate 155589325 /s  Z_wall=rate_ref/rate 2.305  rate_ref 358614208
+t0=4 samples 7..32 of 33 n=25 pwr mean 84.0 min 84.0 max 84.0  temp 44..44  pclk mean 2895 min 2895 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== q-n84-spin ==
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[CAL] rate_ref=357649472.0 pulses/s (sustained 1.10s window)
+[CAL] cuda target Z=1.50 → n_ff=57.3 dZ/dn=0.0304 sms_per_u=32.9
+[CAL] integral clamp=1.276 (scaled, max integral correction 3.36 SMs of 84)
+settled 3-28s Z n=2500 mean=0.9965 std=0.0266 min=0.9363 max=1.0880
+settled SMs n=2500 mean=84.00 std=0.00 min=84.00 max=84.00
+pulse rate 360786077 /s  Z_wall=rate_ref/rate 0.991  rate_ref 357649472
+t0=4 samples 7..32 of 33 n=25 pwr mean 84.0 min 84.0 max 84.0  temp 43..44  pclk mean 2895 min 2895 max 2895  sm% mean 100  pviol max 0 tviol max 0
+
+== e3-quiet ==
+samples 24463 median spacing 0.110 ms  steps [(1000.037, 42), (2000.119, 84)]
+  down -> 42 at 1000.037 ms  host column 0.123 ms  tally 1.243 ms  pre_hi 1028398997
+  up -> 84 at 2000.119 ms  host column 0.111 ms  tally 0.611 ms  pre_hi 0

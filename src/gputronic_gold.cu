@@ -108,10 +108,11 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  * pulses in a register. The block leader adds that batch to the mapped pulse
  * counter about once a millisecond. Control-word reads stay every pass.
  * GPUTRONIC_CTRL_CACHE=1 is a separate test switch, off by default. The block
- * leader reads the mapped control words once per GPUTRONIC_CTRL_CACHE_US
- * (default 1000, floor 50) and the block uses that shared copy. Unset, every
- * pass reads the mapped words. The pulse batch stays at 1 ms. work_scale_milli
- * is not cached. */
+ * leader reads the mapped control words, including work_scale_milli, once per
+ * GPUTRONIC_CTRL_CACHE_US (default 1000, floor 50) and the block uses that
+ * shared copy. Unset, every pass reads the mapped words, and work_scale_milli
+ * is still read only while the load flag is set. The pulse batch stays at 1 ms.
+ * Tensor-on blocks do not take this cache: a barrier there is not uniform. */
 #define GOLD_OPS_CUDA_WARP_PASS (2ULL * GOLD_BATCH * GOLD_WORK_ITERS * 8ULL * 32ULL)
 #define GOLD_OPS_TENSOR_WARP_PASS (2ULL * 16 * 16 * 16 * GOLD_TENSOR_STEPS)
 #define GOLD_ACCUM_WORDS 5
@@ -144,9 +145,20 @@ __device__ __forceinline__ unsigned long long gold_globaltimer_ns(void) {
 __device__ __forceinline__ int gold_load_pulse(unsigned int flags, GPUTronicControl* ctrl,
                                                unsigned int* credit) {
     /* work_scale_milli is only read while the host has set GPUTRONIC_FLAG_LOAD in
-     * control_flags, which every pass already reads. Normal runs add no mapped read. */
+     * control_flags, which every pass already reads. Normal runs add no mapped read.
+     * This body is the switch-off path. The cache uses gold_load_from_scale. */
     if (!(flags & GPUTRONIC_FLAG_LOAD)) return 1;
     unsigned int s = ctrl->work_scale_milli;
+    if (s <= 1000u) return 1;
+    *credit += 1000u;
+    if (*credit >= s) { *credit -= s; return 1; }
+    return 0;
+}
+
+__device__ __forceinline__ int gold_load_from_scale(unsigned int flags, unsigned int s,
+                                                    unsigned int* credit) {
+    /* s is the shared copy of work_scale_milli. No mapped read. */
+    if (!(flags & GPUTRONIC_FLAG_LOAD)) return 1;
     if (s <= 1000u) return 1;
     *credit += 1000u;
     if (*credit >= s) { *credit -= s; return 1; }
@@ -202,6 +214,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     __shared__ int s_flush;
     __shared__ unsigned int s_flags;
     __shared__ int s_active;
+    __shared__ unsigned int s_scale;
     __shared__ unsigned long long s_ctrl_last;
     if (sm >= num_sm) return;
     if (tid == 0) {
@@ -209,6 +222,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         s_ops[1] = 0ULL;
         s_flags = 0;
         s_active = num_sm;
+        s_scale = 1000u;
         s_ctrl_last = 0ULL;
         asm volatile("mov.u32 %0, %%smid;" : "=r"(phys_sm));
         s_phys = phys_sm;
@@ -239,6 +253,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                 if (s_ctrl_last == 0ULL || now - s_ctrl_last >= cache_ns) {
                     s_flags = ctrl->control_flags;
                     s_active = ctrl->active_sms;
+                    s_scale = ctrl->work_scale_milli;
                     s_ctrl_last = now;
                 }
             }
@@ -335,7 +350,16 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
          * thread. It stays off unless GPUTRONIC_PULSE_LOCAL=1. Tensor-on blocks
          * keep the per-pass mapped atomic: a barrier there would not be uniform. */
         int use_local = pulse_local && (blockDim.x == cuda_warps * 32);
-        if (lane == 0 && gold_load_pulse(flags, ctrl, &load_credit)) {
+        /* use_cache is the same on every thread. Off, this is the old mapped
+         * read, and only lane 0 takes it. On, lane 0 uses the shared scale. */
+        int do_pulse = 0;
+        if (lane == 0) {
+            if (use_cache)
+                do_pulse = gold_load_from_scale(flags, s_scale, &load_credit);
+            else
+                do_pulse = gold_load_pulse(flags, ctrl, &load_credit);
+        }
+        if (do_pulse) {
             if (use_local) {
                 unpublished++;
             } else {
@@ -486,8 +510,9 @@ struct GPUTronicHandle {
     unsigned long long select_sm_hi;
     /* Test only. GPUTRONIC_PULSE_LOCAL=1 batches the mapped pulse atomic. */
     int pulse_local;
-    /* Test only. GPUTRONIC_CTRL_CACHE=1 batches the mapped control-word reads.
-     * ctrl_cache_ns is that period. Default 1 ms. The pulse batch stays 1 ms. */
+    /* Test only. GPUTRONIC_CTRL_CACHE=1 batches the mapped control-word reads,
+     * including work_scale_milli. ctrl_cache_ns is that period. Default 1 ms.
+     * The pulse batch stays 1 ms. */
     int ctrl_cache;
     unsigned long long ctrl_cache_ns;
 };
@@ -1270,7 +1295,7 @@ int gputronic_start(GPUTronicHandle* h) {
                 if (v > 100000) v = 100000;
             }
             h->ctrl_cache_ns = (unsigned long long)v * 1000ULL;
-            printf("[CTRL] cached control words: leader reads once per %ld us\n", v);
+            printf("[CTRL] cached control words, including work_scale_milli: leader reads once per %ld us\n", v);
         }
         gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
                            h->cfg.enable_tensor_sensor, h->d_work,

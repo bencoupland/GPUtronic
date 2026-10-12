@@ -1,0 +1,88 @@
+SEVENTH PASS START 2026-10-12T15:32:09-07:00 temp=45
+make: Nothing to be done for 'gold'.
+make: Nothing to be done for 'lib'.
+make: Nothing to be done for 'transfer'.
+make: Nothing to be done for 'episode'.
+temp 45 C
+=== gold-check ./build/gputronic_gold check temp=45 2026-10-12T15:32:09-07:00 ===
+temp 49 C  exit 0
+dmon n=39 temp 45..49 mean 47.6 pwr mean 69.3 max 72.0 pclk mean 2861 min 1582 max 2895 mclk mean 14601 sm% mean 98 pviol max 0 tviol max 0 rx mean 106 tx mean 58
+temp 49 C
+=== transfer-check ./build/gputronic_transfer check temp=49 2026-10-12T15:32:49-07:00 ===
+temp 50 C  exit 0
+dmon n=59 temp 48..51 mean 49.9 pwr mean 69.8 max 73.0 pclk mean 2895 min 2895 max 2895 mclk mean 14808 sm% mean 97 pviol max 0 tviol max 0 rx mean 102 tx mean 52
+temp 50 C
+=== episode-check ./build/gputronic_episode check temp=50 2026-10-12T15:33:51-07:00 ===
+temp 51 C  exit 0
+dmon n=59 temp 50..52 mean 51.8 pwr mean 70.4 max 72.0 pclk mean 2894 min 2887 max 2895 mclk mean 14808 sm% mean 94 pviol max 0 tviol max 0 rx mean 104 tx mean 60
+temp 51 C
+=== t6-off ./build/gputronic_gold loadstep 60 1.2 20 temp=51 2026-10-12T15:34:53-07:00 ===
+temp 53 C  exit 0
+dmon n=61 temp 51..54 mean 52.8 pwr mean 70.8 max 73.0 pclk mean 2887 min 2887 max 2895 mclk mean 14804 sm% mean 98 pviol max 0 tviol max 0 rx mean 105 tx mean 60
+OK t6-off trace saved
+temp 53 C
+=== t6-on ./build/gputronic_gold loadstep 60 1.2 20 temp=53 2026-10-12T15:35:57-07:00 ===
+temp 53 C  exit 0
+dmon n=61 temp 53..57 mean 55.9 pwr mean 85.4 max 87.0 pclk mean 2887 min 2887 max 2887 mclk mean 14804 sm% mean 98 pviol max 0 tviol max 0 rx mean 25 tx mean 14
+OK t6-on trace saved
+temp 51 C
+=== q-n4 ./build/gputronic_gold noise 4 30 temp=51 2026-10-12T15:37:01-07:00 ===
+temp 48 C  exit 0
+dmon n=33 temp 49..53 mean 52.2 pwr mean 88.3 max 91.0 pclk mean 2889 min 2887 max 2895 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 23 tx mean 10
+OK q-n4 trace saved
+temp 48 C
+=== q-n12 ./build/gputronic_gold noise 12 30 temp=48 2026-10-12T15:37:35-07:00 ===
+temp 46 C  exit 0
+dmon n=33 temp 47..51 mean 49.9 pwr mean 86.4 max 89.0 pclk mean 2895 min 2895 max 2895 mclk mean 14813 sm% mean 95 pviol max 0 tviol max 0 rx mean 22 tx mean 11
+OK q-n12 trace saved
+temp 46 C
+=== q-n24 ./build/gputronic_gold noise 24 30 temp=46 2026-10-12T15:38:10-07:00 ===
+temp 45 C  exit 0
+dmon n=33 temp 46..49 mean 48.2 pwr mean 85.6 max 88.0 pclk mean 2895 min 2895 max 2895 mclk mean 14807 sm% mean 96 pviol max 0 tviol max 0 rx mean 22 tx mean 11
+OK q-n24 trace saved
+temp 45 C
+=== q-n36 ./build/gputronic_gold noise 36 30 temp=45 2026-10-12T15:38:44-07:00 ===
+temp 44 C  exit 0
+dmon n=33 temp 45..48 mean 47.0 pwr mean 85.5 max 87.0 pclk mean 2895 min 2895 max 2895 mclk mean 14807 sm% mean 95 pviol max 0 tviol max 0 rx mean 22 tx mean 12
+OK q-n36 trace saved
+temp 44 C
+=== q-n48 ./build/gputronic_gold noise 48 30 temp=44 2026-10-12T15:39:19-07:00 ===
+temp 43 C  exit 0
+dmon n=33 temp 44..47 mean 46.1 pwr mean 84.6 max 87.0 pclk mean 2895 min 2895 max 2895 mclk mean 14807 sm% mean 96 pviol max 0 tviol max 0 rx mean 22 tx mean 13
+OK q-n48 trace saved
+temp 43 C
+=== q-n56 ./build/gputronic_gold noise 56 30 temp=43 2026-10-12T15:39:53-07:00 ===
+temp 43 C  exit 0
+dmon n=33 temp 43..46 mean 45.7 pwr mean 84.6 max 87.0 pclk mean 2895 min 2895 max 2895 mclk mean 14807 sm% mean 96 pviol max 0 tviol max 0 rx mean 22 tx mean 13
+OK q-n56 trace saved
+temp 43 C
+=== q-n72 ./build/gputronic_gold noise 72 30 temp=43 2026-10-12T15:40:28-07:00 ===
+temp 42 C  exit 0
+dmon n=33 temp 43..46 mean 45.0 pwr mean 83.6 max 85.0 pclk mean 2895 min 2895 max 2910 mclk mean 14807 sm% mean 97 pviol max 0 tviol max 0 rx mean 25 tx mean 14
+OK q-n72 trace saved
+temp 42 C
+=== q-n84 ./build/gputronic_gold noise 84 30 temp=42 2026-10-12T15:41:02-07:00 ===
+temp 42 C  exit 0
+dmon n=33 temp 42..45 mean 44.1 pwr mean 82.7 max 85.0 pclk mean 2895 min 2895 max 2910 mclk mean 14807 sm% mean 97 pviol max 0 tviol max 0 rx mean 24 tx mean 25
+OK q-n84 trace saved
+temp 42 C
+=== q-n4-spin ./build/gputronic_gold noise 4 30 temp=42 2026-10-12T15:41:37-07:00 ===
+temp 41 C  exit 0
+dmon n=33 temp 42..44 mean 43.9 pwr mean 82.2 max 84.0 pclk mean 2895 min 2895 max 2910 mclk mean 14807 sm% mean 97 pviol max 0 tviol max 0 rx mean 21 tx mean 10
+OK q-n4-spin trace saved
+temp 41 C
+=== q-n36-spin ./build/gputronic_gold noise 36 30 temp=41 2026-10-12T15:42:11-07:00 ===
+temp 41 C  exit 0
+dmon n=33 temp 41..44 mean 43.9 pwr mean 82.7 max 84.0 pclk mean 2896 min 2895 max 2910 mclk mean 14807 sm% mean 97 pviol max 0 tviol max 0 rx mean 22 tx mean 13
+OK q-n36-spin trace saved
+temp 41 C
+=== q-n84-spin ./build/gputronic_gold noise 84 30 temp=41 2026-10-12T15:42:46-07:00 ===
+temp 41 C  exit 0
+dmon n=33 temp 41..44 mean 43.8 pwr mean 82.3 max 84.0 pclk mean 2896 min 2895 max 2910 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 23 tx mean 14
+OK q-n84-spin trace saved
+temp 41 C
+=== e3-quiet ./build/gputronic_gold noise 84 3 temp=41 2026-10-12T15:43:20-07:00 ===
+temp 41 C  exit 0
+dmon n=7 temp 41..44 mean 43.4 pwr mean 79.1 max 87.0 pclk mean 2898 min 2895 max 2910 mclk mean 14830 sm% mean 86 pviol max 0 tviol max 0 rx mean 21 tx mean 62
+OK e3-quiet tally saved
+SUITE DONE fails=0 2026-10-12T15:43:28-07:00 temp=40

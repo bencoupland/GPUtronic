@@ -52,7 +52,7 @@ If any part fails, create returns NULL. There is no copy-based fallback.
 `gputronic_start`. Each pass it reads `control_flags` and `active_sms`. Blocks numbered at or above
 `active_sms` skip the work and read those two words again. There is no device `__nanosleep` and no
 `clock64` spin. The others run 16 × 8 calls of `gold_work` (8 dependent FMAs each), then pulse.
-`work_scale_milli` is read only while bit3 (load) is set. A normal pass does not touch it.
+`work_scale_milli` is read only while bit3 (load) is set, unless the control-word cache is on. A normal pass does not touch it. With the cache on, the block leader reads it in that refresh.
 An optional per-SM work tally (T11) is off unless `GPUTRONIC_SM_ACCUM=1` or
 `GPUTRONIC_SM_ACCUM_SM` is set. Off, the kernel only tests a null pointer. On, each
 active block adds its own CUDA-core ops in shared memory and, about once a millisecond,
@@ -69,9 +69,11 @@ pulse count in a register, and the block leader adds the batch to the mapped
 pulse counter about once a millisecond. Reads of the mapped control words stay
 on every pass. Unset, every pulsing warp still adds to the mapped counter.
 `GPUTRONIC_CTRL_CACHE=1` is a separate test switch, off by default. The block
-leader reads the mapped control words once per `GPUTRONIC_CTRL_CACHE_US`
-(default 1000, floor 50) and the other threads use that copy. The pulse
-batch stays at one millisecond. Unset, every pass reads those words.
+leader reads the mapped control words, including `work_scale_milli`, once per
+`GPUTRONIC_CTRL_CACHE_US` (default 1000, floor 50) and the other threads use
+that copy. The pulse batch stays at one millisecond. Unset, every pass reads
+the command words, and `work_scale_milli` is still read only while the load
+flag is set. Tensor-on blocks do not take this cache.
 
 ### Using Gold from another kernel [F-03]
 Another kernel can add to `total_work_pulses` with `atomicAdd` and run only `active_sms` blocks.
@@ -193,7 +195,7 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Per-SM tally | off | `GPUTRONIC_SM_ACCUM=1` or `GPUTRONIC_SM_ACCUM_SM=<id>` |
 | Working-set filter | off | `GPUTRONIC_ACTIVE_PASSES` or `GPUTRONIC_ACTIVE_SMS`, then bit 4 |
 | Local pulse count | off | `GPUTRONIC_PULSE_LOCAL=1`. One mapped atomic per block per 1 ms |
-| Cached control words | off | `GPUTRONIC_CTRL_CACHE=1`. Period `GPUTRONIC_CTRL_CACHE_US`, default 1 ms |
+| Cached control words | off | `GPUTRONIC_CTRL_CACHE=1`. Period `GPUTRONIC_CTRL_CACHE_US`, default 1 ms. The refresh includes `work_scale_milli` |
 
 ## 5. API changes in PR #1
 
@@ -245,9 +247,11 @@ optional counters and leaves the test flags off.
 
 ## Test hooks (T6–T9)
 
-- `GPUTronicControl.work_scale_milli` (appended last; host writes; 0/1000 = no load). The kernel
-  reads it only while `GPUTRONIC_FLAG_LOAD` is set. At S > 1000 a pulsing warp emits one pulse
-  per S/1000 batches (`gold_load_pulse`).
+- `GPUTronicControl.work_scale_milli` (appended last; host writes; 0/1000 = no load). With the
+  cache switch off, the kernel reads it only while `GPUTRONIC_FLAG_LOAD` is set. With
+  `GPUTRONIC_CTRL_CACHE=1`, the block leader reads it in the same refresh as the other control
+  words and the warps use that copy. At S > 1000 a pulsing warp emits one pulse per S/1000
+  batches (`gold_load_pulse`, or `gold_load_from_scale` when the cache is on).
 - Kernel argument `work_count` (device memory, `num_sm*32` slots, NULL by default): per-warp count of
   completed batches, enabled by `GPUTRONIC_WORK_COUNTER=1` (set by `ratio` mode).
 - Environment: `GPUTRONIC_INTEGRAL_CLAMP` (> 0 fixes the clamp; unset = scaled).
