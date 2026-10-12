@@ -147,8 +147,9 @@ The project was inspired by Bosch Motronic 7 engine management on the Audi B5 S4
 
 1. Port the 4.5 s free-run wait (`ff4e97c`) to `controller-fixes`.
 2. Fix the integral clamp: scale it to SM count instead of the hard-coded 1.0.
-3. Add a load generator so load steps and bursts can be tested on hardware.
-4. Make the tensor sensor off by default.
+3. Make the tensor sensor off by default.
+4. Queued: synthetic load generator and T6/T7 (`TEST_SUITE.md`), then the Cyberpunk 2077 co-run
+   (`cyberpunk-benchmark-plan.md`).
 5. Code to-do: the kernels still contain sleep calls in their idle/pause loops (Gold, Transfer, Episode, Show) that a later code pass removes, required before an sm_61 build compiles.
 
 ## 8. Git state

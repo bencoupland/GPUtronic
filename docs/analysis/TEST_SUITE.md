@@ -52,3 +52,49 @@ load step). Note what was used.
 per reserve SM. Bursts shorter than 8 ms are not seen by the controller. A sustained −20% load leaves Z
 near 1.65 because the integral clamp limits correction.
 **Pass:** steady Z decreases as k increases; report peak Z and time above 1.5 for any external load.
+
+## Proposed: synthetic load generator (not implemented)
+Nothing below exists in the code yet. It is a plan for a companion program, `gputronic_load`, used by
+T6 and T7. Purpose: reproduce and then tune the integral-clamp recovery bug (after a sustained 20% load
+step Z hangs about 1.62–1.74; the clamp is hard-coded 1.0 in `include/gputronic.h`, which gives only
+about 4 SMs of authority).
+
+**Mechanisms and trade-offs**
+- *Separate competing CUDA process* (proposed default): a second program runs a persistent kernel that
+  occupies a set number of SMs or streams memory/PCIe traffic. Realistic (it is how a real co-tenant
+  behaves) and needs no change to GPUTronic, but the scheduler decides how SMs are shared, so the
+  effective load is not exact; time-slicing between contexts adds jitter.
+- *Separate stream in the same process*: tighter timing, same caveat on sharing; needs code inside
+  the GPUTronic binaries.
+- *In-kernel work multiplier on the pulse batch* (e.g. 1.2× FMAs per pulse via a control-block field):
+  exact and repeatable, maps directly to "the plant got 20% slower", but changes the owned kernel, so it
+  does not test interference from outside work.
+
+**Proposed interface**
+```
+gputronic_load --mode sms|membw|pcie --schedule FILE [--seed N] [--log FILE] [--device 0]
+gputronic_load --step 0.20 --at 10 --hold 20           # one sustained step
+gputronic_load --bursts 2,4,8,16,50,200 --gap 500 --seed 7
+```
+Schedule file (CSV, one line per segment, times in seconds from start):
+`t_start_s,duration_s,level,shape` with `level` a fraction of full load and `shape` = `step` or `burst`.
+A seed controls any random gaps, so a schedule replays exactly.
+Log columns: `wall_ns` (CLOCK_REALTIME), `t_s`, `level_cmd`, `level_applied`, `sms_busy`, `segment_id`.
+`wall_ns` aligns with GPUTronic's 10 µs samples by recording CLOCK_REALTIME at GPUTronic start.
+
+## T6. Sustained load steps (proposed; needs `gputronic_load`)
+Gold, Transfer, Episode at Z 1.5. After calibration plus 10 s, apply +20% load for 20 s, release,
+then −20% for 20 s. Run once before the clamp fix (**baseline, record it**) and once after.
+**Model prediction (pre-fix):** Z holds near 1.62–1.74 and does not return within 0.02 of 1.5.
+**Pass (post-fix):** Z back within 0.02 of 1.5 within **2 s** of each step (X = 2 s, revisit after the
+first baseline), no integral sample on the clamp for longer than 1 s.
+
+## T7. Bursts (proposed; needs `gputronic_load`)
+Bursts of 2, 4, 8, 16, 50 and 200 ms, 500 ms apart, seeded, 10 of each.
+**Model prediction:** bursts under 8 ms are not seen by the controller; 16 ms and longer cause an SM
+change within 8–16 ms.
+**Pass:** peak Z and time above 1.5 recorded per burst length; for ≥50 ms bursts Z returns within 0.02
+within 200 ms after the burst ends.
+
+## T8. Cyberpunk 2077 co-run (proposed)
+See `cyberpunk-benchmark-plan.md`.

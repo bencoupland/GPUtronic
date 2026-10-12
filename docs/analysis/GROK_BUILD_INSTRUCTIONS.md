@@ -124,3 +124,9 @@ gh issue create --repo bencoupland/GPUtronic \
 # later runs: gh issue comment <number> --repo bencoupland/GPUtronic --body-file $LOG/SUMMARY.md
 ```
 Compare each result with the "Model prediction" lines in `TEST_SUITE.md` and say which matched.
+
+## 10. Queued work (after the current roadmap)
+Current roadmap, in order (see `HANDOFF.md`): port the 4.5 s free-run wait (`ff4e97c`), scale the
+integral clamp, tensor sensor off by default. Queued after that, both proposed and not yet runnable:
+1. Synthetic load generator and tests T6 (sustained steps) and T7 (bursts), `TEST_SUITE.md`.
+2. Cyberpunk 2077 co-run benchmark, T8, `cyberpunk-benchmark-plan.md`.
