@@ -174,3 +174,11 @@ python3 scripts/analyze_loadstep.py $LOG/T6_db015.csv; python3 scripts/analyze_l
 ```
 The analyzer prints the SM walk (percent of bins where the count changed, distinct counts, std), Z noise,
 loop rate, and the PI counters (deadband held %, integral updated %, on rail %, SM moves, P-only moves).
+
+## T11. Per-SM ops accumulator (prototype, implemented, not yet run)
+Design and PCIe math: `per-sm-accumulator.md`.
+```
+GPUTRONIC_TENSOR_SENSOR=0 GPUTRONIC_SM_ACCUM_SM=0 GPUTRONIC_TRACE_BIN_US=1000 timeout 60 ./build/gputronic_gold noise 46 30
+python3 scripts/analyze_smaccum.py results/gputronic_gold_smaccum.csv
+```
+Then all SMs with `GPUTRONIC_SM_ACCUM=1`. **Pass:** ratio drift < 1% and correlation ≥ 0.9 (10-bin level).

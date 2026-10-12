@@ -87,6 +87,23 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
 #endif
 }
 
+/* ---- T11 per-SM ops accumulator (opt-in) ----
+ * Exact ops from the code above, FMA counted as 2 FP32 ops:
+ *   CUDA warp pass  = GOLD_BATCH 16 x GOLD_WORK_ITERS 8 x 8 FMAs x 2 x 32 lanes = 65,536 ops
+ *   tensor warp pass = GOLD_TENSOR_STEPS 64 x 2*16*16*16 = 524,288 ops (0 below sm_70: stub)
+ * Warps add to a shared-memory tally (no global atomics). Every bin_ns of %globaltimer
+ * the block leader stores one 32-byte slot {ops_cuda, ops_tensor, t_ns, seq} to a mapped
+ * host array, seq last after a system fence (host retries if seq changes mid-read).
+ * accum == NULL (default) costs one register test per pass and no memory traffic. */
+#define GOLD_OPS_CUDA_WARP_PASS (2ULL * GOLD_BATCH * GOLD_WORK_ITERS * 8ULL * 32ULL)
+#define GOLD_OPS_TENSOR_WARP_PASS (2ULL * 16 * 16 * 16 * GOLD_TENSOR_STEPS)
+
+__device__ __forceinline__ unsigned long long gold_globaltimer_ns(void) {
+    unsigned long long t;
+    asm volatile("mov.u64 %0, %%globaltimer;" : "=l"(t));
+    return t;
+}
+
 /*
  * Persistent self-test kernel [F-02].
  *   grid = num_sm (one block / SM)
@@ -120,7 +137,10 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        GPUTronicControl* ctrl,
                                        int num_sm,
                                        int cuda_warps,
-                                       unsigned long long* work_count) {
+                                       unsigned long long* work_count,
+                                       unsigned long long* accum,
+                                       int accum_sm,
+                                       unsigned long long accum_bin_ns) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
@@ -131,6 +151,11 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     unsigned long long work_done = 0; /* T9: completed batches, this warp */
 
     if (sm >= num_sm) return;
+    __shared__ unsigned long long s_ops[2];   /* T11: CUDA ops, tensor ops */
+    if (tid == 0) { s_ops[0] = 0ULL; s_ops[1] = 0ULL; }
+    __syncthreads();
+    const int accum_on = (accum != NULL) && (accum_sm < 0 || accum_sm == sm);
+    unsigned long long accum_last = 0ULL, accum_seq = 0ULL;
 
     while (true) {
         unsigned int flags = ctrl->control_flags;
@@ -157,6 +182,9 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         if (is_tensor_warp) {
             float t = gold_tensor_work(sm);
             if (t > 1.0e30f) local += t;   /* keep the result live */
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 700)
+            if (accum_on && lane == 0) atomicAdd(&s_ops[1], GOLD_OPS_TENSOR_WARP_PASS);
+#endif
             if (lane == 0 && gold_load_pulse(flags, ctrl, &load_credit)) {
                 atomicAdd((unsigned long long*)&ctrl->tensor_work_pulses, 1ULL);
                 local_pulses++;
@@ -180,6 +208,22 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             work_count[sm * 32 + (tid >> 5)] = work_done;
         }
 
+        if (accum_on) {
+            if (lane == 0) atomicAdd(&s_ops[0], GOLD_OPS_CUDA_WARP_PASS);
+            if (tid == 0) {
+                unsigned long long now = gold_globaltimer_ns();
+                if (now - accum_last >= accum_bin_ns) {
+                    volatile unsigned long long* slot = accum + 4 * sm;
+                    slot[0] = *(volatile unsigned long long*)&s_ops[0];
+                    slot[1] = *(volatile unsigned long long*)&s_ops[1];
+                    slot[2] = now;
+                    __threadfence_system();
+                    slot[3] = ++accum_seq;
+                    accum_last = now;
+                }
+            }
+        }
+
         if (lane == 0 && gold_load_pulse(flags, ctrl, &load_credit)) {
             atomicAdd(&sm_counters[sm], 1ULL);
             atomicAdd((unsigned long long*)&ctrl->total_work_pulses, 1ULL);
@@ -195,11 +239,15 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    int num_sm,
                                    int threads_per_block,
                                    int tensor_sensor,
-                                   unsigned long long* work_count) {
+                                   unsigned long long* work_count,
+                                   unsigned long long* accum,
+                                   int accum_sm,
+                                   unsigned long long accum_bin_ns) {
     /* CUDA-core warps stay as configured; the tensor sensor adds one warp. */
     int cuda_warps = (threads_per_block + 31) / 32;
     int threads = cuda_warps * 32 + (tensor_sensor ? 32 : 0);
-    gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps, work_count);
+    gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps, work_count,
+                                                 accum, accum_sm, accum_bin_ns);
 }
 
 /* ---- Host handle and control thread ---- */
@@ -212,6 +260,10 @@ struct GPUTronicHandle {
     GPUTronicControl* d_ctrl;
     unsigned long long* d_sm;   /* per-SM diagnostic counters (device memory) */
     unsigned long long* d_work; /* T9 work counter, num_sm*32 slots; NULL = off (default) */
+    unsigned long long* h_accum; /* T11 mapped per-SM slots, 4 x u64 per SM; NULL = off */
+    unsigned long long* d_accum;
+    int accum_sm;                /* -1 all SMs, else the one SM that reports */
+    unsigned long long accum_bin_ns;
     pthread_t thr;
     int running;
     int started;
@@ -952,8 +1004,30 @@ int gputronic_start(GPUTronicHandle* h) {
             else h->d_work = NULL;
             printf("[T9] work counter %s\n", h->d_work ? "on (device memory)" : "allocation failed, off");
         }
+        /* T11 accumulator: GPUTRONIC_SM_ACCUM=1 (all SMs) or GPUTRONIC_SM_ACCUM_SM=<id> (one SM). */
+        const char* ea = getenv("GPUTRONIC_SM_ACCUM");
+        const char* es = getenv("GPUTRONIC_SM_ACCUM_SM");
+        if (((ea && strcmp(ea, "1") == 0) || (es && *es)) && !h->h_accum) {
+            size_t bytes = (size_t)h->cfg.num_sm * 4 * sizeof(unsigned long long);
+            if (cudaHostAlloc((void**)&h->h_accum, bytes, cudaHostAllocMapped) == cudaSuccess &&
+                cudaHostGetDevicePointer((void**)&h->d_accum, h->h_accum, 0) == cudaSuccess) {
+                memset(h->h_accum, 0, bytes);
+                h->accum_sm = (es && *es) ? atoi(es) : -1;
+                const char* bv = getenv("GPUTRONIC_TRACE_BIN_US");
+                long bus = (bv && atoi(bv) >= 100) ? atol(bv) : 1000;
+                h->accum_bin_ns = (unsigned long long)bus * 1000ULL;
+                printf("[T11] per-SM accumulator on: %s, bin %ld us\n",
+                       h->accum_sm < 0 ? "all SMs" : "one SM", bus);
+            } else {
+                if (h->h_accum) cudaFreeHost(h->h_accum);
+                h->h_accum = NULL; h->d_accum = NULL;
+                printf("[T11] accumulator allocation failed, off\n");
+            }
+        }
+        if (!h->h_accum) { h->d_accum = NULL; h->accum_sm = -1; h->accum_bin_ns = 1000000ULL; }
         gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
-                           h->cfg.enable_tensor_sensor, h->d_work);
+                           h->cfg.enable_tensor_sensor, h->d_work,
+                           h->d_accum, h->accum_sm, h->accum_bin_ns);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             fprintf(stderr, "[GPUTronic] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -1011,6 +1085,7 @@ void gputronic_destroy(GPUTronicHandle* h) {
     if (h->started) gputronic_stop(h);
     if (h->d_sm) cudaFree(h->d_sm);
     if (h->d_work) cudaFree(h->d_work);
+    if (h->h_accum) cudaFreeHost(h->h_accum);
     if (h->h_ctrl) cudaFreeHost(h->h_ctrl);
     free(h);
 }
@@ -1437,8 +1512,17 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
     h->h_ctrl->work_scale_milli = 1000u;
     while (!h->calibrated && !g_signal_stop) usleep(1000);
     if (full_width) gputronic_set_open_loop_sms(h, full_width > 1 ? full_width : 0);
-    double bin_ms = 10.0;
+    double bin_ms = h->h_accum ? 1.0 : 10.0;   /* 1 ms default when the T11 accumulator is on */
     { const char* bv = getenv("GPUTRONIC_TRACE_BIN_US"); if (bv && atoi(bv) >= 500) bin_ms = atoi(bv) / 1000.0; }
+    FILE* fa = NULL;
+    unsigned long long* a_prev = NULL;
+    unsigned long long pulse_prev = h->h_ctrl->total_work_pulses;
+    if (h->h_accum) {
+        fa = fopen("results/gputronic_gold_smaccum.csv", "w");
+        a_prev = (unsigned long long*)calloc((size_t)h->cfg.num_sm * 2, sizeof(unsigned long long));
+        if (fa) fprintf(fa, "t_ms,sm,ops_cuda,ops_tensor,d_ops_cuda,d_ops_tensor,dev_t_ns,seq,"
+                            "active_sms,bin_pulses,rate_ema\n");
+    }
     struct timespec rt;
     clock_gettime(CLOCK_REALTIME, &rt);
     printf("[LOAD] calibrated; schedule t=0 at wall %ld.%09ld (CLOCK_REALTIME), %d points, %d s\n",
@@ -1476,6 +1560,23 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
                            cv[0] - pv[0], (cv[0] - pv[0]) * 1000.0 / bin_ms,
                            cv[1] - pv[1], cv[2] - pv[2], cv[3] - pv[3], cv[4] - pv[4], cv[5] - pv[5], cv[6] - pv[6]);
             for (int q = 0; q < 7; q++) pv[q] = cv[q];
+            if (fa && a_prev) {
+                unsigned long long pn = h->h_ctrl->total_work_pulses;
+                unsigned long long bp = pn - pulse_prev;
+                pulse_prev = pn;
+                int s0 = h->accum_sm < 0 ? 0 : h->accum_sm;
+                int s1 = h->accum_sm < 0 ? h->cfg.num_sm : h->accum_sm + 1;
+                for (int q = s0; q < s1 && q < h->cfg.num_sm; q++) {
+                    volatile unsigned long long* sl = h->h_accum + 4 * q;
+                    unsigned long long a, b, tn, sq, sq2;
+                    int tries = 0;
+                    do { sq = sl[3]; a = sl[0]; b = sl[1]; tn = sl[2]; sq2 = sl[3]; } while (sq != sq2 && ++tries < 8);
+                    fprintf(fa, "%.2f,%d,%llu,%llu,%llu,%llu,%llu,%llu,%d,%llu,%.1f\n", t_ms, q, a, b,
+                            a - a_prev[2 * q], b - a_prev[2 * q + 1], tn, sq,
+                            h->h_ctrl->active_sms, bp, h->h_ctrl->rate_ema);
+                    a_prev[2 * q] = a; a_prev[2 * q + 1] = b;
+                }
+            }
             next_bin += bin_ms;
         }
         int sec = (int)(t_ms / 1000.0);
@@ -1485,6 +1586,8 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
     __sync_fetch_and_and(&h->h_ctrl->control_flags, ~GPUTRONIC_FLAG_LOAD);
     h->h_ctrl->work_scale_milli = 1000u;
     if (f) fclose(f);
+    if (fa) fclose(fa);
+    free(a_prev);
     gputronic_stop(h);
     gputronic_destroy(h);
     printf("[LOAD] wrote %s\n", csv_bin);
