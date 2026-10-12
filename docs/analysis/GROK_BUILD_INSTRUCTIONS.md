@@ -101,7 +101,7 @@ done
 kill $SMI $DMON
 ```
 Check the exit status (`$?`) after every command; stop as in section 1 on non-zero (124 = timeout).
-T4 (GTX 1080) needs a different machine and a code change; it is not part of this run.
+T4 (GTX 1080) needs a different machine; it is not part of this run.
 
 ## 7. What to record in the summary
 `$LOG/SUMMARY.md`: commit hash, driver, CUDA version, peak temperature, and for each test the numbers

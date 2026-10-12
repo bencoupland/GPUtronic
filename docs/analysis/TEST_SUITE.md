@@ -33,10 +33,7 @@ calibration; `step` shows the rate change within two 8 ms windows.
 about 1.50.
 **Pass:** both report PASS; mean Z within 1.40–1.55.
 
-## T4. GTX 1080 bring-up (separate machine, needs a code change)
-- `__nanosleep` needs compute 7.0+. In `src/gputronic_gold.cu` it is called at lines **119, 125 and
-  133** (pause 5 µs, reset 1 µs, idle-SM 5 µs). Replace with a `clock64()` spin under
-  `#if __CUDA_ARCH__ < 700`. Transfer and Episode also call it.
+## T4. GTX 1080 bring-up (separate machine)
 - Build: `make NVCC=<cuda-12.x>/bin/nvcc ARCH=-arch=sm_61 gold` (CUDA 13 cannot target sm_61; use the
   R580 driver branch).
 - The tensor path is compiled out below sm_70 and switched off at runtime.

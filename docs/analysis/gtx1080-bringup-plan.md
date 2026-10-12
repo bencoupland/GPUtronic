@@ -1,7 +1,7 @@
 # GPUTronic on a GTX 1080 (Pascal GP104, sm_61, 20 SMs): bring-up plan
 
 Branch: controller-fixes (PR #1). Nothing here has been run on a GTX 1080. The January v0.1
-(archive/v0.1-gtx1080-2026-01/main.cu) did run on a GTX 1080, but it used clock64() busy-wait idle, a
+(archive/v0.1-gtx1080-2026-01/main.cu) did run on a GTX 1080, but it used a
 single mapped atomic counter, and kernel relaunch with more/fewer blocks, not this code.
 
 ## 1. Toolkit / driver
@@ -25,20 +25,11 @@ make NVCC=/usr/local/cuda-12.9/bin/nvcc ARCH=-arch=sm_61 gold lib demo
 Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
   -gencode arch=compute_61,code=sm_61 -gencode arch=compute_120,code=sm_120.
 
-## 3. Code blockers on sm_61 (must fix before it compiles)
+## 3. Code blockers on sm_61
 
-- __nanosleep needs CC 7.0+. Verified: nvcc -arch=sm_61 errors "identifier __nanosleep is
-  undefined" in gold_persistent_kernel (pause 5 us, reset 1 us, idle-SM 5 us backoff). The transfer
-  and episode kernels also call it.
-- Fallback: a device helper gt_sleep_ns(ns) that uses __nanosleep under
-  #if __CUDA_ARCH__ >= 700, else a clock64() spin, e.g.
-  long long t0 = clock64(); while (clock64() - t0 < cycles) {}, where cycles = ns * clock_GHz,
-  passed in or read from a device constant set from cudaDeviceProp.clockRate. This is what v0.1 did.
-  Caveat: an idle SM that spins still burns issue slots and power. It is not idle. It doesn't
-  pulse, so Q is still right, but the D axis (power/thermal) differs from Blackwell, and boost clock
-  may rise as fewer SMs are busy.
-- The legacy sleep throttle in transfer/episode becomes a spin on Pascal, so any sleep-sweep numbers
-  are not comparable with the 5080.
+- Actuation is by SM count, so no sleep primitive is part of the design for any kernel or card.
+- The open code to-do for sm_61 is tracked in HANDOFF.md, next steps.
+- Any legacy sleep-sweep numbers from transfer/episode are not comparable across cards.
 
 ## 4. Zero-copy / mapped memory on Pascal
 
@@ -68,7 +59,7 @@ Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
  a) Device query: nvidia-smi; deviceQuery or cudaGetDeviceProperties: name, CC 6.1,
     multiProcessorCount 20, canMapHostMemory=1, unifiedAddressing=1, hostNativeAtomicSupported,
     clockRate, pciBusID.
- b) Build only: make gold ARCH=-arch=sm_61 after the nanosleep fallback. Check warnings.
+ b) Build only: make gold ARCH=-arch=sm_61 (after the HANDOFF code to-do). Check warnings.
  c) Zero-copy: ./build/gputronic_gold run 5, confirm "[ZC ] type=host host_ptr=OK dev_ptr=OK
     round_trip=OK", pulses increasing, control_hz_ema near 100 kHz.
  d) Open loop: ./build/gputronic_gold dyno, then step. Rate must fall monotonically 20 -> 4 SMs.

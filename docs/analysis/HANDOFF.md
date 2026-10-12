@@ -48,16 +48,15 @@ GTX 1080 model (20 SMs, 5080 curve shape, spin-wait idle assumed to cost a few p
 
 ## 3. What does not work yet, or is unverified
 
-- **Nothing is GPU-verified.** All PR #1 results are compiled-only plus models.
+- **Partly GPU-verified.** See "RTX 5080 hardware results, 2026-10-12" below; T4 (GTX 1080) is not run.
 - **The RTX 5080 loop is limited by PCIe, not clocks.** One kernel pass takes about 288 µs, while the
   arithmetic in it takes about 1.6 µs. The time goes to atomic updates on mapped host memory.
 - **Transfer settles about 0.04 below target.** Its rate curve bends between 63 and 42 SMs, and the
   straight-line interpolation in the table picks slightly too many SMs.
 - **The Kalman derivative is off (Kd = 0).** As coded, dZ/dt jumps at each 8 ms window edge instead of
   following a smooth slope, and in the model it never helped. See `kalman-analysis.md`.
-- **The tensor-core sensor is untested** on hardware.
-- **sm_61 (GTX 10 series) does not build:** the kernels call `__nanosleep`, which needs sm_70.
-  See `gtx1080-bringup-plan.md`.
+- **The tensor-core sensor costs 30–39% of the CUDA-core rate** and adds no information on Gold (measured).
+- **sm_61 (GTX 10 series):** flip the Makefile `ARCH` from sm_120 to sm_61. See `gtx1080-bringup-plan.md`.
 - **The Makefile defaults to sm_120** and CUDA 12.8 paths; override with
   `make NVCC=... ARCH=-arch=sm_XX`.
 
@@ -96,8 +95,8 @@ GTX 1080 model (20 SMs, 5080 curve shape, spin-wait idle assumed to cost a few p
   memory across PCIe. Gold's ~288 µs pass is set by that path, not by SM clock or arithmetic rate, so
   spec-sheet tables mislead. Example: a tensor curve built from the published FP16 tensor rate is linear
   in SMs and ~1,000x faster than the kernel can pulse. The atomic-bound tensor curve instead tracks
-  Gold's shape at about 1/3 of the CUDA-core rate. With that curve both sensors settle near Z 1.49, so
-  with this kernel the two sensors are largely redundant.
+  Gold's shape at a fixed fraction of the CUDA-core rate (model said 1/3; hardware measured exactly 1/2),
+  so the two Z values are identical and the sensors are redundant with this kernel.
 - **Transfer's curve bends between 63 and 42 SMs**, so a straight line from one probe point is wrong
   there; the four-point table covers it.
 - **Two-sensor rule.** The default rule follows the **higher** Z (the max selector). It has also been
@@ -113,18 +112,44 @@ GTX 1080 model (20 SMs, 5080 curve shape, spin-wait idle assumed to cost a few p
 - **Fixed pulse-batch size only holds for kernels we own.** Gold, Transfer and Episode pulse at a known
   cadence. An unmodified workload cannot be counted this way.
 
+## 5b. RTX 5080 hardware results, 2026-10-12
+
+Source: `docs/analysis/5080-2026-10-12.md` on branch `origin/test-results/2026-10-12_5080`, issue #2.
+These replace the model-only claims above where they differ.
+
+| Test | Model | Measured |
+|---|---|---|
+| Gold closed loop, mean Z (last 30 s) | 1.49 | **1.487** |
+| Gold SM count | 46–47, ±1 | 44–52, mean 48.2 |
+| Tensor-warp cost to CUDA-core rate | up to ~1/3 | **39% at 84 SMs**, 30–39% across widths |
+| Tensor rate / CUDA rate | ~1/3 | **exactly 1/2** at every width, so tensor Z = CUDA Z |
+| Transfer mean Z (after wait fix) | 1.46 | 1.456 |
+| Episode mean Z (after wait fix) | 1.50 | 1.468 |
+
+- **Recommendation: tensor sensor off by default.** It costs up to 39% of throughput and its Z is the same
+  number as the CUDA-core Z. Not yet changed in code (`GPUTRONIC_TENSOR_SENSOR=0` turns it off).
+- **Integral clamp bug seen on hardware.** One Episode run parked on the clamp (1.0), and the reserve-4 run
+  hit it. Clamp × Ki × `sms_per_u` is only about 4 SMs of authority, so a low starting count cannot be
+  walked far. The clamp (`GPUTRONIC_GOLD_INTEGRAL_CLAMP`, hard-coded 1.0 in `include/gputronic.h`) should
+  scale with SM count, e.g. chosen so `Ki * clamp * sms_per_u` covers a meaningful fraction of the SMs.
+- **T3 needs the 4.5 s wait fix.** `mode_closedloop` in Transfer and Episode slept 2.2 s, then sampled the
+  free-run rate while the four-point table (now ~3 s) was still probing, so the gates failed with Z in band.
+  Commit `ff4e97c` on `test-results/2026-10-12_5080` waits 4.5 s. It is not yet on `controller-fixes`;
+  without it the T3 gates fail on this branch.
+- **No real load-step test.** There is no load generator in the code, so the load-step and burst
+  predictions remain model-only.
+
 ## 6. Origin
 
 The project was inspired by Bosch Motronic 7 engine management on the Audi B5 S4.
 
 ## 7. Next steps
 
-1. Run the test suite (`docs/analysis/TEST_SUITE.md`) on the RTX 5080 following
-   `docs/analysis/GROK_BUILD_INSTRUCTIONS.md`: tensor-sensor overhead first, then Gold, Transfer, Episode.
-   Record mean Z, SM-count range and the calibration table.
-2. Run on a GTX 1080 after adding a `clock64` spin fallback for `__nanosleep` on sm_61.
-3. Measure the tensor warp's overhead: compare the CUDA-core rate with the tensor sensor on and off.
-4. Add a tensor sensor to the Transfer and Episode kernels.
+1. Port the 4.5 s free-run wait (`ff4e97c`) to `controller-fixes`.
+2. Fix the integral clamp: scale it to SM count instead of the hard-coded 1.0.
+3. Add a load generator so load steps and bursts can be tested on hardware.
+4. Make the tensor sensor off by default.
+5. Code to-do: the kernels still contain sleep calls in their idle/pause loops (Gold, Transfer, Episode, Show) that a later code pass removes, required before an sm_61 build compiles.
 
 ## 8. Git state
 
@@ -139,4 +164,6 @@ All work is on branch `controller-fixes` (PR #1). Nothing has been merged to `ma
 | `46b05a4` | Rewrite function reference and contributor notes |
 | `4fdb297` | Tensor-core sensor: second counter and Z, controller follows the higher Z |
 | `bb3a90f` | This status page |
-| (next) | Test runbook, test suite, model findings, switchable sensor rule |
+| `edb6dac` | Switchable sensor rule (max default) |
+| `0a4d495` | Test runbook, test suite, model findings |
+| (next) | RTX 5080 results and revised roadmap |

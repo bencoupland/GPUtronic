@@ -36,7 +36,7 @@ https://en.wikipedia.org/wiki/List_of_Nvidia_graphics_processing_units
 - GTX 1080 can't be anchored: the v0.1 archive dyno (archive/v0.1-gtx1080-2026-01/gputronic_master_dyno.csv)
   is a different kernel (tanf/sqrtf, 128-thread blocks, clock64 throttle, block-count gearshift,
   "RPM" units).
-- Pascal can't run Gold as-is (no __nanosleep on sm_61; see gputronic-1080-bringup.txt).
+- Pascal bring-up: see gtx1080-bringup-plan.md.
 
 ## Where the table could replace runtime calibration
 
