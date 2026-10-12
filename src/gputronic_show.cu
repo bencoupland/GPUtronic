@@ -101,14 +101,14 @@ __global__ void show_kernel(GPUTronicControl* ctrl, int num_sm, int tiles) {
         unsigned int flags = ctrl->control_flags;
         if (flags & GPUTRONIC_FLAG_STOP) break;
         if (flags & GPUTRONIC_FLAG_PAUSE) {
-            __nanosleep(5000);
+            (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
             continue;
         }
         int active = ctrl->active_sms;
         if (active <= 0 || active > num_sm) active = num_sm;
         if (active < 4) active = 4;
         if (sm >= active) {
-            __nanosleep(5000);
+            (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
             continue;
         }
         for (int t = 0; t < tiles; t++) {

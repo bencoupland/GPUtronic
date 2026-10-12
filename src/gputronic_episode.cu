@@ -132,7 +132,7 @@ __global__ void episode_kernel(GPUTronicControl* ctrl, int num_sm,
     unsigned int flags = ctrl->control_flags;
     if (flags & GPUTRONIC_FLAG_STOP) return;
     if (flags & GPUTRONIC_FLAG_PAUSE) {
-        __nanosleep(5000);
+        (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
         return;
     }
 
@@ -172,7 +172,7 @@ __global__ void episode_kernel(GPUTronicControl* ctrl, int num_sm,
     if (max_s > 0 && sleep_ns > max_s) sleep_ns = max_s;
     if (sleep_ns > 1000 && sleep_shots > 0) {
         for (int s = 0; s < sleep_shots; s++)
-            __nanosleep((unsigned int)sleep_ns);
+            (void)((unsigned int)sleep_ns);   /* was __nanosleep: removed, NEXT.md A4 */
     }
 
     if (tid == 0 && acc == 3.14159265f)
@@ -754,7 +754,7 @@ __global__ void episode_var_kernel(unsigned long long* pulses, float* sink,
     if (do_sense && sleep_shots > 0 && sleep_ns > 1000) {
         unsigned int sn = (unsigned int)sleep_ns;
         for (int s = 0; s < sleep_shots; s++)
-            __nanosleep(sn);
+            (void)(sn);   /* was __nanosleep: removed, NEXT.md A4 */
     }
     if (tid == 0 && sink && acc == 3.14159265f)
         sink[sm] = acc;
@@ -776,7 +776,7 @@ __global__ void episode_proof_kernel(GPUTronicControl* ctrl, float* sink,
     unsigned int flags = ctrl->control_flags;
     if (flags & GPUTRONIC_FLAG_STOP) return;
     if (flags & GPUTRONIC_FLAG_PAUSE) {
-        __nanosleep(5000);
+        (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
         return;
     }
 
@@ -814,7 +814,7 @@ __global__ void episode_proof_kernel(GPUTronicControl* ctrl, float* sink,
     if (sleep_shots > 0 && sleep_ns > 1000) {
         unsigned int sn = (unsigned int)sleep_ns;
         for (int s = 0; s < sleep_shots; s++)
-            __nanosleep(sn);
+            (void)(sn);   /* was __nanosleep: removed, NEXT.md A4 */
     }
     if (tid == 0 && sink && acc == 3.14159265f)
         sink[sm] = acc;

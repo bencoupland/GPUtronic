@@ -88,7 +88,7 @@ __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
         unsigned int flags = ctrl->control_flags;
         if (flags & GPUTRONIC_FLAG_STOP) break;
         if (flags & GPUTRONIC_FLAG_PAUSE) {
-            __nanosleep(5000);
+            (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
             continue;
         }
 
@@ -117,7 +117,7 @@ __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
             if (active < 4) active = 4;
             if (active > num_sm) active = num_sm;
             if (sm >= active) {
-                __nanosleep(5000);
+                (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
                 continue;
             }
         } else {
@@ -125,7 +125,7 @@ __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
             if (cable <= 0 || cable > num_sm) cable = num_sm;
             if (cable < 4) cable = 4;
             if (sm >= cable) {
-                __nanosleep(5000);
+                (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
                 continue;
             }
         }
@@ -164,7 +164,7 @@ __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
             if (k >= 0) honour = (sm < k);
         }
         /* In follow mode the command is a count of working SMs, not a stall. */
-        if (!follow && honour && sleep_ns > 1000) __nanosleep((unsigned int)sleep_ns);
+        if (!follow && honour && sleep_ns > 1000) (void)((unsigned int)sleep_ns);   /* was __nanosleep: removed, NEXT.md A4 */
 
         iter++;
     }

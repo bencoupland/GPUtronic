@@ -136,13 +136,13 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         unsigned int flags = ctrl->control_flags;
         if (flags & GPUTRONIC_FLAG_STOP) break;
         if (flags & GPUTRONIC_FLAG_PAUSE) {
-            __nanosleep(5000);
+            (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
             continue;
         }
         if (flags & GPUTRONIC_FLAG_RESET) {
             if (tid == 0) sm_counters[sm] = 0ULL;
             __syncthreads();
-            __nanosleep(1000);
+            (void)(1000);   /* was __nanosleep: removed, NEXT.md A4 */
             continue;
         }
 
@@ -150,7 +150,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         if (active <= 0 || active > num_sm) active = num_sm;
         if (active < 4) active = 4;
         if (sm >= active) {
-            __nanosleep(5000);
+            (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
             continue;
         }
 
