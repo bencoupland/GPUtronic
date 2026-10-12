@@ -55,7 +55,7 @@ extern "C" {
  * to override with a fixed value. Was a fixed 1.0. */
 #define GPUTRONIC_GOLD_INTEGRAL_CLAMP 0.0f
 #define GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC 0.04f
-#define GPUTRONIC_GOLD_DEADBAND 0.015f
+#define GPUTRONIC_GOLD_DEADBAND 0.08f   /* NEXT.md A3; 0.015 let the count walk on the 5080. GPUTRONIC_DEADBAND overrides */
 #define GPUTRONIC_GOLD_PROBE_MS 300   /* per calibration point */
 #define GPUTRONIC_GOLD_SENSOR_HYSTERESIS 0.02f  /* [F-16] */
 #define GPUTRONIC_GOLD_Z_CEILING 10.0f
