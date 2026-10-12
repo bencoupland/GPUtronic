@@ -109,7 +109,7 @@ __device__ __forceinline__ unsigned long long gold_globaltimer_ns(void) {
  *   grid = num_sm (one block / SM)
  *   warp leaders (lane==0) add to the pulse total and the per-SM diagnostic [F-04]
  *   Actuator: the lowest active_sms blocks do the work and pulse.
- *   Idle blocks backoff 5 µs and do not pulse. Duration is not the command.
+ *   Idle blocks poll the mapped words and do not pulse. Duration is not the command.
  *   Two sensors [F-16]: warps below cuda_warps run the CUDA-core FMA batch
  *   and pulse total_work_pulses (unchanged). When the tensor sensor is on,
  *   one extra warp per block runs wmma and pulses tensor_work_pulses with
@@ -150,8 +150,8 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     unsigned int load_credit = 0;   /* T6/T7 synthetic load, see work_scale_milli */
     unsigned long long work_done = 0; /* T9: completed batches, this warp */
 
+    __shared__ unsigned long long s_ops[2];   /* T11: CUDA ops, tensor ops. Block-wide. */
     if (sm >= num_sm) return;
-    __shared__ unsigned long long s_ops[2];   /* T11: CUDA ops, tensor ops */
     if (tid == 0) { s_ops[0] = 0ULL; s_ops[1] = 0ULL; }
     __syncthreads();
     const int accum_on = (accum != NULL) && (accum_sm < 0 || accum_sm == sm);
@@ -208,20 +208,26 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             work_count[sm * 32 + (tid >> 5)] = work_done;
         }
 
-        if (accum_on) {
+        /* Tensor warps already continued, so a barrier is only legal when this
+         * block is CUDA warps alone. That is the normal run: the tensor sensor
+         * is off. The barrier lets the leader add both warps into one snapshot. */
+        if (accum_on && !is_tensor_warp) {
             if (lane == 0) atomicAdd(&s_ops[0], GOLD_OPS_CUDA_WARP_PASS);
+            const int cuda_only = (blockDim.x == cuda_warps * 32);
+            if (cuda_only) __syncthreads();
             if (tid == 0) {
                 unsigned long long now = gold_globaltimer_ns();
-                if (now - accum_last >= accum_bin_ns) {
+                if (accum_last == 0ULL || now - accum_last >= accum_bin_ns) {
                     volatile unsigned long long* slot = accum + 4 * sm;
-                    slot[0] = *(volatile unsigned long long*)&s_ops[0];
-                    slot[1] = *(volatile unsigned long long*)&s_ops[1];
+                    slot[0] = s_ops[0];
+                    slot[1] = s_ops[1];
                     slot[2] = now;
                     __threadfence_system();
                     slot[3] = ++accum_seq;
                     accum_last = now;
                 }
             }
+            if (cuda_only) __syncthreads();
         }
 
         if (lane == 0 && gold_load_pulse(flags, ctrl, &load_credit)) {
@@ -1013,11 +1019,18 @@ int gputronic_start(GPUTronicHandle* h) {
                 cudaHostGetDevicePointer((void**)&h->d_accum, h->h_accum, 0) == cudaSuccess) {
                 memset(h->h_accum, 0, bytes);
                 h->accum_sm = (es && *es) ? atoi(es) : -1;
+                if (h->accum_sm >= h->cfg.num_sm) {
+                    printf("[T11] SM %d is past the device count %d; reporting all SMs\n",
+                           h->accum_sm, h->cfg.num_sm);
+                    h->accum_sm = -1;
+                }
                 const char* bv = getenv("GPUTRONIC_TRACE_BIN_US");
                 long bus = (bv && atoi(bv) >= 100) ? atol(bv) : 1000;
                 h->accum_bin_ns = (unsigned long long)bus * 1000ULL;
-                printf("[T11] per-SM accumulator on: %s, bin %ld us\n",
-                       h->accum_sm < 0 ? "all SMs" : "one SM", bus);
+                if (h->accum_sm < 0)
+                    printf("[T11] per-SM accumulator on: all SMs, bin %ld us\n", bus);
+                else
+                    printf("[T11] per-SM accumulator on: SM %d, bin %ld us\n", h->accum_sm, bus);
             } else {
                 if (h->h_accum) cudaFreeHost(h->h_accum);
                 h->h_accum = NULL; h->d_accum = NULL;
@@ -1517,6 +1530,7 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
     FILE* fa = NULL;
     unsigned long long* a_prev = NULL;
     unsigned long long pulse_prev = h->h_ctrl->total_work_pulses;
+    int accum_primed = 0;
     if (h->h_accum) {
         fa = fopen("results/gputronic_gold_smaccum.csv", "w");
         a_prev = (unsigned long long*)calloc((size_t)h->cfg.num_sm * 2, sizeof(unsigned long long));
@@ -1547,7 +1561,9 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
             if (cur > 1000u) __sync_fetch_and_or(&h->h_ctrl->control_flags, GPUTRONIC_FLAG_LOAD);
             else __sync_fetch_and_and(&h->h_ctrl->control_flags, ~GPUTRONIC_FLAG_LOAD);
         }
+        int sampled = 0;
         if (t_ms >= next_bin) {
+            sampled = 1;
             clock_gettime(CLOCK_REALTIME, &rt);
             unsigned long long cv[7] = {h->st_loop, h->st_ticks, h->st_db_skip, h->st_int_upd,
                                         h->st_rail, h->st_moves, h->st_p_only};
@@ -1563,25 +1579,41 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
             if (fa && a_prev) {
                 unsigned long long pn = h->h_ctrl->total_work_pulses;
                 unsigned long long bp = pn - pulse_prev;
-                pulse_prev = pn;
                 int s0 = h->accum_sm < 0 ? 0 : h->accum_sm;
                 int s1 = h->accum_sm < 0 ? h->cfg.num_sm : h->accum_sm + 1;
-                for (int q = s0; q < s1 && q < h->cfg.num_sm; q++) {
-                    volatile unsigned long long* sl = h->h_accum + 4 * q;
-                    unsigned long long a, b, tn, sq, sq2;
-                    int tries = 0;
-                    do { sq = sl[3]; a = sl[0]; b = sl[1]; tn = sl[2]; sq2 = sl[3]; } while (sq != sq2 && ++tries < 8);
-                    fprintf(fa, "%.2f,%d,%llu,%llu,%llu,%llu,%llu,%llu,%d,%llu,%.1f\n", t_ms, q, a, b,
-                            a - a_prev[2 * q], b - a_prev[2 * q + 1], tn, sq,
-                            h->h_ctrl->active_sms, bp, h->h_ctrl->rate_ema);
-                    a_prev[2 * q] = a; a_prev[2 * q + 1] = b;
+                if (!accum_primed) {
+                    /* The slot is cumulative from kernel start, which includes
+                     * calibration. The first sample only sets the baseline. */
+                    for (int q = s0; q < s1 && q < h->cfg.num_sm; q++) {
+                        volatile unsigned long long* sl = h->h_accum + 4 * q;
+                        unsigned long long sq, sq2;
+                        int tries = 0;
+                        do { sq = sl[3]; a_prev[2 * q] = sl[0]; a_prev[2 * q + 1] = sl[1]; sq2 = sl[3]; }
+                        while (sq != sq2 && ++tries < 8);
+                    }
+                    pulse_prev = pn;
+                    accum_primed = 1;
+                } else {
+                    pulse_prev = pn;
+                    for (int q = s0; q < s1 && q < h->cfg.num_sm; q++) {
+                        volatile unsigned long long* sl = h->h_accum + 4 * q;
+                        unsigned long long a, b, tn, sq, sq2;
+                        int tries = 0;
+                        do { sq = sl[3]; a = sl[0]; b = sl[1]; tn = sl[2]; sq2 = sl[3]; }
+                        while (sq != sq2 && ++tries < 8);
+                        fprintf(fa, "%.2f,%d,%llu,%llu,%llu,%llu,%llu,%llu,%d,%llu,%.1f\n", t_ms, q, a, b,
+                                a - a_prev[2 * q], b - a_prev[2 * q + 1], tn, sq,
+                                h->h_ctrl->active_sms, bp, h->h_ctrl->rate_ema);
+                        a_prev[2 * q] = a; a_prev[2 * q + 1] = b;
+                    }
                 }
             }
             next_bin += bin_ms;
+            while (next_bin <= t_ms) next_bin += bin_ms;
         }
         int sec = (int)(t_ms / 1000.0);
         if (sec != last_print) { last_print = sec; if (sec > 0) gputronic_print_status(h, sec); }
-        usleep(200);
+        if (!sampled) usleep(200);
     }
     __sync_fetch_and_and(&h->h_ctrl->control_flags, ~GPUTRONIC_FLAG_LOAD);
     h->h_ctrl->work_scale_milli = 1000u;

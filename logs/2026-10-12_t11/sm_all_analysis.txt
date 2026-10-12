@@ -1,0 +1,6 @@
+sum over reporting SMs; ops per pulse 65536; skipped t < 1000 ms; 28981 bins
+[SMs] reporting 84, with work 46, idle 38, mean ops/bin 534265, cv 29.1%, range 443816..833115
+[1 host bin] bins 28981: ratio mean 1.0768, drift 4.24%, corr 0.663, best lag 0 corr 0.663
+[20 ms] bins 1450: ratio mean 1.0001, drift 0.05%, corr 0.954, best lag 0 corr 0.954
+[100 ms] bins 290: ratio mean 1.0000, drift 0.01%, corr 0.995, best lag 0 corr 0.995
+T11 PASS (100 ms drift < 1%, corr >= 0.9 within 2 bins, ratio mean 0.95..1.05)

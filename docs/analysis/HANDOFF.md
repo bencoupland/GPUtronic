@@ -127,19 +127,18 @@ These replace the model-only claims above where they differ.
 | Transfer mean Z (after wait fix) | 1.46 | 1.456 |
 | Episode mean Z (after wait fix) | 1.50 | 1.468 |
 
-- **Recommendation: tensor sensor off by default.** It costs up to 39% of throughput and its Z is the same
-  number as the CUDA-core Z. Not yet changed in code (`GPUTRONIC_TENSOR_SENSOR=0` turns it off).
+- **Tensor sensor is off by default.** It costs up to 39% of throughput and its Z is the same
+  number as the CUDA-core Z. `GPUTRONIC_TENSOR_SENSOR=1` turns it on.
 - **Integral clamp now scaled (user decision, 2026-10-12, overrides the earlier "do not scale" advice).** Default `integral_clamp` 0 means: after calibration, clamp = 0.04 × num_sm / (Ki × sms_per_u), so the integral can move at most 4% of the SMs (84 SMs: ~3.4 SMs, close to the old ~4; 20 SMs: 0.8 SM). A config value > 0 still fixes it. Printed in the `[CAL] integral clamp=` line. Unmeasured on hardware; the C1 load step should validate it.
 - *(Earlier advice, superseded:)* **Do not scale the integral clamp yet.** One Episode run parked on the clamp (1.0) at Z 1.43. The re-run
   did not: mean Z 1.467, integral maximum 0.83. The reserve-4 run hit the clamp because the integral was
   undoing the extra SMs. Ki × 1.0 × `sms_per_u` is about four SMs. The line "Z hangs at 1.62–1.74" is the
   simulator. Leave `GPUTRONIC_GOLD_INTEGRAL_CLAMP` at 1.0 until path C1 in `NEXT.md` is measured.
-- **T3 needs the 4.5 s wait fix.** `mode_closedloop` in Transfer and Episode slept 2.2 s, then sampled the
-  free-run rate while the four-point table (now ~3 s) was still probing, so the gates failed with Z in band.
-  Commit `ff4e97c` on `test-results/2026-10-12_5080` waits 4.5 s. It is not yet on `controller-fixes`;
-  without it the T3 gates fail on this branch.
-- **No real load-step test.** There is no load generator in the code, so the load-step and burst
-  predictions remain model-only.
+- **The 4.5 s wait is in this tree.** Transfer and episode free-run samples on 2026-10-12 matched
+  that launch's own `rate_ref`. The earlier failure was a 2.2 s sleep that sampled during the table.
+- **Load steps exist** (`loadstep`, `bursts`, `loadfile`). T6 and T7 were measured on `aba8af2`,
+  before deadband 0.08 and before the device sleep was removed. The note is on
+  `test-results/2026-10-12_t6t9`. They were not re-run on the build that went to main.
 
 ## 6. Origin
 
@@ -147,19 +146,18 @@ The project was inspired by Bosch Motronic 7 engine management on the Audi B5 S4
 
 ## 7. Next steps
 
-Section A of [`NEXT.md`](NEXT.md) is in this branch and was re-run on the RTX 5080 on 2026-10-12.
-Gold, transfer, and episode `check` passed with the tensor sensor off and deadband 0.08. The
-write-up is `docs/analysis/ready-2026-10-12.md`. Kp stays 0.55. Ki stays 0.08.
+Section A of [`NEXT.md`](NEXT.md) was re-run on the RTX 5080 on 2026-10-12 and then committed
+to `main`. Gold, transfer, and episode `check` passed with the tensor sensor off and deadband
+0.08. The per-SM tally (T11) was run the same night: at 100 ms the sum matched the pulse
+counter (ratio 1.000, correlation 0.995) and the SMs were uneven (29% coefficient of variation).
+Kp stays 0.55. Ki stays 0.08.
 
-This branch is the candidate for `main`. It is not merged.
-
-Still later, and not part of that merge: the counter that keeps going after a kernel returns,
-a run on a GTX 1080, and a game co-run. T6, T7, and T9 already ran on the earlier commit
-`aba8af2`; the note is on `test-results/2026-10-12_t6t9`.
+Still later: the counter that keeps going after a kernel returns, a run on a GTX 1080, and a
+game co-run. T6, T7, and T9 ran on `aba8af2`; the note is on `test-results/2026-10-12_t6t9`.
 
 ## 8. Git state
 
-All work is on branch `controller-fixes` (PR #1). Nothing has been merged to `main`.
+`main` carries the 2026-10-12 law, including the optional per-SM tally. `controller-fixes` was the branch that landed it. `archive/lab-2026-10-05` is the October 5 working tree, with follow, share, and beside, and it is not this controller.
 
 | Commit | Summary |
 |---|---|

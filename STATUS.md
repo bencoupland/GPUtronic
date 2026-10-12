@@ -18,11 +18,11 @@
 | Control period | 10 µs path; rate formed over about 1–8 ms (8 ms is the steady end) |
 | Z model | Sustained-window `Z = rate_ref / rate` (free-run ≈ 1.0) |
 | Target Z | 1.5 |
-| Gains | Kp=0.55, Ki=0.08, Kd=0 (`gputronic_set_kd`). A four-point rate-vs-SM table at calibration sets the starting SM count (`n_ff`) and `sms_per_u`. |
-| Policy | Two-sided PI around `n_ff` + 2-state Kalman. Deadband 0.015 (`gputronic_set_deadband`) holds the count. Integral clamped, no wind-up at 4 or full width. |
+| Gains | Kp=0.55, Ki=0.08, Kd=0. Do not retune them to chase the tenth. The four-point table sets `n_ff` and `sms_per_u`. |
+| Policy | Two-sided PI around `n_ff` + 2-state Kalman. Deadband 0.08 holds the count and freezes the integral. Clamp is about 3.4 SMs on this 84-SM card. |
 | Actuator | `active_sms`. Idle SMs skip the work and do not pulse. Floor 4. |
-| Tachometer | `atomicAdd` on aggregate `total_work_pulses`; optional tensor-core counter `tensor_work_pulses` (one wmma warp per block) |
-| Two sensors | PI runs on the higher of `z_cuda` and `z_tensor`, 0.02 hysteresis, bumpless switch. Local change, not yet on hardware. |
+| Tachometer | `atomicAdd` on aggregate `total_work_pulses`. Optional per-SM tally, off unless `GPUTRONIC_SM_ACCUM` is set. |
+| Tensor sensor | Off unless `GPUTRONIC_TENSOR_SENSOR=1`. On this 5080 it cut the CUDA rate about 39% and its Z matched the CUDA Z. |
 
 ## Verified on RTX 5080 (2026-09-23, after the width remake)
 
@@ -39,10 +39,10 @@ make episode && ./build/gputronic_episode check
 
 - Zero-copy: host_ctrl == device_ctrl (mapped)
 - Free-run Z ≈ 1.0 after the sustained calibration
-- PR #1 (not yet run on hardware): calibration is about 3 s, about 0.7 s longer than the measured runs above, because four 300 ms table steps replace the 0.5 s half-width probe
-- Width dyno: rate falls as SMs drop, R² 0.98 (Gold) and 0.99 (transfer), 84 down to 4
-- Closed-loop average Z about 1.36–1.38 on all three kernels, about a tenth under 1.50. The SM count moves a little around that. Setting the target back to full speed brings every SM back on.
-- The count that holds 1.5 is not one number. Transfer ~48. Short episode ~21. Show kernel ~54–58. Tiles from 1024 to 65536 on the show kernel barely moved it.
+- 2026-10-12, this law, tensor sensor off, deadband 0.08, same 5080: Gold free-run 541k pulses/s, closed 363k, gate mean Z 1.463. Transfer 8.48 to 6.03 GFLOP/s, mean Z 1.450. Episode 22.38 to 14.94 GFLOP/s, mean Z 1.468. All three gates passed.
+- Open loop at 46 SMs: Z standard deviation 0.051, every bin at 46. The per-SM tally summed to the pulse counter (100 ms ratio 1.000, correlation 0.995). Working SMs varied (29% coefficient of variation).
+- The 2026-09-23 one-sided law, for comparison, held mean Z about 1.36–1.38. Calibration is about 3 s: 1.8 s reference plus four 300 ms table steps.
+- The count that holds 1.5 is not one number. It comes from the table on the kernel that is running.
 
 ## How to run
 
@@ -71,14 +71,14 @@ make demo
 
 ## Next
 
-1. Same binary, calibration table left on, no hand-adjusted gain. Hold a band under 1.5 on the self-test, transfer, and episode kernels while the workload changes and the request stays the same.
-2. One shared counter that keeps going after a kernel returns, in code we compile ourselves.
-3. Only then try a hardware counter through the stock driver, on a program we do not modify. That will show whether we still need a driver change for the count, for holding blocks back, or for both.
-4. Keep the three checks passing. Do not clone llama.cpp in place of 1–3.
+1. One shared counter that keeps going after a kernel returns, in code we compile ourselves. Not started.
+2. Only then a hardware counter through the stock driver, on a program we do not modify.
+3. A GTX 1080 run. The source compiles for sm_61. It has not been executed there.
+4. Keep the three checks passing. Do not retune Kp or Ki. Do not clone llama.cpp in place of 1.
 
 ## Legacy note
 
 Pre-Gold Cyberpunk v1.13 equilibrium remains historical high-water for *game* coupling. Pre-Gold tree: `archive/pre-gold-2026-05/`.
 
 ---
-*Last updated: 2026-09-23 — width actuator, three gates PASS on RTX 5080*
+*Last updated: 2026-10-12 — two-sided law, deadband 0.08, tensor sensor off, three gates pass, per-SM tally matches the pulse counter*

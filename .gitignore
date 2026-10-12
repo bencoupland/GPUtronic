@@ -5,6 +5,7 @@ build/
 !build/.gitkeep
 results/*.csv
 results/*.csv.xz
+results/episode_campaign/
 !results/*_report.txt
 !results/*_summary.csv
 archive/pre-gold-2026-05/logs/

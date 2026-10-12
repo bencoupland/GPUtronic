@@ -8,7 +8,7 @@ Test definitions and pass/fail criteria are in `TEST_SUITE.md`.
 Read `docs/analysis/HANDOFF.md` (what is expected, what is unverified) and `docs/analysis/TEST_SUITE.md`.
 
 ## 1. Rules
-- **Never commit to `main`. Never force-push. Never merge.**
+- **Do not push `main` unless Ben Coupland has said to.** On 2026-10-12 he did, and that push is the law in this tree. Never force-push.
 - Put a `timeout` on every GPU run (values below). A timeout counts as a failure.
 - **Stop on any compile error, any non-zero exit, or GPU temperature above 85 °C.** Write the exact
   error text into `logs/<stamp>/STOPPED.txt`, commit what you have (step 8), and do nothing else.

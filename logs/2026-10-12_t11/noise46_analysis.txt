@@ -1,0 +1,7 @@
+[trace] 30000 bins: SM count changed in 0.0% of bins, 1 distinct counts, std 0.00
+[trace] Z noise: z_raw std 0.0512, bin-to-bin step std 0.0144; z_hat std 0.0509
+[trace] control loop 15588 Hz mean (min 0); PI ticks 0: deadband held 0.0%, integral updated 0.0%, on rail 0.0%, SM moves 0 (P-only 0)
+[trace] pulses per 8 ms window: mean 3075, min 270 (counting noise ~1.80% if Poisson-like)
+file logs/2026-10-12_t11/noise46.csv: 30000 bins, target 1.5, tol 0.02
+integral at clamp: 0.0% of bins (clamp 0.876)
+SM-count distribution (top): 46:100.0%

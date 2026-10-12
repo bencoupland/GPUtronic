@@ -125,8 +125,9 @@ typedef struct GPUTronicConfig {
     int enable_kalman;       /* Kalman filter on Z [F-08] */
     int launch_selftest_kernel; /* 1 = launch self-test kernel [F-02]; 0 = another kernel [F-03] */
     int probe_ms;            /* ms per calibration point, default 300 [F-09] */
-    int enable_tensor_sensor; /* 1 = add a wmma warp and a second Z [F-16]; Gold default 1.
-                               * Forced to 0 for other kernels or GPUs below sm_70. */
+    int enable_tensor_sensor; /* 1 = add a wmma warp and a second Z [F-16]. Gold default is 0.
+                               * GPUTRONIC_TENSOR_SENSOR=1 turns it on. Forced off for other
+                               * kernels and for GPUs below sm_70. */
     float sensor_hysteresis; /* Z margin before switching sensors, default 0.02 */
     int sensor_rule;         /* 0 = follow the higher Z (default), 1 = follow the lower Z [F-16] */
     int reserve_sms;         /* extra SMs kept on above the calibrated starting count, default 0 */

@@ -1,0 +1,6 @@
+single SM scaled by active_sms; ops per pulse 65536; skipped t < 1000 ms; 29000 bins
+[1 host bin] bins 29000: ratio mean 0.7531, drift 1.32%, corr 0.402, best lag 0 corr 0.402
+[20 ms] bins 1450: ratio mean 0.7521, drift 0.28%, corr 0.927, best lag 0 corr 0.927
+[100 ms] bins 290: ratio mean 0.7524, drift 0.29%, corr 0.977, best lag 0 corr 0.977
+[share] this SM, scaled by active_sms, sits at 0.752 of the pulse counter
+T11 PASS (100 ms drift < 1%, corr >= 0.9 within 2 bins)

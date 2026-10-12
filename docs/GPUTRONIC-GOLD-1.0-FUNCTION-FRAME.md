@@ -1,9 +1,10 @@
 # GPUTronic 1.0 Gold: Function Reference
 
 This document lists every part of the Gold controller, what it does, and where it lives in the code.
-It matches `include/gputronic.h` and `src/gputronic_gold.cu` on branch `controller-fixes` (PR #1).
+It matches `include/gputronic.h` and `src/gputronic_gold.cu` in this tree.
 The law below was run on an RTX 5080 on 2026-10-12 (driver 595.99.02, CUDA 12.8). The 2026-09-23
 numbers further down are the earlier one-sided controller, kept so the change is visible.
+The same text is copied at the end of `README.md`.
 
 Function IDs (F-01 … F-16) appear in brackets in source comments so you can jump between this file
 and the code.
@@ -52,6 +53,11 @@ If any part fails, create returns NULL. There is no copy-based fallback.
 `active_sms` skip the work and read those two words again. There is no device `__nanosleep` and no
 `clock64` spin. The others run 16 × 8 calls of `gold_work` (8 dependent FMAs each), then pulse.
 `work_scale_milli` is read only while bit3 (load) is set. A normal pass does not touch it.
+An optional per-SM work tally (T11) is off unless `GPUTRONIC_SM_ACCUM=1` or
+`GPUTRONIC_SM_ACCUM_SM` is set. Off, the kernel only tests a null pointer. On, each
+active block adds its own CUDA-core ops in shared memory and, about once a millisecond,
+posts one 32-byte slot to a mapped host array. That tally is a measurement. It is not
+an input to the PI.
 
 ### Using Gold from another kernel [F-03]
 Another kernel can add to `total_work_pulses` with `atomicAdd` and run only `active_sms` blocks.
@@ -170,6 +176,7 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Reserve | 0 extra SMs | `reserve_sms`, env `GPUTRONIC_RESERVE_SMS` |
 | Tensor on/off | off | env `GPUTRONIC_TENSOR_SENSOR=0/1` |
 | Sensor hysteresis | 0.02 | `sensor_hysteresis` (config field) |
+| Per-SM tally | off | `GPUTRONIC_SM_ACCUM=1` or `GPUTRONIC_SM_ACCUM_SM=<id>` |
 
 ## 5. API changes in PR #1
 
@@ -178,9 +185,11 @@ Removed: `gputronic_set_open_loop_sleep`, `gputronic_get_sleep_ns`, config field
 Added: `gputronic_set_kd`, `gputronic_set_deadband`, `gputronic_reset_counters`,
 `gputronic_get_active_sms`, config fields `kd` and `probe_ms`. The control block layout is unchanged.
 
-Two-sensor change (local, after PR #1): new fields appended at the end of the control block; new config
-fields `enable_tensor_sensor`, `sensor_hysteresis`; four getters listed under F-16. `gold_launch_kernel`
-takes a fifth argument (tensor sensor on/off).
+Two-sensor change: new fields appended at the end of the control block; new config
+fields `enable_tensor_sensor`, `sensor_hysteresis`; four getters listed under F-16.
+`gold_launch_kernel` takes the tensor-sensor flag, the optional T9 work-counter
+pointer, and the optional T11 accumulator pointer, SM id, and bin length. A normal
+start passes nulls for both optional counters.
 
 ## 6. Reading order
 
@@ -196,15 +205,24 @@ takes a fifth argument (tensor sensor on/off).
 - Whole-SM steps: about 0.015–0.033 Z per SM near target on 84 SMs, about 0.1 on a 20-SM card.
 - Linear interpolation in the table leaves Transfer about 0.04 under target in the model.
 - On 2026-10-12, tensor sensor off and deadband 0.08, the three checks passed on this 5080.
-  Gold free-run was 543k–585k pulses/s. A 30 s run ended at mean Z 1.466 over the last 20 s,
-  with 85% of samples on 47 or 48 SMs. Open loop at a fixed 48 SMs had the same Z standard
-  deviation (0.05) and the same pulse rate, so that swing is the plant. The integral clamp
-  in use is about 3.4 SMs (`0.04 × num_sm / (Ki × sms_per_u)`).
+  Gold free-run was 543k–585k pulses/s across the evening. On the build that also carries
+  the optional per-SM tally, left off, Gold `check` was free-run 541k pulses/s and closed
+  363k, gate mean Z 1.463. Transfer was 8.48 GFLOP/s down to 6.03, mean Z 1.450. Episode
+  was 22.38 GFLOP/s down to 14.94, mean Z 1.468. A 30 s run the same evening, on the
+  previous build of this same law, ended at mean Z 1.466 over the last 20 s, with 85% of
+  samples on 47 or 48 SMs. Open loop at a fixed 48 SMs had the same Z standard deviation
+  (0.05) and the same pulse rate. The integral clamp in use is about 3.4 SMs
+  (`0.04 × num_sm / (Ki × sms_per_u)`). It was not on the rail.
 - Turning the tensor warp on cut the full-width CUDA-core rate by about 39% on this card, and
   the tensor rate was half the CUDA rate at every width. That is why the default is off.
 - Idle blocks now poll the mapped control words with no pause. Full-width rate on this evening
   stayed in the same band as the previous binary. A half-width open-loop hold matched the
   closed-loop rate at that count.
+- Open loop at 46 SMs, the optional per-SM tally on, the sum of the tallies matched the
+  pulse counter at 100 ms: ratio 1.000, drift 0.01%, correlation 0.995. The working SMs
+  were not equal. The coefficient of variation of mean ops per bin was 29%. SM 0, scaled
+  by 46, sat at 0.75 of the pulse counter and still moved with it (correlation 0.977 at
+  100 ms). The Z swing at a fixed count is a swing in how many passes finish.
 
 ## Test hooks (T6–T9)
 
@@ -214,4 +232,9 @@ takes a fifth argument (tensor sensor on/off).
 - Kernel argument `work_count` (device memory, `num_sm*32` slots, NULL by default): per-warp count of
   completed batches, enabled by `GPUTRONIC_WORK_COUNTER=1` (set by `ratio` mode).
 - Environment: `GPUTRONIC_INTEGRAL_CLAMP` (> 0 fixes the clamp; unset = scaled).
-- CLI modes: `loadstep`, `bursts`, `loadfile`, `ratio`, `fullwidth` (see `gputronic_gold help` and `TEST_SUITE.md`).
+- CLI modes: `loadstep`, `bursts`, `loadfile`, `ratio`, `fullwidth`, `noise` (see `gputronic_gold help` and `TEST_SUITE.md`).
+- T11 per-SM tally, off by default. `GPUTRONIC_SM_ACCUM=1` reports every SM.
+  `GPUTRONIC_SM_ACCUM_SM=<id>` reports one. The host writes
+  `results/gputronic_gold_smaccum.csv` during `noise` and the other trace modes.
+  `scripts/analyze_smaccum.py` compares that tally with `bin_pulses × 65,536`.
+  The design note is `docs/analysis/per-sm-accumulator.md`.

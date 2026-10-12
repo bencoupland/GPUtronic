@@ -131,12 +131,13 @@ sm_61 will not be run here. Compiling it is the check that no `__nanosleep` rema
 - Do not start the counter that keeps going after a kernel returns. That is path C5.
   It is not part of cleaning up this PR.
 
-## T11. Per-SM ops accumulator (prototype, run next)
+## T11. Per-SM ops accumulator (done, 2026-10-12)
 
-The `7400273` re-check showed the open-loop Z spread (std 0.051 at 48 SMs) equals closed loop (0.052).
-T11 compares a per-SM ops count (shared tally, one mapped write per SM per ms) with the pulse counter to
-find whether that spread is in the work or in the pulse/PCIe sensing path. Run T10 at 46 SMs with 1 ms
-bins first. Commands: `TEST_SUITE.md` T11 and runbook section 12.
+Open loop at 46 SMs. The sum of the per-SM tallies matched the pulse counter at 100 ms
+(ratio 1.000, correlation 0.995). The Z spread at a fixed count is finished work, not a
+pulse record moving on its own. The working SMs were uneven (coefficient of variation 29%).
+SM 0's share of the chip was 0.75, and it still tracked the pulse counter (correlation 0.977).
+Detail: `docs/analysis/per-sm-accumulator.md` and `logs/2026-10-12_t11/`.
 
 ## Telemetry and noise (new, 2026-10-12)
 

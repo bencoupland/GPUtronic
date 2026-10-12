@@ -1,4 +1,14 @@
-# T11: per-SM ops accumulator (prototype, not yet run)
+# T11: per-SM ops accumulator
+
+Run on the RTX 5080, 2026-10-12, open loop at 46 SMs for 30 s, tensor sensor off.
+Logs: `logs/2026-10-12_t11/`.
+
+One SM (SM 0), scaled by 46: at 100 ms, ratio 0.752, drift 0.29%, correlation 0.977.
+That ratio is SM 0's share of the chip. All 84 slots: 46 had work, 38 stayed idle.
+Coefficient of variation across the working SMs was 29% (mean ops per host bin 534k,
+range 444k to 833k). The sum against the pulse counter, at 100 ms: ratio 1.000,
+drift 0.01%, correlation 0.995. Pass. The pulse counter and the finished passes are
+the same series. The SMs do not each do the same amount.
 
 ## Design
 - Each Gold block (one per SM) tallies completed work in shared memory, not with per-pulse global atomics.
@@ -20,9 +30,16 @@
 - Host output (trace modes: `noise`, `loadfile`, `loadstep`, `bursts`, `fullwidth`):
   `results/gputronic_gold_smaccum.csv` with `t_ms,sm,ops_cuda,ops_tensor,d_ops_cuda,d_ops_tensor,dev_t_ns,seq,
   active_sms,bin_pulses,rate_ema`. All-SM mode writes 84 rows per ms (about 2.5 M rows in 30 s, ~150 MB).
-- Analyzer: `scripts/analyze_smaccum.py` compares per-bin accumulator ops with `bin_pulses × 65,536`
-  (single SM scaled by `active_sms`): correlation, ratio mean and drift, best lag; at 1 and 10 bins.
-  **Pass:** drift < 1% and correlation ≥ 0.9 at 10 bins.
+- Analyzer: `scripts/analyze_smaccum.py` compares accumulator ops with `bin_pulses × 65,536`
+  (a single SM is scaled by `active_sms`). It reports the ratio, its drift, and the best lag
+  at one host bin, at 20 ms, and at 100 ms.
+  **Pass** is the 100 ms window: drift under 1% and correlation at least 0.9 within 2 bins.
+  When every SM reports, the ratio mean must also be within 5% of 1. One SM's ratio is that
+  SM's share of the chip and is printed either way. The host drops the first sample, because
+  the device counter is cumulative from kernel start. The analyzer then drops the first second.
+- When the tensor sensor is off, the block is CUDA warps only, and the leader waits on a barrier
+  before it snapshots shared memory, so both warps are in the sample. The barrier is not used when
+  a tensor warp is also in the block, because that warp has already left the pass.
 
 ## Observation rate and PCIe cost
 - One value per SM per 1 ms = 84 × 1 kHz = **84,000 samples/s** aggregate.
