@@ -315,7 +315,7 @@ void gputronic_config_gold(GPUTronicConfig* cfg) {
     cfg->enable_kalman = 1;
     cfg->launch_selftest_kernel = 1;
     cfg->probe_ms = GPUTRONIC_GOLD_PROBE_MS;
-    cfg->enable_tensor_sensor = 1;
+    cfg->enable_tensor_sensor = 0;   /* NEXT.md A2. GPUTRONIC_TENSOR_SENSOR=1 turns it on. */
     cfg->sensor_hysteresis = GPUTRONIC_GOLD_SENSOR_HYSTERESIS;
     cfg->reserve_sms = 0;
     cfg->sensor_rule = 0;

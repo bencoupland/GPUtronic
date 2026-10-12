@@ -2,8 +2,8 @@
 
 This document lists every part of the Gold controller, what it does, and where it lives in the code.
 It matches `include/gputronic.h` and `src/gputronic_gold.cu` on branch `controller-fixes` (PR #1).
-The fixes in PR #1 have **not yet been run on a GPU**. Measured numbers below come from the RTX 5080
-runs of 2026-09-23, which used the earlier controller.
+The law below was run on an RTX 5080 on 2026-10-12 (driver 595.99.02, CUDA 12.8). The 2026-09-23
+numbers further down are the earlier one-sided controller, kept so the change is visible.
 
 Function IDs (F-01 … F-16) appear in brackets in source comments so you can jump between this file
 and the code.
@@ -29,7 +29,7 @@ Allocated with `cudaHostAlloc(..., cudaHostAllocMapped)`; the device pointer com
 
 | Field | Type | Written by | Read by | Meaning |
 |---|---|---|---|---|
-| `control_flags` | volatile uint | host | kernel | bit0 stop, bit1 pause, bit2 reset |
+| `control_flags` | volatile uint | host | kernel | bit0 stop, bit1 pause, bit2 reset, bit3 load |
 | `active_sms` | volatile int | control thread | kernel | number of working SMs (floor 4) |
 | `total_work_pulses` | volatile u64 | kernel (`atomicAdd` only) | control thread | the pulse counter |
 | `throttle_sleep_ns`, `max_sleep_ns`, `base_sleep_ns` | int | create / Transfer / Episode | Transfer and Episode kernels | legacy sleep fields, not used by Gold's controller |
@@ -49,8 +49,9 @@ If any part fails, create returns NULL. There is no copy-based fallback.
 ### Persistent self-test kernel [F-02]
 `gold_persistent_kernel`: one block per SM, 64 threads (two warps), launched once by
 `gputronic_start`. Each pass it reads `control_flags` and `active_sms`. Blocks numbered at or above
-`active_sms` back off 5 µs with `__nanosleep` and skip the work. The others run
-16 × 8 calls of `gold_work` (8 dependent FMAs each), then pulse.
+`active_sms` skip the work and read those two words again. There is no device `__nanosleep` and no
+`clock64` spin. The others run 16 × 8 calls of `gold_work` (8 dependent FMAs each), then pulse.
+`work_scale_milli` is read only while bit3 (load) is set. A normal pass does not touch it.
 
 ### Using Gold from another kernel [F-03]
 Another kernel can add to `total_work_pulses` with `atomicAdd` and run only `active_sms` blocks.
@@ -101,7 +102,7 @@ u = Kp*e + Ki*I - Kd*dZ/dt
 n = round(n_ff - u * sms_per_u),  clamped to 4..num_sm
 ```
 
-- Inside the deadband (|e| < 0.015) the SM count is held and the integral is frozen.
+- Inside the deadband (|e| < 0.08) the SM count is held and the integral is frozen.
 - The integral is clamped to ±`integral_clamp` and does not grow further while `n` is pinned at 4
   or at full width (anti-windup).
 - Below target it turns SMs off; above target it turns them back on gradually. There is no reset to
@@ -112,8 +113,8 @@ n = round(n_ff - u * sms_per_u),  clamped to 4..num_sm
 The control thread writes `active_sms`, then a memory barrier. The kernel reads it every pass.
 
 ### Two sensors, one actuator [F-16]
-When `enable_tensor_sensor` is on (Gold default; forced off for Transfer/Episode, for
-`launch_selftest_kernel = 0`, and below sm_70), each block gets one extra warp. That warp runs 64
+When `enable_tensor_sensor` is on (Gold default is off; `GPUTRONIC_TENSOR_SENSOR=1` turns it on;
+forced off for Transfer/Episode, for `launch_selftest_kernel = 0`, and below sm_70), each block gets one extra warp. That warp runs 64
 chained 16×16×16 FP16→FP32 `wmma` steps per pass and adds to `tensor_work_pulses`, with the same
 fence every 32 pulses. The CUDA-core warps and `total_work_pulses` are unchanged. Blocks at or above
 `active_sms` skip both kinds of work, so one actuator gates both sensors. The wmma code is compiled
@@ -156,7 +157,7 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 |---|---|---|
 | Target Z | 1.5 | `GPUTRONIC_GOLD_TARGET_Z` |
 | Kp, Ki, Kd | 0.55, 0.08, 0 | `GPUTRONIC_GOLD_KP/KI/KD`, `gputronic_set_gains`, `gputronic_set_kd` |
-| Deadband | 0.015 | `GPUTRONIC_GOLD_DEADBAND`, `gputronic_set_deadband` |
+| Deadband | 0.08 | `GPUTRONIC_GOLD_DEADBAND`, `gputronic_set_deadband`, env `GPUTRONIC_DEADBAND` |
 | Integral clamp | scaled after calibration: 0.04 × num_sm / (Ki × sms_per_u) | `integral_clamp` (> 0 = fixed override), `GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC` |
 | Z limits | 0.3 – 10 | `GPUTRONIC_GOLD_Z_FLOOR/CEILING` |
 | Calibration | warm-up 0.7 s, reference 0.7–1.8 s, then 4 × 300 ms table | `control_thread`, `GPUTRONIC_GOLD_PROBE_MS` |
@@ -164,10 +165,10 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Rate window | 8 ms, average 0.7 / 0.3 | `control_thread` |
 | Threads per block | 64 | `GPUTRONIC_DEFAULT_THREADS_PER_BLOCK` |
 | SM floor | 4 | kernel and control thread |
-| Tensor sensor | on for Gold, 1 extra warp, 64 wmma steps per pulse | `enable_tensor_sensor`, `GOLD_TENSOR_STEPS` |
+| Tensor sensor | off unless `GPUTRONIC_TENSOR_SENSOR=1`. One extra warp, 64 wmma steps per pulse | `enable_tensor_sensor`, `GOLD_TENSOR_STEPS` |
 | Sensor rule | follow the higher Z (max) | `sensor_rule` (0 = max, 1 = min), env `GPUTRONIC_SENSOR_RULE` |
 | Reserve | 0 extra SMs | `reserve_sms`, env `GPUTRONIC_RESERVE_SMS` |
-| Tensor on/off | on | env `GPUTRONIC_TENSOR_SENSOR=0/1` |
+| Tensor on/off | off | env `GPUTRONIC_TENSOR_SENSOR=0/1` |
 | Sensor hysteresis | 0.02 | `sensor_hysteresis` (config field) |
 
 ## 5. API changes in PR #1
@@ -194,13 +195,22 @@ takes a fifth argument (tensor sensor on/off).
 
 - Whole-SM steps: about 0.015–0.033 Z per SM near target on 84 SMs, about 0.1 on a 20-SM card.
 - Linear interpolation in the table leaves Transfer about 0.04 under target in the model.
-- Nothing in PR #1 or the two-sensor change has run on hardware yet. The tensor warp adds load on
-  each SM, so the CUDA-core rate and the measured curves will differ from the RTX 5080 runs above.
+- On 2026-10-12, tensor sensor off and deadband 0.08, the three checks passed on this 5080.
+  Gold free-run was 543k–585k pulses/s. A 30 s run ended at mean Z 1.466 over the last 20 s,
+  with 85% of samples on 47 or 48 SMs. Open loop at a fixed 48 SMs had the same Z standard
+  deviation (0.05) and the same pulse rate, so that swing is the plant. The integral clamp
+  in use is about 3.4 SMs (`0.04 × num_sm / (Ki × sms_per_u)`).
+- Turning the tensor warp on cut the full-width CUDA-core rate by about 39% on this card, and
+  the tensor rate was half the CUDA rate at every width. That is why the default is off.
+- Idle blocks now poll the mapped control words with no pause. Full-width rate on this evening
+  stayed in the same band as the previous binary. A half-width open-loop hold matched the
+  closed-loop rate at that count.
 
 ## Test hooks (T6–T9)
 
-- `GPUTronicControl.work_scale_milli` (appended last; host writes, Gold kernel reads; 0/1000 = no load).
-  At S > 1000 a pulsing warp emits one pulse per S/1000 batches (`gold_load_pulse`).
+- `GPUTronicControl.work_scale_milli` (appended last; host writes; 0/1000 = no load). The kernel
+  reads it only while `GPUTRONIC_FLAG_LOAD` is set. At S > 1000 a pulsing warp emits one pulse
+  per S/1000 batches (`gold_load_pulse`).
 - Kernel argument `work_count` (device memory, `num_sm*32` slots, NULL by default): per-warp count of
   completed batches, enabled by `GPUTRONIC_WORK_COUNTER=1` (set by `ratio` mode).
 - Environment: `GPUTRONIC_INTEGRAL_CLAMP` (> 0 fixes the clamp; unset = scaled).

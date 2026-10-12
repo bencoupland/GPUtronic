@@ -29,6 +29,10 @@ line is near the calibration `rate_ref` (transfer about 6.5 GFLOP/s, episode abo
 
 ### A2. Tensor sensor off by default
 
+**Done.** Default is off. `GPUTRONIC_TENSOR_SENSOR=1` turns it on. A default Gold `check` on
+2026-10-12 printed `tensor sensor off`, passed, and measured `rate_ref` 564k pulses/s on the
+closed-loop launch (dyno launch the same run: 543k).
+
 Measured, Gold dyno. Tensor off, 84 SMs: 555k pulses/s. Tensor on: 337k, a 39% cut.
 The tensor counter then runs at half the CUDA-core rate at every width, so the two Z
 values are the same number. The selector has nothing to choose. With the warp off,
@@ -42,7 +46,9 @@ is in the 550k–590k band, not the 340k band.
 
 ### A3. Deadband back near 0.08
 
-**Done** (`8a2011f`): default 0.08; `GPUTRONIC_DEADBAND` override ported (`52f4b9e`). Not yet re-run.
+**Done** (`8a2011f`): default 0.08; `GPUTRONIC_DEADBAND` override ported (`52f4b9e`). Re-run on
+2026-10-12 with the tensor sensor off: Gold `run 30` last 20 s mean Z 1.466, 85% of samples on
+47 or 48 SMs. The count still steps when Z leaves the band. It does not walk the way 0.015 did.
 
 The 0.015 band does not hold the count. Z moves by about 0.05 to 0.07, so the count
 walks. Gold with the new law and the tensor warp on sat at mean Z 1.487 with the

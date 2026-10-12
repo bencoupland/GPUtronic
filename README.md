@@ -10,7 +10,7 @@ A GPU driver will slow the chip if it gets hot. It will not tell you whether the
 
 Other machines we control have a measured rate, an estimate of what we cannot see directly, and a command that moves the rate. A GPU can have those too. What was missing was a counter of finished work, a way to say “this is full speed,” and a command that actually changes that speed.
 
-GPUTronic is that interface, checked on three test kernels. The control in this tree is how many SMs do the work (`active_sms`). An earlier version used sleep duration instead. That source is in `archive/gold-1.0.0-nanosleep/`. The long function-frame doc still describes the sleep version, with a note at the top.
+GPUTronic is that interface, checked on three test kernels. The control in this tree is how many SMs do the work (`active_sms`). An earlier version used sleep duration instead. That source is in `archive/gold-1.0.0-nanosleep/`. The function frame matches this tree.
 
 The function-by-function writeup is [`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md). This README is the short tour.
 
@@ -54,7 +54,9 @@ Three mistakes that look like a working controller until you measure the work:
 
 3. **A gain that commands about 8 µs of sleep.** On this 5080, `__nanosleep` does little below about 200 µs and then jumps near 500 µs. The old default gain, at a normal error, asked for about 8 µs. The GPU did not slow down. Changing Kp does not fix a control input the hardware ignores.
 
-The controller works in both directions around a starting SM count measured at calibration: below target it turns SMs off, above target it turns them back on. If Z is within 0.015 of the target, the SM count stays put, so a small error does not jump back to full speed. Temperature stays with the driver. The 8 µs scale in the list above is a reason the sleep-duration control was dropped. Adjusting Kp does not fix a control that cannot move the speed smoothly.
+The controller works in both directions around a starting SM count measured at calibration: below target it turns SMs off, above target it turns them back on. If Z is within 0.08 of the target, the SM count stays put and the integral does not move. Temperature stays with the driver. The 8 µs scale in the list above is a reason the sleep-duration control was dropped. Adjusting Kp does not fix a control that cannot move the speed smoothly.
+
+On this 5080, 2026-10-12, with the tensor sensor off and that 0.08 band, Gold, transfer, and episode `check` all passed. Gold's free-run was about 540k–585k pulses/s. A 30 s closed-loop run held mean Z at 1.47, and about 85% of the last 20 s was 47 or 48 SMs. Kp is 0.55 and Ki is 0.08. The sleep tables under this heading are the old actuator. They are not this controller.
 
 ## What it does on this machine
 
@@ -143,8 +145,9 @@ It is not general yet. Three kernels on one 5080. The next step is the same loop
 
 The Gold kernel can count two kinds of work: CUDA-core FMAs (the original counter) and tensor-core
 matrix steps (one extra warp per block, sm_70 and newer). Each has its own reference rate and its own Z.
-The SM count is still the only control. The controller follows whichever Z is higher, so it turns
-off the fewest SMs that bring either kind of work down to the target. Not yet run on a GPU.
+The SM count is still the only control. The controller follows whichever Z is higher when both are on.
+The tensor warp is off unless `GPUTRONIC_TENSOR_SENSOR=1`. On this 5080 it cut the CUDA-core rate by
+about 39% at full width, and the two Z values were the same number, so the default leaves it off.
 
 ## Test kernels
 
