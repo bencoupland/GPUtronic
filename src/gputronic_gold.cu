@@ -108,8 +108,10 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  * pulses in a register. The block leader adds that batch to the mapped pulse
  * counter about once a millisecond. Control-word reads stay every pass.
  * GPUTRONIC_CTRL_CACHE=1 is a separate test switch, off by default. The block
- * leader reads the mapped control words about once a millisecond and the block
- * uses that shared copy. Unset, every pass reads the mapped words. */
+ * leader reads the mapped control words once per GPUTRONIC_CTRL_CACHE_US
+ * (default 1000, floor 50) and the block uses that shared copy. Unset, every
+ * pass reads the mapped words. The pulse batch stays at 1 ms. work_scale_milli
+ * is not cached. */
 #define GOLD_OPS_CUDA_WARP_PASS (2ULL * GOLD_BATCH * GOLD_WORK_ITERS * 8ULL * 32ULL)
 #define GOLD_OPS_TENSOR_WARP_PASS (2ULL * 16 * 16 * 16 * GOLD_TENSOR_STEPS)
 #define GOLD_ACCUM_WORDS 5
@@ -180,7 +182,8 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        unsigned long long sm_mask_lo,
                                        unsigned long long sm_mask_hi,
                                        int pulse_local,
-                                       int ctrl_cache) {
+                                       int ctrl_cache,
+                                       unsigned long long ctrl_cache_ns) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
@@ -232,7 +235,8 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         if (use_cache) {
             if (tid == 0) {
                 unsigned long long now = gold_globaltimer_ns();
-                if (s_ctrl_last == 0ULL || now - s_ctrl_last >= GOLD_PULSE_LOCAL_NS) {
+                unsigned long long cache_ns = ctrl_cache_ns ? ctrl_cache_ns : GOLD_PULSE_LOCAL_NS;
+                if (s_ctrl_last == 0ULL || now - s_ctrl_last >= cache_ns) {
                     s_flags = ctrl->control_flags;
                     s_active = ctrl->active_sms;
                     s_ctrl_last = now;
@@ -381,14 +385,15 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    unsigned long long sm_mask_lo,
                                    unsigned long long sm_mask_hi,
                                    int pulse_local,
-                                   int ctrl_cache) {
+                                   int ctrl_cache,
+                                   unsigned long long ctrl_cache_ns) {
     /* CUDA-core warps stay as configured; the tensor sensor adds one warp. */
     int cuda_warps = (threads_per_block + 31) / 32;
     int threads = cuda_warps * 32 + (tensor_sensor ? 32 : 0);
     gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps, work_count,
                                                  accum, accum_sm, accum_bin_ns, idle_quiet,
                                                  pass_mask, sm_mask_lo, sm_mask_hi,
-                                                 pulse_local, ctrl_cache);
+                                                 pulse_local, ctrl_cache, ctrl_cache_ns);
 }
 
 /* ---- Host handle and control thread ---- */
@@ -481,8 +486,10 @@ struct GPUTronicHandle {
     unsigned long long select_sm_hi;
     /* Test only. GPUTRONIC_PULSE_LOCAL=1 batches the mapped pulse atomic. */
     int pulse_local;
-    /* Test only. GPUTRONIC_CTRL_CACHE=1 batches the mapped control-word reads. */
+    /* Test only. GPUTRONIC_CTRL_CACHE=1 batches the mapped control-word reads.
+     * ctrl_cache_ns is that period. Default 1 ms. The pulse batch stays 1 ms. */
     int ctrl_cache;
+    unsigned long long ctrl_cache_ns;
 };
 
 static volatile int g_signal_stop = 0;
@@ -1247,17 +1254,29 @@ int gputronic_start(GPUTronicHandle* h) {
         }
         if (h->pulse_local)
             printf("[PULSE] local count: one mapped atomic per block per 1 ms\n");
+        h->ctrl_cache_ns = GOLD_PULSE_LOCAL_NS;
         {
             const char* cc = getenv("GPUTRONIC_CTRL_CACHE");
             h->ctrl_cache = (cc && strcmp(cc, "1") == 0) ? 1 : 0;
         }
-        if (h->ctrl_cache)
-            printf("[CTRL] cached control words: leader reads once per 1 ms\n");
+        if (h->ctrl_cache) {
+            /* Test only. Default 1 ms. Floor 50 us so a typo cannot hide STOP.
+             * The pulse batch period is still GOLD_PULSE_LOCAL_NS. */
+            const char* us = getenv("GPUTRONIC_CTRL_CACHE_US");
+            long v = 1000;
+            if (us && *us) {
+                v = atol(us);
+                if (v < 50) v = 50;
+                if (v > 100000) v = 100000;
+            }
+            h->ctrl_cache_ns = (unsigned long long)v * 1000ULL;
+            printf("[CTRL] cached control words: leader reads once per %ld us\n", v);
+        }
         gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
                            h->cfg.enable_tensor_sensor, h->d_work,
                            h->d_accum, h->accum_sm, h->accum_bin_ns, idle_quiet,
                            h->select_pass_mask, h->select_sm_lo, h->select_sm_hi,
-                           h->pulse_local, h->ctrl_cache);
+                           h->pulse_local, h->ctrl_cache, h->ctrl_cache_ns);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             fprintf(stderr, "[GPUTronic] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -1730,8 +1749,10 @@ static int gold_load_bursts(GoldLoadPoint* p, int maxn, double scale, unsigned i
 /* Run closed loop at Z 1.5 (or open-loop full width if full_width), wait for
  * calibration, then apply the schedule and log one row per 10 ms bin. */
 /* full_width: 0 closed loop, 1 open loop all SMs, >1 open loop at that many SMs (T10).
- * Bin size: GPUTRONIC_TRACE_BIN_US (default 10000 = 10 ms, minimum 500). Rows are
- * streamed to the file, so memory use does not grow with run length. */
+ * Bin size: GPUTRONIC_TRACE_BIN_US (default 1 ms with the tally, else 10 ms, minimum
+ * 100). Rows are streamed to the file, so memory use does not grow with run length.
+ * GPUTRONIC_STEP_AT_MS and GPUTRONIC_STEP_SMS, and the STEP2 pair, are test only.
+ * During this timed loop they change the open-loop SM count. Unset, the count stays. */
 static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, int duration_s, int full_width) {
     GPUTronicConfig cfg;
     gputronic_config_gold(&cfg);
@@ -1747,7 +1768,27 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
         printf("[SELECT] flag on. The block-index gate is off for this hold.\n");
     }
     double bin_ms = h->h_accum ? 1.0 : 10.0;   /* 1 ms default when the T11 accumulator is on */
-    { const char* bv = getenv("GPUTRONIC_TRACE_BIN_US"); if (bv && atoi(bv) >= 500) bin_ms = atoi(bv) / 1000.0; }
+    { const char* bv = getenv("GPUTRONIC_TRACE_BIN_US"); if (bv && atoi(bv) >= 100) bin_ms = atoi(bv) / 1000.0; }
+    int step_sms = -1, step2_sms = -1, step_done = 0, step2_done = 0;
+    double step_at = -1.0, step2_at = -1.0;
+    {
+        const char* a = getenv("GPUTRONIC_STEP_AT_MS");
+        const char* s = getenv("GPUTRONIC_STEP_SMS");
+        if (a && *a && s && *s) {
+            step_at = atof(a);
+            step_sms = atoi(s);
+            if (step_sms < 4) step_sms = 4;
+            printf("[STEP] will set active_sms %d at %.3f ms\n", step_sms, step_at);
+        }
+        a = getenv("GPUTRONIC_STEP2_AT_MS");
+        s = getenv("GPUTRONIC_STEP2_SMS");
+        if (a && *a && s && *s) {
+            step2_at = atof(a);
+            step2_sms = atoi(s);
+            if (step2_sms < 4) step2_sms = 4;
+            printf("[STEP] will set active_sms %d at %.3f ms\n", step2_sms, step2_at);
+        }
+    }
     FILE* fa = NULL;
     unsigned long long* a_prev = NULL;
     unsigned long long pulse_prev = h->h_ctrl->total_work_pulses;
@@ -1775,6 +1816,18 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
     while (!g_signal_stop) {
         double t_ms = (now_us() - t0) / 1000.0;
         if (t_ms >= duration_s * 1000.0) break;
+        if (!step_done && step_at >= 0.0 && t_ms >= step_at) {
+            printf("[STEP] t_ms=%.3f active_sms -> %d\n", t_ms, step_sms);
+            fflush(stdout);
+            gputronic_set_open_loop_sms(h, step_sms);
+            step_done = 1;
+        }
+        if (!step2_done && step2_at >= 0.0 && t_ms >= step2_at) {
+            printf("[STEP] t_ms=%.3f active_sms -> %d\n", t_ms, step2_sms);
+            fflush(stdout);
+            gputronic_set_open_loop_sms(h, step2_sms);
+            step2_done = 1;
+        }
         while (k < np && p[k].t_ms <= t_ms) cur = p[k++].scale_milli;
         if (cur != h->h_ctrl->work_scale_milli) {
             h->h_ctrl->work_scale_milli = cur;
@@ -1929,6 +1982,8 @@ static void usage(const char* argv0) {
     printf("    GPUTRONIC_ACTIVE_PASSES=0,1,3   GPUTRONIC_ACTIVE_SMS=0-11\n");
     printf("    GPUTRONIC_PULSE_LOCAL=1\n");
     printf("    GPUTRONIC_CTRL_CACHE=1\n");
+    printf("    GPUTRONIC_CTRL_CACHE_US=1000   # cache period, only with CTRL_CACHE=1\n");
+    printf("    GPUTRONIC_STEP_AT_MS / GPUTRONIC_STEP_SMS   # test only, during noise or loadstep\n");
     printf("  %s ratio [hold_s] [n1,n2,...]                 # T9: pulse-to-work ratio (default 5, N,3N/4,N/2,N/4)\n", argv0);
     printf("  %s fullwidth [sec]                            # T8: open loop, all SMs, no controller\n", argv0);
 }

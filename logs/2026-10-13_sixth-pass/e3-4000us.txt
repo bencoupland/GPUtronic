@@ -1,0 +1,38 @@
+[ZC ] type=host host_ptr=OK dev_ptr=OK round_trip=OK (host 0x73d2a8600000, device 0x73d2a8600000, same address (UVA))
+[SNS] tensor sensor off
+═══════════════════════════════════════════════════════════
+[GPUTronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (using 84) | thr/block=64
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[LOOP] dt=10 us (100 kHz) active_sms=84 floor=4
+
+[CSV] results/gputronic_gold_fullwidth.csv
+[T11] per-SM accumulator on: all SMs, bin 100 us
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words: leader reads once per 4000 us
+[OK] Persistent self-test kernel launched (84 blocks x 64 threads)
+[CTRL] Gold | target=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 kalman=1 two-sided | cal 1.8s + 4-point table
+[CAL] rate_ref=284654080.0 pulses/s (sustained 1.10s window)
+[CAL] cuda table n= 63 rate=217774310.4 Z=1.307
+[CAL] cuda table n= 42 rate=143417120.9 Z=1.985
+[CAL] cuda table n= 21 rate=71885421.1 Z=3.960
+[CAL] cuda table n=  4 rate=13872818.2 Z=20.519
+[CAL] cuda target Z=1.50 → n_ff=57.0 dZ/dn=0.0323 sms_per_u=31.0
+[CAL] controller starts on the cuda sensor
+[CAL] integral clamp=1.355 (scaled, max integral correction 3.36 SMs of 84)
+[STEP] will set active_sms 42 at 1000.000 ms
+[STEP] will set active_sms 84 at 2000.000 ms
+[LOAD] calibrated; schedule t=0 at wall 1791841885.549829435 (CLOCK_REALTIME), 0 points, 3 s
+[STEP] t_ms=1000.012 active_sms -> 42
+[TEL] t=   1s | Z_raw=0.967 Z_hat=0.967 dZ=-0.028 | Zc=0.967 Zt=0.000 sel=cuda | rate=294281312 rate_t=0 | n= 42 | hz~16980 | pulses=934009822
+[STEP] t_ms=2000.066 active_sms -> 84
+[TEL] t=   2s | Z_raw=2.069 Z_hat=2.077 dZ=0.413 | Zc=2.069 Zt=0.000 sel=cuda | rate=137556176 rate_t=0 | n= 84 | hz~17261 | pulses=1077605698
+
+[STATS] loop_iters=93243 pi_ticks=11 deadband_held=0 integral_updates=11 integral_on_rail=0 sm_moves=1 p_only_moves=0
+
+[STATS] samples=46454 mean_Z=1.3230 std_Z=0.4595 active_sms=42..84 rows_csv=93243
+[GPUTronic Gold] Stopped cleanly.
+[LOAD] wrote results/gputronic_gold_noise.csv
+temp 53 C  exit 0
+DONE
