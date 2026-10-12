@@ -176,6 +176,51 @@ def main():
             print(f"[placement] {len(occupancy)} physical SMs hold a block ({occ_s})")
             phys_means = [phys_sum[p] / len(phys_bins[p]) for p in phys_bins if phys_sum[p] > 0 and phys_bins[p]]
             spread("phys", phys_means)
+            # Pass is (physical SM % 14) / 2. On this 5080 the firmware table
+            # says that number is the GPC id. One pass is 12 SMs.
+            by_pass = defaultdict(list)
+            phys_mean = {}
+            for p, nb in phys_bins.items():
+                nbin = len(nb)
+                if nbin <= 0 or phys_sum[p] <= 0:
+                    continue
+                m = phys_sum[p] / nbin
+                phys_mean[p] = m
+                by_pass[(p % 14) // 2].append(m)
+            if by_pass:
+                print("[pass] pass n mean min max")
+                for p in sorted(by_pass):
+                    ms = by_pass[p]
+                    mu = sum(ms) / len(ms)
+                    print(f"  {p} {len(ms)} {mu:.0f} {min(ms):.0f} {max(ms):.0f}")
+            if len(phys_mean) >= 2:
+                ids = sorted(phys_mean)
+                biggest = 1.0
+                where = None
+                neighbours = 0
+                for a, b in zip(ids, ids[1:]):
+                    if b != a + 1:
+                        continue
+                    neighbours += 1
+                    m0, m1 = phys_mean[a], phys_mean[b]
+                    ratio = (m1 / m0) if m0 else float("nan")
+                    flip = (m0 / m1) if m1 else float("nan")
+                    if ratio > biggest:
+                        biggest, where = ratio, (a, b, m0, m1)
+                    if flip > biggest:
+                        biggest, where = flip, (b, a, m1, m0)
+                if neighbours == 0:
+                    print("[phys-jump] no two working SMs have neighbouring ids")
+                elif where and biggest >= 1.2:
+                    print(f"[phys-jump] largest step between neighbouring physical SMs "
+                          f"is {biggest:.3f}x between SM {where[0]} ({where[2]:.0f}) "
+                          f"and SM {where[1]} ({where[3]:.0f})")
+                else:
+                    print("[phys-jump] no neighbouring physical SMs differ by 1.2x or more")
+    pulse_sum = sum(bins[k]["pul"] for k in keys)
+    span_s = (keys[-1] - keys[0]) / 1000.0
+    if span_s > 0:
+        print(f"[pulses] {pulse_sum:.0f} pulses over {span_s:.2f} s, rate {pulse_sum / span_s:.0f} /s")
     report("1 host bin", acc, pul)
     # The device publishes on the pass that crosses 1 ms, so a publish lands about
     # every 1.2 ms and many 1 ms host bins are empty. 20 ms is wide enough to

@@ -257,6 +257,9 @@ array. `phys_sm` is the hardware SM id, read once at block start. The slot stays
 by the block index. That tally is a measurement. It is not an input to the PI.
 `GPUTRONIC_IDLE_QUIET=1` is a test switch, off by default: idle blocks then wait 1 ms
 between samples of the mapped control words.
+`GPUTRONIC_ACTIVE_PASSES` and `GPUTRONIC_ACTIVE_SMS` are test switches, off by
+default. After calibration the host sets bit 4 and the block-index gate is
+replaced by that list. Unset, the gate is still `active_sms`.
 
 ### Using Gold from another kernel [F-03]
 Another kernel can add to `total_work_pulses` with `atomicAdd` and run only `active_sms` blocks.
@@ -376,6 +379,7 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Tensor on/off | off | env `GPUTRONIC_TENSOR_SENSOR=0/1` |
 | Sensor hysteresis | 0.02 | `sensor_hysteresis` (config field) |
 | Per-SM tally | off | `GPUTRONIC_SM_ACCUM=1` or `GPUTRONIC_SM_ACCUM_SM=<id>` |
+| Working-set filter | off | `GPUTRONIC_ACTIVE_PASSES` or `GPUTRONIC_ACTIVE_SMS`, then bit 4 |
 
 ## 5. API changes in PR #1
 

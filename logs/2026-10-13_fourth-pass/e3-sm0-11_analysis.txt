@@ -1,0 +1,34 @@
+sum over reporting SMs; ops per pulse 65536; skipped t < 1000 ms; 28987 bins
+[blocks] reporting 84, with work 12, idle 72
+[blocks] n 12, mean ops/bin 669412, cv 28.2%, range 571775..1091216, max/min 1.908
+[jump] largest step in block order is 1.907x between block 48 (572096) and block 37 (1091216)
+[block means] block phys_sm ops_per_bin
+  0 0 571775
+  1 1 571803
+  12 2 597586
+  13 3 597690
+  24 4 585838
+  25 5 585847
+  36 6 1091062
+  37 7 1091216
+  48 8 572096
+  49 9 572151
+  60 10 597893
+  61 11 597988
+[map] block:phys_sm
+  0:0 1:1 2:14 3:15 4:28 5:29 6:42 7:43 8:56 9:57 10:70 11:71 12:2 13:3 14:16 15:17 16:30 17:31 18:44 19:45 20:58 21:59 22:72 23:73 24:4 25:5 26:18 27:19 28:32 29:33 30:46 31:47 32:60 33:61 34:74 35:75 36:6 37:7 38:20 39:21 40:34 41:35 42:48 43:49 44:62 45:63 46:76 47:77 48:8 49:9 50:22 51:23 52:36 53:37 54:50 55:51 56:64 57:65 58:78 59:79 60:10 61:11 62:24 63:25 64:38 65:39 66:52 67:53 68:66 69:67 70:80 71:81 72:12 73:13 74:26 75:27 76:40 77:41 78:54 79:55 80:68 81:69 82:82 83:83
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[phys] n 12, mean ops/bin 669412, cv 28.2%, range 571775..1091216, max/min 1.908
+[pass] pass n mean min max
+  0 2 571789 571775 571803
+  1 2 597638 597586 597690
+  2 2 585843 585838 585847
+  3 2 1091139 1091062 1091216
+  4 2 572124 572096 572151
+  5 2 597941 597893 597988
+[phys-jump] largest step between neighbouring physical SMs is 1.907x between SM 8 (572096) and SM 7 (1091216)
+[pulses] 3552972 pulses over 29.00 s, rate 122521 /s
+[1 host bin] bins 28987: ratio mean 1.0045, drift 1.57%, corr 0.691, best lag 0 corr 0.691
+[20 ms] bins 1450: ratio mean 1.0000, drift 0.01%, corr 0.953, best lag 0 corr 0.953
+[100 ms] bins 290: ratio mean 1.0000, drift 0.01%, corr 0.991, best lag 0 corr 0.991
+T11 PASS (100 ms drift < 1%, corr >= 0.9 within 2 bins, ratio mean 0.95..1.05)

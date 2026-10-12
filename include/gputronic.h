@@ -105,6 +105,9 @@ struct GPUTronicControl {
 #define GPUTRONIC_FLAG_PAUSE 0x2u
 #define GPUTRONIC_FLAG_RESET 0x4u
 #define GPUTRONIC_FLAG_LOAD 0x8u   /* T6/T7: kernel reads work_scale_milli only while set */
+/* Gold test only. Off unless the host sets it after calibration.
+ * GPUTRONIC_ACTIVE_PASSES or GPUTRONIC_ACTIVE_SMS then replaces the block-index gate. */
+#define GPUTRONIC_FLAG_SELECT 0x10u
 
 typedef struct GPUTronicHandle GPUTronicHandle;
 

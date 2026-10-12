@@ -99,7 +99,11 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  * traffic.
  * GPUTRONIC_IDLE_QUIET=1 is a test switch, off by default. Idle blocks then wait on
  * %%globaltimer for 1 ms between samples of the mapped control words, instead of
- * polling those words every trip around the loop. */
+ * polling those words every trip around the loop.
+ * GPUTRONIC_ACTIVE_PASSES and GPUTRONIC_ACTIVE_SMS are test switches, off by
+ * default. After calibration the host sets GPUTRONIC_FLAG_SELECT and the block
+ * index gate is replaced: a block works if its launch pass ((%%smid %% 14) / 2)
+ * is in the list, or if its physical SM id is in the list. */
 #define GOLD_OPS_CUDA_WARP_PASS (2ULL * GOLD_BATCH * GOLD_WORK_ITERS * 8ULL * 32ULL)
 #define GOLD_OPS_TENSOR_WARP_PASS (2ULL * 16 * 16 * 16 * GOLD_TENSOR_STEPS)
 #define GOLD_ACCUM_WORDS 5
@@ -140,6 +144,22 @@ __device__ __forceinline__ int gold_load_pulse(unsigned int flags, GPUTronicCont
     return 0;
 }
 
+__device__ __forceinline__ int gold_sm_selected(unsigned int phys,
+                                                     unsigned int pass_mask,
+                                                     unsigned long long sm_lo,
+                                                     unsigned long long sm_hi) {
+    /* Physical-SM filter wins over the pass list. Pass is (smid % 14) / 2,
+     * which on this 5080 is the GPC id. Both are test-only. */
+    if (sm_lo | sm_hi) {
+        if (phys < 64u) return (int)((sm_lo >> phys) & 1ull);
+        if (phys < 128u) return (int)((sm_hi >> (phys - 64u)) & 1ull);
+        return 0;
+    }
+    unsigned int pass = (phys % 14u) / 2u;
+    if (pass >= 32u) return 0;
+    return (int)((pass_mask >> pass) & 1u);
+}
+
 __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        GPUTronicControl* ctrl,
                                        int num_sm,
@@ -148,7 +168,10 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        unsigned long long* accum,
                                        int accum_sm,
                                        unsigned long long accum_bin_ns,
-                                       int idle_quiet) {
+                                       int idle_quiet,
+                                       unsigned int pass_mask,
+                                       unsigned long long sm_mask_lo,
+                                       unsigned long long sm_mask_hi) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
@@ -160,13 +183,18 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     unsigned long long work_done = 0; /* T9: completed batches, this warp */
 
     __shared__ unsigned long long s_ops[2];   /* T11: CUDA ops, tensor ops. Block-wide. */
+    __shared__ unsigned int s_phys;
     if (sm >= num_sm) return;
-    if (tid == 0) { s_ops[0] = 0ULL; s_ops[1] = 0ULL; }
+    if (tid == 0) {
+        s_ops[0] = 0ULL;
+        s_ops[1] = 0ULL;
+        asm volatile("mov.u32 %0, %%smid;" : "=r"(phys_sm));
+        s_phys = phys_sm;
+    }
     __syncthreads();
     const int accum_on = (accum != NULL) && (accum_sm < 0 || accum_sm == sm);
     unsigned long long accum_last = 0ULL, accum_seq = 0ULL;
     if (tid == 0) {
-        asm volatile("mov.u32 %0, %%smid;" : "=r"(phys_sm));
         /* One write before the loop so an idle block, which never publishes,
          * still leaves its physical SM in the slot. seq stays 0 until a publish. */
         if (accum_on) {
@@ -193,7 +221,13 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         int active = ctrl->active_sms;
         if (active <= 0 || active > num_sm) active = num_sm;
         if (active < 4) active = 4;
-        if (sm >= active) {
+        /* FLAG_SELECT is a test switch. The host sets it only after calibration,
+         * and only when a pass list or a physical-SM list was requested. */
+        int selected = (flags & GPUTRONIC_FLAG_SELECT) &&
+                       (pass_mask || sm_mask_lo || sm_mask_hi);
+        int idle = selected ? !gold_sm_selected(s_phys, pass_mask, sm_mask_lo, sm_mask_hi)
+                            : (sm >= active);
+        if (idle) {
             if (idle_quiet) {
                 /* Local wait. The mapped words are read once per trip, at the
                  * top of the loop, so STOP and a new active_sms still land.
@@ -275,12 +309,16 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    unsigned long long* accum,
                                    int accum_sm,
                                    unsigned long long accum_bin_ns,
-                                   int idle_quiet) {
+                                   int idle_quiet,
+                                   unsigned int pass_mask,
+                                   unsigned long long sm_mask_lo,
+                                   unsigned long long sm_mask_hi) {
     /* CUDA-core warps stay as configured; the tensor sensor adds one warp. */
     int cuda_warps = (threads_per_block + 31) / 32;
     int threads = cuda_warps * 32 + (tensor_sensor ? 32 : 0);
     gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps, work_count,
-                                                 accum, accum_sm, accum_bin_ns, idle_quiet);
+                                                 accum, accum_sm, accum_bin_ns, idle_quiet,
+                                                 pass_mask, sm_mask_lo, sm_mask_hi);
 }
 
 /* ---- Host handle and control thread ---- */
@@ -366,6 +404,11 @@ struct GPUTronicHandle {
     double sum_z, sum_z2;
     long long n_z;
     int min_sms, max_sms;
+    /* Test-only working-set filter. Zero unless the env is set. The kernel
+     * ignores it until the host raises GPUTRONIC_FLAG_SELECT after calibration. */
+    unsigned int select_pass_mask;
+    unsigned long long select_sm_lo;
+    unsigned long long select_sm_hi;
 };
 
 static volatile int g_signal_stop = 0;
@@ -1007,6 +1050,57 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     return h;
 }
 
+/* Test-only. GPUTRONIC_ACTIVE_PASSES=0,1,3 or GPUTRONIC_ACTIVE_SMS=0-11.
+ * Both at once is refused. The mask stays dark until FLAG_SELECT. */
+static void gold_parse_select(GPUTronicHandle* h) {
+    h->select_pass_mask = 0;
+    h->select_sm_lo = 0;
+    h->select_sm_hi = 0;
+    const char* ps = getenv("GPUTRONIC_ACTIVE_PASSES");
+    const char* ss = getenv("GPUTRONIC_ACTIVE_SMS");
+    int have_p = ps && *ps;
+    int have_s = ss && *ss;
+    if (have_p && have_s) {
+        printf("[SELECT] both ACTIVE_PASSES and ACTIVE_SMS are set; using neither\n");
+        return;
+    }
+    if (have_p) {
+        char buf[128];
+        strncpy(buf, ps, sizeof buf - 1);
+        buf[sizeof buf - 1] = 0;
+        unsigned int mask = 0;
+        for (char* t = strtok(buf, ","); t; t = strtok(NULL, ",")) {
+            int v = atoi(t);
+            if (v >= 0 && v < 7) mask |= 1u << v;
+            else printf("[SELECT] ignoring pass %d\n", v);
+        }
+        h->select_pass_mask = mask;
+        printf("[SELECT] passes '%s' mask 0x%x (off until calibration ends)\n", ps, mask);
+    }
+    if (have_s) {
+        char buf[256];
+        strncpy(buf, ss, sizeof buf - 1);
+        buf[sizeof buf - 1] = 0;
+        for (char* t = strtok(buf, ","); t; t = strtok(NULL, ",")) {
+            int a = 0, b = 0, n = 0;
+            if (sscanf(t, "%d-%d", &a, &b) == 2) {
+                if (a > b) { int tmp = a; a = b; b = tmp; }
+                n = 2;
+            } else if (sscanf(t, "%d", &a) == 1) {
+                b = a;
+                n = 1;
+            }
+            if (n == 0) continue;
+            for (int s = a; s <= b; s++) {
+                if (s < 0 || s >= 128) continue;
+                if (s < 64) h->select_sm_lo |= 1ull << s;
+                else h->select_sm_hi |= 1ull << (s - 64);
+            }
+        }
+        printf("[SELECT] physical SMs '%s' (off until calibration ends)\n", ss);
+    }
+}
+
 int gputronic_start(GPUTronicHandle* h) {
     if (!h || h->started) return -1;
 
@@ -1072,9 +1166,11 @@ int gputronic_start(GPUTronicHandle* h) {
         }
         if (idle_quiet)
             printf("[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms\n");
+        gold_parse_select(h);
         gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
                            h->cfg.enable_tensor_sensor, h->d_work,
-                           h->d_accum, h->accum_sm, h->accum_bin_ns, idle_quiet);
+                           h->d_accum, h->accum_sm, h->accum_bin_ns, idle_quiet,
+                           h->select_pass_mask, h->select_sm_lo, h->select_sm_hi);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             fprintf(stderr, "[GPUTronic] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -1559,6 +1655,10 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
     h->h_ctrl->work_scale_milli = 1000u;
     while (!h->calibrated && !g_signal_stop) usleep(1000);
     if (full_width) gputronic_set_open_loop_sms(h, full_width > 1 ? full_width : 0);
+    if (h->select_pass_mask || h->select_sm_lo || h->select_sm_hi) {
+        __sync_fetch_and_or(&h->h_ctrl->control_flags, GPUTRONIC_FLAG_SELECT);
+        printf("[SELECT] flag on. The block-index gate is off for this hold.\n");
+    }
     double bin_ms = h->h_accum ? 1.0 : 10.0;   /* 1 ms default when the T11 accumulator is on */
     { const char* bv = getenv("GPUTRONIC_TRACE_BIN_US"); if (bv && atoi(bv) >= 500) bin_ms = atoi(bv) / 1000.0; }
     FILE* fa = NULL;
@@ -1649,7 +1749,8 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
         if (sec != last_print) { last_print = sec; if (sec > 0) gputronic_print_status(h, sec); }
         if (!sampled) usleep(200);
     }
-    __sync_fetch_and_and(&h->h_ctrl->control_flags, ~GPUTRONIC_FLAG_LOAD);
+    __sync_fetch_and_and(&h->h_ctrl->control_flags,
+                         ~(GPUTRONIC_FLAG_LOAD | GPUTRONIC_FLAG_SELECT));
     h->h_ctrl->work_scale_milli = 1000u;
     if (f) fclose(f);
     if (fa) fclose(fa);
@@ -1737,6 +1838,8 @@ static void usage(const char* argv0) {
     printf("  %s bursts [scale] [seed] [reps]              # T7: 2..200 ms bursts (default 1.2 1 5)\n", argv0);
     printf("  %s loadfile <file> [sec]                      # schedule file, lines \"t_ms scale\"\n", argv0);
     printf("  %s noise [sms] [sec]                         # T10: open loop at fixed SMs, Z noise floor (default 46 30)\n", argv0);
+    printf("    test only, off by default: GPUTRONIC_IDLE_QUIET=1\n");
+    printf("    GPUTRONIC_ACTIVE_PASSES=0,1,3   GPUTRONIC_ACTIVE_SMS=0-11\n");
     printf("  %s ratio [hold_s] [n1,n2,...]                 # T9: pulse-to-work ratio (default 5, N,3N/4,N/2,N/4)\n", argv0);
     printf("  %s fullwidth [sec]                            # T8: open loop, all SMs, no controller\n", argv0);
 }
