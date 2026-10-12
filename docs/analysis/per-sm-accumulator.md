@@ -17,8 +17,9 @@ the same series. The SMs do not each do the same amount.
     (two CUDA warps per block at the default 64 threads → 131,072 per block pass).
   - Tensor warp: `GOLD_TENSOR_STEPS` 64 × 2·16·16·16 = **524,288 ops** (0 below sm_70, where wmma is stubbed).
 - Every bin (`GPUTRONIC_TRACE_BIN_US`, default 1000 µs when the accumulator is on) the block leader stores one
-  32-byte slot `{ops_cuda, ops_tensor, t_ns, seq}` (cumulative 64-bit, plain stores, `seq` last after a
-  system fence) to a **mapped host array**. Host reads retry if `seq` changes during the read.
+  40-byte slot `{ops_cuda, ops_tensor, t_ns, phys_sm, seq}` (cumulative 64-bit, plain stores, `seq` last after a
+  system fence) to a **mapped host array**. `phys_sm` is `%smid`, read once at block start. The slot stays
+  keyed by `blockIdx.x`. Host reads retry if `seq` changes during the read.
 - Timing: `%globaltimer` (nanoseconds, wall-clock). `clock64` counts SM cycles and the SM clock moves with
   boost, so a cycle count is not a fixed time. Globaltimer resolution on some parts is ~1 µs, fine for 1 ms.
 - Mapped host array rather than a device buffer copied by the host: the device's write is a one-way posted
@@ -29,7 +30,8 @@ the same series. The SMs do not each do the same amount.
   Idle blocks (past `active_sms`) do not write; their slot simply stops advancing.
 - Host output (trace modes: `noise`, `loadfile`, `loadstep`, `bursts`, `fullwidth`):
   `results/gputronic_gold_smaccum.csv` with `t_ms,sm,ops_cuda,ops_tensor,d_ops_cuda,d_ops_tensor,dev_t_ns,seq,
-  active_sms,bin_pulses,rate_ema`. All-SM mode writes 84 rows per ms (about 2.5 M rows in 30 s, ~150 MB).
+  phys_sm,active_sms,bin_pulses,rate_ema`. All-SM mode writes 84 rows per ms (about 2.5 M rows in 30 s, ~150 MB).
+  `GPUTRONIC_IDLE_QUIET=1` makes idle blocks wait 1 ms between samples of the mapped control words. Off by default.
 - Analyzer: `scripts/analyze_smaccum.py` compares accumulator ops with `bin_pulses × 65,536`
   (a single SM is scaled by `active_sms`). It reports the ratio, its drift, and the best lag
   at one host bin, at 20 ms, and at 100 ms.

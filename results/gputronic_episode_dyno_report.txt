@@ -1,12 +1,12 @@
 GPUTronic Episode Dyno Report
 pulses=4 honour=once sleep_shots=1 host_wait=0
-R2=0.8502 slope=6223.140863 intercept=231898.2 window=1 plant=1 gold_act_500us=0 PASS=1
-flops_per_pulse=32768 tiles_per_pulse=32 pulses_per_episode=4 mean_episode_us=214.2 f09_period_ns=124073.5 launches=144807
-active_sms=84 rate=677017.9 gflops=22.184523 z=0.9922
-active_sms=63 rate=633399.8 gflops=20.755244 z=1.0519
-active_sms=42 rate=563874.1 gflops=18.477027 z=1.1973
-active_sms=28 rate=481597.4 gflops=15.780984 z=1.3975
-active_sms=21 rate=419912.6 gflops=13.759697 z=1.5910
-active_sms=16 rate=361772.3 gflops=11.854555 z=1.8533
-active_sms=8 rate=236869.1 gflops=7.761727 z=2.8322
-active_sms=4 rate=136098.0 gflops=4.459659 z=4.9876
+R2=0.8477 slope=6349.261348 intercept=233381.6 window=1 plant=1 gold_act_500us=0 PASS=1
+flops_per_pulse=32768 tiles_per_pulse=32 pulses_per_episode=4 mean_episode_us=212.5 f09_period_ns=122212.6 launches=145962
+active_sms=84 rate=687326.7 gflops=22.522321 z=1.0154
+active_sms=63 rate=643770.2 gflops=21.095063 z=1.0851
+active_sms=42 rate=569419.9 gflops=18.658750 z=1.2222
+active_sms=28 rate=488206.6 gflops=15.997552 z=1.4425
+active_sms=21 rate=426839.1 gflops=13.986664 z=1.6078
+active_sms=16 rate=370507.6 gflops=12.140792 z=1.8717
+active_sms=8 rate=235433.0 gflops=7.714667 z=2.9497
+active_sms=4 rate=134453.2 gflops=4.405764 z=5.1618

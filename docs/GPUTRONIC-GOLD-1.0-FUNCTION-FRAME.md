@@ -56,8 +56,11 @@ If any part fails, create returns NULL. There is no copy-based fallback.
 An optional per-SM work tally (T11) is off unless `GPUTRONIC_SM_ACCUM=1` or
 `GPUTRONIC_SM_ACCUM_SM` is set. Off, the kernel only tests a null pointer. On, each
 active block adds its own CUDA-core ops in shared memory and, about once a millisecond,
-posts one 32-byte slot to a mapped host array. That tally is a measurement. It is not
-an input to the PI.
+posts one 40-byte slot `{ops_cuda, ops_tensor, t_ns, phys_sm, seq}` to a mapped host
+array. `phys_sm` is the hardware SM id, read once at block start. The slot stays keyed
+by the block index. That tally is a measurement. It is not an input to the PI.
+`GPUTRONIC_IDLE_QUIET=1` is a test switch, off by default: idle blocks then wait 1 ms
+between samples of the mapped control words.
 
 ### Using Gold from another kernel [F-03]
 Another kernel can add to `total_work_pulses` with `atomicAdd` and run only `active_sms` blocks.

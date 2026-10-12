@@ -92,11 +92,18 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  *   CUDA warp pass  = GOLD_BATCH 16 x GOLD_WORK_ITERS 8 x 8 FMAs x 2 x 32 lanes = 65,536 ops
  *   tensor warp pass = GOLD_TENSOR_STEPS 64 x 2*16*16*16 = 524,288 ops (0 below sm_70: stub)
  * Warps add to a shared-memory tally (no global atomics). Every bin_ns of %globaltimer
- * the block leader stores one 32-byte slot {ops_cuda, ops_tensor, t_ns, seq} to a mapped
- * host array, seq last after a system fence (host retries if seq changes mid-read).
- * accum == NULL (default) costs one register test per pass and no memory traffic. */
+ * the block leader stores one 40-byte slot {ops_cuda, ops_tensor, t_ns, phys_sm, seq}
+ * to a mapped host array. phys_sm is the %%smid read once at block start. seq is last,
+ * after a system fence (host retries if seq changes mid-read). The slot stays keyed by
+ * blockIdx.x. accum == NULL (default) costs one register test per pass and no memory
+ * traffic.
+ * GPUTRONIC_IDLE_QUIET=1 is a test switch, off by default. Idle blocks then wait on
+ * %%globaltimer for 1 ms between samples of the mapped control words, instead of
+ * polling those words every trip around the loop. */
 #define GOLD_OPS_CUDA_WARP_PASS (2ULL * GOLD_BATCH * GOLD_WORK_ITERS * 8ULL * 32ULL)
 #define GOLD_OPS_TENSOR_WARP_PASS (2ULL * 16 * 16 * 16 * GOLD_TENSOR_STEPS)
+#define GOLD_ACCUM_WORDS 5
+#define GOLD_IDLE_QUIET_NS 1000000ULL
 
 __device__ __forceinline__ unsigned long long gold_globaltimer_ns(void) {
     unsigned long long t;
@@ -140,11 +147,13 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        unsigned long long* work_count,
                                        unsigned long long* accum,
                                        int accum_sm,
-                                       unsigned long long accum_bin_ns) {
+                                       unsigned long long accum_bin_ns,
+                                       int idle_quiet) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
     const int is_tensor_warp = (tid >> 5) >= cuda_warps;
+    unsigned int phys_sm = 0;
     float local = 0.0f;
     unsigned int local_pulses = 0;
     unsigned int load_credit = 0;   /* T6/T7 synthetic load, see work_scale_milli */
@@ -156,6 +165,16 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     __syncthreads();
     const int accum_on = (accum != NULL) && (accum_sm < 0 || accum_sm == sm);
     unsigned long long accum_last = 0ULL, accum_seq = 0ULL;
+    if (tid == 0) {
+        asm volatile("mov.u32 %0, %%smid;" : "=r"(phys_sm));
+        /* One write before the loop so an idle block, which never publishes,
+         * still leaves its physical SM in the slot. seq stays 0 until a publish. */
+        if (accum_on) {
+            volatile unsigned long long* slot = accum + GOLD_ACCUM_WORDS * sm;
+            slot[3] = phys_sm;
+            __threadfence_system();
+        }
+    }
 
     while (true) {
         unsigned int flags = ctrl->control_flags;
@@ -175,7 +194,13 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         if (active <= 0 || active > num_sm) active = num_sm;
         if (active < 4) active = 4;
         if (sm >= active) {
-            (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
+            if (idle_quiet) {
+                /* Local wait. The mapped words are read once per trip, at the
+                 * top of the loop, so STOP and a new active_sms still land.
+                 * Off by default. GPUTRONIC_IDLE_QUIET=1. */
+                unsigned long long t0 = gold_globaltimer_ns();
+                while (gold_globaltimer_ns() - t0 < GOLD_IDLE_QUIET_NS) { }
+            }
             continue;
         }
 
@@ -218,12 +243,13 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             if (tid == 0) {
                 unsigned long long now = gold_globaltimer_ns();
                 if (accum_last == 0ULL || now - accum_last >= accum_bin_ns) {
-                    volatile unsigned long long* slot = accum + 4 * sm;
+                    volatile unsigned long long* slot = accum + GOLD_ACCUM_WORDS * sm;
                     slot[0] = s_ops[0];
                     slot[1] = s_ops[1];
                     slot[2] = now;
+                    slot[3] = phys_sm;
                     __threadfence_system();
-                    slot[3] = ++accum_seq;
+                    slot[4] = ++accum_seq;
                     accum_last = now;
                 }
             }
@@ -248,12 +274,13 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    unsigned long long* work_count,
                                    unsigned long long* accum,
                                    int accum_sm,
-                                   unsigned long long accum_bin_ns) {
+                                   unsigned long long accum_bin_ns,
+                                   int idle_quiet) {
     /* CUDA-core warps stay as configured; the tensor sensor adds one warp. */
     int cuda_warps = (threads_per_block + 31) / 32;
     int threads = cuda_warps * 32 + (tensor_sensor ? 32 : 0);
     gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps, work_count,
-                                                 accum, accum_sm, accum_bin_ns);
+                                                 accum, accum_sm, accum_bin_ns, idle_quiet);
 }
 
 /* ---- Host handle and control thread ---- */
@@ -266,7 +293,7 @@ struct GPUTronicHandle {
     GPUTronicControl* d_ctrl;
     unsigned long long* d_sm;   /* per-SM diagnostic counters (device memory) */
     unsigned long long* d_work; /* T9 work counter, num_sm*32 slots; NULL = off (default) */
-    unsigned long long* h_accum; /* T11 mapped per-SM slots, 4 x u64 per SM; NULL = off */
+    unsigned long long* h_accum; /* T11 mapped slots, GOLD_ACCUM_WORDS x u64 per block; NULL = off */
     unsigned long long* d_accum;
     int accum_sm;                /* -1 all SMs, else the one SM that reports */
     unsigned long long accum_bin_ns;
@@ -1014,7 +1041,7 @@ int gputronic_start(GPUTronicHandle* h) {
         const char* ea = getenv("GPUTRONIC_SM_ACCUM");
         const char* es = getenv("GPUTRONIC_SM_ACCUM_SM");
         if (((ea && strcmp(ea, "1") == 0) || (es && *es)) && !h->h_accum) {
-            size_t bytes = (size_t)h->cfg.num_sm * 4 * sizeof(unsigned long long);
+            size_t bytes = (size_t)h->cfg.num_sm * GOLD_ACCUM_WORDS * sizeof(unsigned long long);
             if (cudaHostAlloc((void**)&h->h_accum, bytes, cudaHostAllocMapped) == cudaSuccess &&
                 cudaHostGetDevicePointer((void**)&h->d_accum, h->h_accum, 0) == cudaSuccess) {
                 memset(h->h_accum, 0, bytes);
@@ -1038,9 +1065,16 @@ int gputronic_start(GPUTronicHandle* h) {
             }
         }
         if (!h->h_accum) { h->d_accum = NULL; h->accum_sm = -1; h->accum_bin_ns = 1000000ULL; }
+        int idle_quiet = 0;
+        {
+            const char* iq = getenv("GPUTRONIC_IDLE_QUIET");
+            if (iq && strcmp(iq, "1") == 0) idle_quiet = 1;
+        }
+        if (idle_quiet)
+            printf("[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms\n");
         gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
                            h->cfg.enable_tensor_sensor, h->d_work,
-                           h->d_accum, h->accum_sm, h->accum_bin_ns);
+                           h->d_accum, h->accum_sm, h->accum_bin_ns, idle_quiet);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             fprintf(stderr, "[GPUTronic] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -1535,7 +1569,7 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
         fa = fopen("results/gputronic_gold_smaccum.csv", "w");
         a_prev = (unsigned long long*)calloc((size_t)h->cfg.num_sm * 2, sizeof(unsigned long long));
         if (fa) fprintf(fa, "t_ms,sm,ops_cuda,ops_tensor,d_ops_cuda,d_ops_tensor,dev_t_ns,seq,"
-                            "active_sms,bin_pulses,rate_ema\n");
+                            "phys_sm,active_sms,bin_pulses,rate_ema\n");
     }
     struct timespec rt;
     clock_gettime(CLOCK_REALTIME, &rt);
@@ -1585,10 +1619,10 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
                     /* The slot is cumulative from kernel start, which includes
                      * calibration. The first sample only sets the baseline. */
                     for (int q = s0; q < s1 && q < h->cfg.num_sm; q++) {
-                        volatile unsigned long long* sl = h->h_accum + 4 * q;
+                        volatile unsigned long long* sl = h->h_accum + GOLD_ACCUM_WORDS * q;
                         unsigned long long sq, sq2;
                         int tries = 0;
-                        do { sq = sl[3]; a_prev[2 * q] = sl[0]; a_prev[2 * q + 1] = sl[1]; sq2 = sl[3]; }
+                        do { sq = sl[4]; a_prev[2 * q] = sl[0]; a_prev[2 * q + 1] = sl[1]; sq2 = sl[4]; }
                         while (sq != sq2 && ++tries < 8);
                     }
                     pulse_prev = pn;
@@ -1596,13 +1630,13 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
                 } else {
                     pulse_prev = pn;
                     for (int q = s0; q < s1 && q < h->cfg.num_sm; q++) {
-                        volatile unsigned long long* sl = h->h_accum + 4 * q;
-                        unsigned long long a, b, tn, sq, sq2;
+                        volatile unsigned long long* sl = h->h_accum + GOLD_ACCUM_WORDS * q;
+                        unsigned long long a, b, tn, phys, sq, sq2;
                         int tries = 0;
-                        do { sq = sl[3]; a = sl[0]; b = sl[1]; tn = sl[2]; sq2 = sl[3]; }
+                        do { sq = sl[4]; a = sl[0]; b = sl[1]; tn = sl[2]; phys = sl[3]; sq2 = sl[4]; }
                         while (sq != sq2 && ++tries < 8);
-                        fprintf(fa, "%.2f,%d,%llu,%llu,%llu,%llu,%llu,%llu,%d,%llu,%.1f\n", t_ms, q, a, b,
-                                a - a_prev[2 * q], b - a_prev[2 * q + 1], tn, sq,
+                        fprintf(fa, "%.2f,%d,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%d,%llu,%.1f\n", t_ms, q, a, b,
+                                a - a_prev[2 * q], b - a_prev[2 * q + 1], tn, sq, phys,
                                 h->h_ctrl->active_sms, bp, h->h_ctrl->rate_ema);
                         a_prev[2 * q] = a; a_prev[2 * q + 1] = b;
                     }

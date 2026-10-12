@@ -71,6 +71,18 @@ def report(label, acc, pul):
     return mean, drift, best_c, best_lag
 
 
+def spread(label, means):
+    if not means:
+        print(f"[{label}] no rows")
+        return
+    mu = sum(means) / len(means)
+    var = sum((m - mu) ** 2 for m in means) / len(means)
+    cv = (var ** 0.5) / mu * 100 if mu else float("nan")
+    lo, hi = min(means), max(means)
+    print(f"[{label}] n {len(means)}, mean ops/bin {mu:.0f}, cv {cv:.1f}%, "
+          f"range {lo:.0f}..{hi:.0f}, max/min {hi / lo if lo else float('nan'):.3f}")
+
+
 def main():
     args = sys.argv[1:]
     if not args:
@@ -79,7 +91,10 @@ def main():
     opp = float(args[args.index("--ops-per-pulse") + 1]) if "--ops-per-pulse" in args else 65536.0
     skip_ms = float(args[args.index("--skip-ms") + 1]) if "--skip-ms" in args else 1000.0
     bins = {}
-    per_sm = defaultdict(lambda: [0.0, 0])
+    per_block = defaultdict(lambda: [0.0, 0])
+    phys_hist = defaultdict(lambda: defaultdict(int))
+    phys_sum = defaultdict(float)
+    phys_bins = defaultdict(set)
     with open(args[0], newline="") as f:
         for row in csv.DictReader(f):
             t = float(row["t_ms"])
@@ -91,8 +106,13 @@ def main():
             slot["acc"] += dops
             slot["nsm"] += 1
             sm = int(row["sm"])
-            per_sm[sm][0] += dops
-            per_sm[sm][1] += 1
+            per_block[sm][0] += dops
+            per_block[sm][1] += 1
+            if "phys_sm" in row and row["phys_sm"] != "":
+                phys = int(row["phys_sm"])
+                phys_hist[sm][phys] += 1
+                phys_sum[phys] += dops
+                phys_bins[phys].add(t)
     keys = sorted(bins)
     if len(keys) < 30:
         print(f"only {len(keys)} bins after {skip_ms:.0f} ms")
@@ -103,17 +123,59 @@ def main():
     pul = [bins[k]["pul"] * opp for k in keys]
     print(f"{'single SM scaled by active_sms' if single else 'sum over reporting SMs'}; "
           f"ops per pulse {opp:.0f}; skipped t < {skip_ms:.0f} ms; {len(keys)} bins")
-    if not single and per_sm:
-        active = [(sm, tot / n) for sm, (tot, n) in per_sm.items() if n and tot / n > 0]
-        idle = sum(1 for tot, n in per_sm.values() if n and tot == 0)
+    if not single and per_block:
+        active = [(sm, tot / n) for sm, (tot, n) in per_block.items() if n and tot / n > 0]
+        idle = sum(1 for tot, n in per_block.values() if n and tot == 0)
+        print(f"[blocks] reporting {len(per_block)}, with work {len(active)}, idle {idle}")
         if active:
-            means = [m for _, m in active]
-            mu = sum(means) / len(means)
-            var = sum((m - mu) ** 2 for m in means) / len(means)
-            cv = (var ** 0.5) / mu * 100 if mu else float("nan")
-            lo, hi = min(means), max(means)
-            print(f"[SMs] reporting {len(per_sm)}, with work {len(active)}, idle {idle}, "
-                  f"mean ops/bin {mu:.0f}, cv {cv:.1f}%, range {lo:.0f}..{hi:.0f}")
+            spread("blocks", [m for _, m in active])
+            ordered = sorted(active)
+            biggest = 1.0
+            where = None
+            for (b0, m0), (b1, m1) in zip(ordered, ordered[1:]):
+                ratio = (m1 / m0) if m0 else float("nan")
+                flip = (m0 / m1) if m1 else float("nan")
+                if ratio > biggest:
+                    biggest, where = ratio, (b0, b1, m0, m1)
+                if flip > biggest:
+                    biggest, where = flip, (b1, b0, m1, m0)
+            if where and biggest >= 1.2:
+                print(f"[jump] largest step in block order is {biggest:.3f}x "
+                      f"between block {where[0]} ({where[2]:.0f}) and block {where[1]} ({where[3]:.0f})")
+            else:
+                print("[jump] no neighboring blocks differ by 1.2x or more")
+            print("[block means] block phys_sm ops_per_bin")
+            for sm, mean in ordered:
+                hist = phys_hist.get(sm)
+                if not hist:
+                    phys_s = "-"
+                else:
+                    mode = max(hist, key=hist.get)
+                    extra = "" if len(hist) == 1 else " conflict"
+                    phys_s = f"{mode}{extra}"
+                print(f"  {sm} {phys_s} {mean:.0f}")
+        if phys_hist:
+            print("[map] block:phys_sm")
+            parts = []
+            for sm in sorted(per_block):
+                hist = phys_hist.get(sm)
+                if not hist:
+                    continue
+                mode = max(hist, key=hist.get)
+                mark = "" if len(hist) == 1 else "*"
+                parts.append(f"{sm}:{mode}{mark}")
+            print("  " + " ".join(parts))
+            occupancy = defaultdict(int)
+            for sm, hist in phys_hist.items():
+                mode = max(hist, key=hist.get)
+                occupancy[mode] += 1
+            share = defaultdict(int)
+            for n in occupancy.values():
+                share[n] += 1
+            occ_s = ", ".join(f"{n} blocks on {share[n]} SMs" for n in sorted(share))
+            print(f"[placement] {len(occupancy)} physical SMs hold a block ({occ_s})")
+            phys_means = [phys_sum[p] / len(phys_bins[p]) for p in phys_bins if phys_sum[p] > 0 and phys_bins[p]]
+            spread("phys", phys_means)
     report("1 host bin", acc, pul)
     # The device publishes on the pass that crosses 1 ms, so a publish lands about
     # every 1.2 ms and many 1 ms host bins are empty. 20 ms is wide enough to
