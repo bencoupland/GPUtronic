@@ -281,13 +281,19 @@ void gputronic_config_gold(GPUTronicConfig* cfg) {
     cfg->sensor_rule = 0;
     /* Test overrides (defaults unchanged when unset):
      *   GPUTRONIC_TENSOR_SENSOR=0|1  turn the tensor-core sensor off or on
-     *   GPUTRONIC_RESERVE_SMS=k      keep k extra SMs on above the calibrated start */
+     *   GPUTRONIC_RESERVE_SMS=k      keep k extra SMs on above the calibrated start
+     *   GPUTRONIC_DEADBAND=z         hold the count when |Z - target| is inside z */
     const char* ev = getenv("GPUTRONIC_TENSOR_SENSOR");
     if (ev && *ev) cfg->enable_tensor_sensor = atoi(ev) ? 1 : 0;
     ev = getenv("GPUTRONIC_SENSOR_RULE");   /* max (default) | min */
     if (ev && *ev) cfg->sensor_rule = (strcmp(ev, "min") == 0) ? 1 : 0;
     ev = getenv("GPUTRONIC_RESERVE_SMS");
     if (ev && *ev) cfg->reserve_sms = atoi(ev) < 0 ? 0 : atoi(ev);
+    ev = getenv("GPUTRONIC_DEADBAND");
+    if (ev && *ev) {
+        float db = (float)atof(ev);
+        if (db >= 0.0f && db < 1.0f) cfg->deadband = db;
+    }
     cfg->csv_path = "results/gputronic_gold.csv";
 }
 

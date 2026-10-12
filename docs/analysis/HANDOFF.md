@@ -1,8 +1,9 @@
 # GPUTronic: project status and next steps
 
-Measured on the RTX 5080 on 2026-10-12. The write-up is
-[`5080-2026-10-12.md`](5080-2026-10-12.md). Driver 595.99.02, kernel 7.0.0-38-generic,
-CUDA 12.8, commit `0a4d495` plus a gate-timing fix on `test-results/2026-10-12_5080`.
+Measured on the RTX 5080 on 2026-10-12. The suite score is
+[`5080-2026-10-12.md`](5080-2026-10-12.md). What to do with it is
+[`5080-2026-10-12-dispatch.md`](5080-2026-10-12-dispatch.md). Driver 595.99.02,
+kernel 7.0.0-38-generic, CUDA 12.8, on `test-results/2026-10-12_5080`.
 
 Short version of that run: the two-sided law with the four-point table holds Gold near
 Z 1.49 and Transfer near Z 1.46. Episode holds near Z 1.45–1.47. The old one-sided law
