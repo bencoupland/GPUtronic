@@ -1,0 +1,46 @@
+[ZC ] type=host host_ptr=OK dev_ptr=OK round_trip=OK (host 0x7c67dc600000, device 0x7c67dc600000, same address (UVA))
+[SNS] tensor sensor on (one wmma warp per block)
+═══════════════════════════════════════════════════════════
+[GPUTronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (using 84) | thr/block=64
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.015 width-actuator two-sided
+[LOOP] dt=10 us (100 kHz) active_sms=84 floor=4
+
+[CSV] results/gputronic_gold_dyno.csv
+[OK] Persistent self-test kernel launched (84 blocks x 64 threads)
+[CTRL] Gold | target=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.015 kalman=1 two-sided | cal 1.8s + 4-point table
+[CAL] rate_ref=344990.8 pulses/s (sustained 1.10s window)
+[CAL] rate_ref_tensor=172373.1 pulses/s
+[CAL] cuda table n= 63 rate=285205.0 Z=1.210
+[CAL] cuda table n= 42 rate=207776.9 Z=1.660
+[CAL] cuda table n= 21 rate=96225.5 Z=3.585
+[CAL] cuda table n=  4 rate=20077.0 Z=17.183
+[CAL] cuda target Z=1.50 → n_ff=49.5 dZ/dn=0.0215 sms_per_u=46.6
+[CAL] tensor table n= 63 rate=142482.5 Z=1.210
+[CAL] tensor table n= 42 rate=103785.9 Z=1.661
+[CAL] tensor table n= 21 rate=48075.2 Z=3.585
+[CAL] tensor table n=  4 rate=10023.5 Z=17.197
+[CAL] tensor target Z=1.50 → n_ff=49.5 dZ/dn=0.0215 sms_per_u=46.6
+[CAL] controller starts on the tensor sensor
+
+=== DYNO SWEEP (open-loop working SMs → rate) ===
+      n_sm           rate      Z_hat   pulses_d
+--------------------------------------------------------
+        84       337296.9     1.0251     270443
+        63       286255.5     1.2183     229528
+        56       281289.5     1.2303     225544
+        42       224428.4     1.5469     179967
+        28       133441.1     2.6034     106994
+        21        94168.0     3.6673      75506
+         8        37230.0     9.2195      29852
+         4        20886.6     9.9989      16748
+--------------------------------------------------------
+fit: rate ≈ 14079.9 + (4256.068558)*active_sms
+R² = 0.9678  | plant_ok=YES | mostly_decreasing=YES
+PASS: fewer SMs cut rate >= 25% AND (R²>=0.85 OR mostly_decreasing)
+RESULT: PASS
+
+
+[STATS] samples=386927 mean_Z=4.2932 std_Z=3.5031 active_sms=4..84 rows_csv=436389
+[GPUTronic Gold] Stopped cleanly.

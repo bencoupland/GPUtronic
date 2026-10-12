@@ -1,8 +1,21 @@
 # GPUTronic: project status and next steps
 
-This page summarises where the `controller-fixes` branch (PR #1) stands. **Nothing on this
-branch has been run on a GPU yet.** Results marked "model" come from simulations built on the
-RTX 5080 measurements that are already in `results/`.
+Measured on the RTX 5080 on 2026-10-12. The write-up is
+[`5080-2026-10-12.md`](5080-2026-10-12.md). Driver 595.99.02, kernel 7.0.0-38-generic,
+CUDA 12.8, commit `0a4d495` plus a gate-timing fix on `test-results/2026-10-12_5080`.
+
+Short version of that run: the two-sided law with the four-point table holds Gold near
+Z 1.49 and Transfer near Z 1.46. Episode holds near Z 1.45–1.47. The old one-sided law
+on this same driver, the same afternoon, was still Z 1.34. Kp and Ki were not changed.
+The tensor warp cuts the CUDA-core rate by about 39% at full width and then reports half
+that rate, so the two sensors agree. The 0.015 deadband does not hold the SM count still.
+The transfer and episode gates failed on the first pass because their free-run sample
+started at 2.2 s, inside the new 3 s table. Waiting until 4.5 s makes both gates pass.
+The model text below was written before this run.
+
+This page summarises where the `controller-fixes` branch (PR #1) stands. The paragraphs
+under "What works in simulation" were written before any GPU run. Results marked "model"
+come from simulations built on the RTX 5080 measurements that were already in `results/`.
 
 ## 1. Project overview
 

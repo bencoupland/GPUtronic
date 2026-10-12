@@ -1,0 +1,79 @@
+═══════════════════════════════════════════════════════════
+[GPUTronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (using 84) | thr/block=64
+[ZC ] host_ctrl=0x71be6c600000 device_ctrl=0x71be6c600000 OK (mapped)
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 width-actuator one_sided=1
+[LOOP] dt=10 us (100 kHz) active_sms=84 floor=4
+
+[CSV] results/gputronic_gold_dyno.csv
+[OK] Persistent self-test kernel launched (84 blocks x 64 threads)
+[CTRL] Gold | target=1.50 Kp=0.550 Ki=0.0800 one_sided=1 kalman=1 auto_scale=1 | cal 1.8s sustain
+[CAL] rate_ref=582567.2 pulses/s (sustained 1.10s window, 640824 pulses)
+[CAL] width Z_half=1.616 drop_for_1.5=34 sms_per_u=206.1 (Kp=0.55)
+
+=== DYNO SWEEP (open-loop working SMs → rate) ===
+      n_sm           rate      Z_hat   pulses_d
+--------------------------------------------------------
+        84       585487.0     1.0020     469426
+        63       491828.4     1.1824     394147
+        56       458687.2     1.2668     367568
+        42       360781.3     1.6155     289141
+        28       224296.9     2.5895     179837
+        21       169201.1     3.4478     135659
+         8        63271.1     9.1601      50721
+         4        32025.3    10.0000      25682
+--------------------------------------------------------
+fit: rate ≈ 19742.9 + (7279.853472)*active_sms
+R² = 0.9832  | plant_ok=YES | mostly_decreasing=YES
+PASS: fewer SMs cut rate >= 25% AND (R²>=0.85 OR mostly_decreasing)
+RESULT: PASS
+
+
+[STATS] samples=251753 mean_Z=3.1644 std_Z=3.2162 active_sms=4..84 rows_csv=251753
+[GPUTronic Gold] Stopped cleanly.
+═══════════════════════════════════════════════════════════
+[GPUTronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (using 84) | thr/block=64
+[ZC ] host_ctrl=0x71be6c600000 device_ctrl=0x71be6c600000 OK (mapped)
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 width-actuator one_sided=1
+[LOOP] dt=10 us (100 kHz) active_sms=84 floor=4
+
+[CSV] results/gputronic_gold_closedloop.csv
+[OK] Persistent self-test kernel launched (84 blocks x 64 threads)
+
+=== CLOSED-LOOP (target Z=1.50) ===
+[CTRL] Gold | target=1.50 Kp=0.550 Ki=0.0800 one_sided=1 kalman=1 auto_scale=1 | cal 1.8s sustain
+[TEL] t=   1s | Z_raw=1.000 Z_hat=1.000 dZ=0.000 | rate=553661 | n= 84 | hz~19495 | pulses=559663
+[BASE] free-run window  pulse/s=576860.1
+[CAL] rate_ref=567136.4 pulses/s (sustained 1.10s window, 623851 pulses)
+[CAL] width Z_half=1.619 drop_for_1.5=34 sms_per_u=206.1 (Kp=0.55)
+[TEL] t=   2s | Z_raw=1.246 Z_hat=1.246 dZ=-0.025 | rate=455216 | n= 55 | hz~19818 | pulses=1237556
+[TEL] t=   3s | Z_raw=1.262 Z_hat=1.262 dZ=-0.024 | rate=449474 | n= 53 | hz~18137 | pulses=1682271
+[TEL] t=   4s | Z_raw=1.282 Z_hat=1.282 dZ=-0.016 | rate=442345 | n= 52 | hz~16158 | pulses=2120519
+[TEL] t=   5s | Z_raw=1.298 Z_hat=1.298 dZ=-0.005 | rate=436951 | n= 51 | hz~17989 | pulses=2552878
+[TEL] t=   6s | Z_raw=1.390 Z_hat=1.390 dZ=0.071 | rate=408108 | n= 58 | hz~17092 | pulses=3063682
+[TEL] t=   7s | Z_raw=1.332 Z_hat=1.333 dZ=-0.010 | rate=425913 | n= 49 | hz~20019 | pulses=3569126
+[TEL] t=   8s | Z_raw=1.335 Z_hat=1.335 dZ=-0.017 | rate=424868 | n= 49 | hz~29045 | pulses=4071706
+[TEL] t=   9s | Z_raw=1.334 Z_hat=1.334 dZ=-0.012 | rate=425022 | n= 49 | hz~15668 | pulses=4574651
+[TEL] t=  10s | Z_raw=1.317 Z_hat=1.318 dZ=-0.026 | rate=430756 | n= 47 | hz~16219 | pulses=5079628
+[TEL] t=  11s | Z_raw=1.331 Z_hat=1.331 dZ=-0.020 | rate=426022 | n= 48 | hz~15753 | pulses=5583812
+[TEL] t=  12s | Z_raw=1.335 Z_hat=1.335 dZ=-0.016 | rate=424944 | n= 49 | hz~16546 | pulses=6088650
+[TEL] t=  13s | Z_raw=1.328 Z_hat=1.328 dZ=-0.023 | rate=427168 | n= 48 | hz~16071 | pulses=6593422
+[TEL] t=  14s | Z_raw=1.332 Z_hat=1.332 dZ=0.023 | rate=425796 | n= 48 | hz~15461 | pulses=7098306
+[TEL] t=  15s | Z_raw=1.348 Z_hat=1.348 dZ=0.010 | rate=420627 | n= 50 | hz~19656 | pulses=7602898
+[TEL] t=  16s | Z_raw=1.344 Z_hat=1.343 dZ=0.001 | rate=421885 | n= 50 | hz~15908 | pulses=8107718
+[TEL] t=  17s | Z_raw=1.332 Z_hat=1.332 dZ=-0.019 | rate=425910 | n= 48 | hz~15114 | pulses=8612529
+[TEL] t=  18s | Z_raw=1.336 Z_hat=1.336 dZ=-0.055 | rate=424518 | n= 49 | hz~16798 | pulses=9117363
+[TEL] t=  19s | Z_raw=1.335 Z_hat=1.335 dZ=-0.023 | rate=424854 | n= 49 | hz~28559 | pulses=9623520
+[TEL] t=  20s | Z_raw=1.395 Z_hat=1.395 dZ=0.045 | rate=406564 | n= 56 | hz~14833 | pulses=10128145
+
+[CHECK] pulses=10212567 z=1.334 z_mean=1.339 rate=425180.9 n=49
+[CHECK] free-run 576860.1 pulse/s | closed 420987.4 pulse/s
+[CHECK] tach=OK z_sane=OK rate_sane=OK track=OK useful_drop=YES (err=0.161)
+
+[STATS] samples=367940 mean_Z=1.3046 std_Z=0.1077 active_sms=27..84 rows_csv=367940
+[GPUTronic Gold] Stopped cleanly.
+
+=== GOLD GATE: dyno=PASS closedloop=PASS ===

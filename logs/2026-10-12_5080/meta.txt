@@ -1,0 +1,1 @@
+0a4d495 driver 595.99.02 kernel 7.0.0-38-generic cuda 12.8

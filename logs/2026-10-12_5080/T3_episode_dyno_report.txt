@@ -1,0 +1,12 @@
+GPUTronic Episode Dyno Report
+pulses=4 honour=once sleep_shots=1 host_wait=0
+R2=0.8205 slope=4974.268222 intercept=201966.0 window=1 plant=1 gold_act_500us=0 PASS=1
+flops_per_pulse=32768 tiles_per_pulse=32 pulses_per_episode=4 mean_episode_us=252.8 f09_period_ns=152611.8 launches=122698
+active_sms=84 rate=550416.3 gflops=18.036040 z=0.9917
+active_sms=63 rate=523066.8 gflops=17.139852 z=1.0640
+active_sms=42 rate=473837.4 gflops=15.526703 z=1.1854
+active_sms=28 rate=416414.6 gflops=13.645072 z=1.3346
+active_sms=21 rate=352485.8 gflops=11.550253 z=1.6127
+active_sms=16 rate=305098.3 gflops=9.997461 z=1.8384
+active_sms=8 rate=200182.8 gflops=6.559591 z=2.7331
+active_sms=4 rate=117381.7 gflops=3.846365 z=4.6500

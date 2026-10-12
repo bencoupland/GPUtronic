@@ -1,0 +1,1 @@
+pulses_cfg=4 honour=once shots=1 host=0 pulses=10606484 z=1.5975 z_mean=1.4442 target=1.500 sleep=5 fr_rate=377895.2 fr_gflops=12.382870 cl_rate=381652.2 cl_gflops=12.505980 tach=1 track=1 useful_drop=0 model=0 cal_swallow=0 window=1 mean_episode_us=237.8 pulses_per_8ms=3053.22 launches=113110 PASS=0

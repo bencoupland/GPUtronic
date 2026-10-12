@@ -1,0 +1,10 @@
+GPUTronic Gold Dyno Report
+R2=0.9678 slope=4256.068558 intercept=14079.9 plant_ok=1 decreasing=1 PASS=1
+active_sms=84 rate=337296.9
+active_sms=63 rate=286255.5
+active_sms=56 rate=281289.5
+active_sms=42 rate=224428.4
+active_sms=28 rate=133441.1
+active_sms=21 rate=94168.0
+active_sms=8 rate=37230.0
+active_sms=4 rate=20886.6
