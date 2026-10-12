@@ -1,0 +1,30 @@
+[ZC ] type=host host_ptr=OK dev_ptr=OK round_trip=OK (host 0x78a2da600000, device 0x78a2da600000, same address (UVA))
+[SNS] tensor sensor off
+═══════════════════════════════════════════════════════════
+[GPUTronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (using 84) | thr/block=64
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.015 width-actuator two-sided
+[LOOP] dt=10 us (100 kHz) active_sms=84 floor=4
+
+[CSV] results/gputronic_gold_ratio_trace.csv
+[T9] work counter on (device memory)
+[OK] Persistent self-test kernel launched (84 blocks x 64 threads)
+[CTRL] Gold | target=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.015 kalman=1 two-sided | cal 1.8s + 4-point table
+[CAL] rate_ref=449843.1 pulses/s (sustained 1.10s window)
+[CAL] cuda table n= 63 rate=363624.4 Z=1.237
+[CAL] cuda table n= 42 rate=253906.2 Z=1.772
+[CAL] cuda table n= 21 rate=112462.7 Z=4.000
+[CAL] cuda table n=  4 rate=20410.0 Z=22.040
+[CAL] cuda target Z=1.50 → n_ff=52.7 dZ/dn=0.0255 sms_per_u=39.3
+[CAL] controller starts on the cuda sensor
+[CAL] integral clamp=1.069 (scaled, max integral correction 3.36 SMs of 84)
+
+=== T9 PULSE-TO-WORK RATIO (open loop, tensor off) ===
+[T9] sms=84 hold=5.00s pulses=2189032 work=35024512 ratio=1.00000 drift=+0.000%
+[T9] sms=63 hold=5.00s pulses=1825507 work=29209584 ratio=0.99995 drift=-0.005%
+[T9] sms=42 hold=5.00s pulses=1278770 work=20460128 ratio=1.00001 drift=+0.001%
+[T9] sms=21 hold=5.00s pulses=564388 work=9030576 ratio=0.99996 drift=-0.004%
+
+[STATS] samples=371442 mean_Z=2.0017 std_Z=1.1749 active_sms=21..84 rows_csv=421216
+[GPUTronic Gold] Stopped cleanly.
