@@ -277,6 +277,17 @@ void gputronic_config_gold(GPUTronicConfig* cfg) {
     cfg->probe_ms = GPUTRONIC_GOLD_PROBE_MS;
     cfg->enable_tensor_sensor = 1;
     cfg->sensor_hysteresis = GPUTRONIC_GOLD_SENSOR_HYSTERESIS;
+    cfg->reserve_sms = 0;
+    cfg->sensor_rule = 0;
+    /* Test overrides (defaults unchanged when unset):
+     *   GPUTRONIC_TENSOR_SENSOR=0|1  turn the tensor-core sensor off or on
+     *   GPUTRONIC_RESERVE_SMS=k      keep k extra SMs on above the calibrated start */
+    const char* ev = getenv("GPUTRONIC_TENSOR_SENSOR");
+    if (ev && *ev) cfg->enable_tensor_sensor = atoi(ev) ? 1 : 0;
+    ev = getenv("GPUTRONIC_SENSOR_RULE");   /* max (default) | min */
+    if (ev && *ev) cfg->sensor_rule = (strcmp(ev, "min") == 0) ? 1 : 0;
+    ev = getenv("GPUTRONIC_RESERVE_SMS");
+    if (ev && *ev) cfg->reserve_sms = atoi(ev) < 0 ? 0 : atoi(ev);
     cfg->csv_path = "results/gputronic_gold.csv";
 }
 
@@ -365,8 +376,15 @@ static void gold_build_table(GPUTronicHandle* h) {
     h->sel = 0;
     if (h->tensor_on) {
         gold_fit_table(h, "tensor", h->rate_ref_t, h->probe_rate_t, &h->n_ff_s[1], &h->spu_s[1]);
-        if (h->n_ff_s[1] > h->n_ff_s[0]) h->sel = 1;
+        /* max rule: start on the sensor that needs fewer SMs off; min rule: the other one. */
+        if (h->cfg.sensor_rule == 0 ? (h->n_ff_s[1] > h->n_ff_s[0]) : (h->n_ff_s[1] < h->n_ff_s[0])) h->sel = 1;
     }
+    /* Reserve: shift both starting counts toward more SMs (lower Z). */
+    for (int i = 0; i < 2; i++) {
+        h->n_ff_s[i] += (float)h->cfg.reserve_sms;
+        if (h->n_ff_s[i] > (float)h->cfg.num_sm) h->n_ff_s[i] = (float)h->cfg.num_sm;
+    }
+    if (h->cfg.reserve_sms > 0) printf("[CAL] reserve: +%d SMs on the starting count\n", h->cfg.reserve_sms);
     h->n_ff = h->n_ff_s[h->sel];
     h->sms_per_u = h->spu_s[h->sel];
     printf("[CAL] controller starts on the %s sensor\n", h->sel ? "tensor" : "cuda");
@@ -574,9 +592,21 @@ static void* control_thread(void* arg) {
             h->z_c = h->rate_ref / (h->rate_ema + 1.0f);
             h->z_t = (h->tensor_on && h->rate_ema_t > 1.0f) ? h->rate_ref_t / (h->rate_ema_t + 1.0f) : 0.0f;
             int want = h->sel;
-            if (h->tensor_on) {
+            /*
+             * Rule comparison (model, RTX 5080 dyno curves, 2026-10-12; not GPU-tested).
+             * Default is max (follow the higher Z). The min rule (GPUTRONIC_SENSOR_RULE=min)
+             * lost: with a spec-ideal tensor curve it lets the other sensor's Z go past 1.5
+             * (Gold 1.83, Transfer 1.59, Episode 3.65 peak); with the realistic atomic-bound
+             * curve it settles lower than max (Z error Gold -0.052, Transfer -0.106,
+             * Episode -0.011 vs max -0.023 / -0.052 / +0.003). Neither rule recovers to
+             * within 0.02 of target after a sustained -20% load step (integral clamp).
+             */
+            if (h->tensor_on && h->cfg.sensor_rule == 0) {          /* follow higher Z */
                 if (h->sel == 0 && h->z_t > h->z_c + h->cfg.sensor_hysteresis) want = 1;
                 if (h->sel == 1 && h->z_c > h->z_t + h->cfg.sensor_hysteresis) want = 0;
+            } else if (h->tensor_on) {                              /* follow lower Z */
+                if (h->sel == 0 && h->z_t < h->z_c - h->cfg.sensor_hysteresis) want = 1;
+                if (h->sel == 1 && h->z_c < h->z_t - h->cfg.sensor_hysteresis) want = 0;
             }
             float z_new = want ? h->z_t : h->z_c;
             if (want != h->sel) {

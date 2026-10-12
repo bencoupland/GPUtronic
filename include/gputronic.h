@@ -117,6 +117,8 @@ typedef struct GPUTronicConfig {
     int enable_tensor_sensor; /* 1 = add a wmma warp and a second Z [F-16]; Gold default 1.
                                * Forced to 0 for other kernels or GPUs below sm_70. */
     float sensor_hysteresis; /* Z margin before switching sensors, default 0.02 */
+    int sensor_rule;         /* 0 = follow the higher Z (default), 1 = follow the lower Z [F-16] */
+    int reserve_sms;         /* extra SMs kept on above the calibrated starting count, default 0 */
     const char* csv_path;    /* NULL = results/gputronic_gold.csv */
 } GPUTronicConfig;
 

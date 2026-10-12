@@ -165,7 +165,10 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Threads per block | 64 | `GPUTRONIC_DEFAULT_THREADS_PER_BLOCK` |
 | SM floor | 4 | kernel and control thread |
 | Tensor sensor | on for Gold, 1 extra warp, 64 wmma steps per pulse | `enable_tensor_sensor`, `GOLD_TENSOR_STEPS` |
-| Sensor hysteresis | 0.02 | `GPUTRONIC_GOLD_SENSOR_HYSTERESIS` |
+| Sensor rule | follow the higher Z (max) | `sensor_rule` (0 = max, 1 = min), env `GPUTRONIC_SENSOR_RULE` |
+| Reserve | 0 extra SMs | `reserve_sms`, env `GPUTRONIC_RESERVE_SMS` |
+| Tensor on/off | on | env `GPUTRONIC_TENSOR_SENSOR=0/1` |
+| Sensor hysteresis | 0.02 | `sensor_hysteresis` (config field) |
 
 ## 5. API changes in PR #1
 
