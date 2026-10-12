@@ -230,6 +230,7 @@ struct GPUTronicHandle {
     unsigned long long cal_pulse_mark_t;
     unsigned long long probe_mark_t;
     double probe_rate_t[GOLD_MAX_PROBE];
+    float iclamp;         /* integral clamp in use, see gold_set_iclamp */
     float n_ff_s[2];      /* per-sensor starting SM count, 0 = CUDA, 1 = tensor */
     float spu_s[2];       /* per-sensor sms_per_u */
     int sel;              /* sensor driving the PI */
@@ -371,6 +372,15 @@ static void gold_fit_table(GPUTronicHandle* h, const char* label, double rate_re
 /* Both sensors [F-09, F-16]. The PI starts on the sensor that reaches the
  * target with the most SMs still on (larger n_ff), i.e. the one whose Z is
  * higher at that count; this matches the max selector in control_thread. */
+/* Integral clamp in use: the config value if > 0, otherwise scaled so that
+ * Ki * clamp * sms_per_u = GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC * num_sm SMs. Falls back
+ * to 1.0 if Ki or sms_per_u is not positive. Recomputed when sms_per_u changes. */
+static void gold_set_iclamp(GPUTronicHandle* h) {
+    if (h->cfg.integral_clamp > 0.0f) { h->iclamp = h->cfg.integral_clamp; return; }
+    float denom = h->cfg.ki * h->sms_per_u;
+    h->iclamp = (denom > 1e-6f && h->cfg.num_sm > 0) ? GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC * (float)h->cfg.num_sm / denom : 1.0f;
+}
+
 static void gold_build_table(GPUTronicHandle* h) {
     gold_fit_table(h, "cuda", h->rate_ref, h->probe_rate, &h->n_ff_s[0], &h->spu_s[0]);
     h->sel = 0;
@@ -388,6 +398,9 @@ static void gold_build_table(GPUTronicHandle* h) {
     h->n_ff = h->n_ff_s[h->sel];
     h->sms_per_u = h->spu_s[h->sel];
     printf("[CAL] controller starts on the %s sensor\n", h->sel ? "tensor" : "cuda");
+    gold_set_iclamp(h);
+    printf("[CAL] integral clamp=%.3f (%s, max integral correction %.2f SMs of %d)\n", h->iclamp,
+           h->cfg.integral_clamp > 0.0f ? "config" : "scaled", h->cfg.ki * h->iclamp * h->sms_per_u, h->cfg.num_sm);
 }
 
 static void gold_reset_rate_state(GPUTronicHandle* h) {
@@ -613,12 +626,13 @@ static void* control_thread(void* arg) {
                 h->sel = want;
                 h->n_ff = h->n_ff_s[want];
                 h->sms_per_u = h->spu_s[want];
+                gold_set_iclamp(h);
                 float e_new = h->cfg.target_z - z_new;
                 float i_new = (h->cfg.ki > 1e-6f && h->sms_per_u > 1e-6f)
                                   ? ((h->n_ff - (float)h->held_sms) / h->sms_per_u - h->cfg.kp * e_new) / h->cfg.ki
                                   : 0.0f;
-                if (i_new > h->cfg.integral_clamp) i_new = h->cfg.integral_clamp;
-                if (i_new < -h->cfg.integral_clamp) i_new = -h->cfg.integral_clamp;
+                if (i_new > h->iclamp) i_new = h->iclamp;
+                if (i_new < -h->iclamp) i_new = -h->iclamp;
                 h->integral = i_new;
                 h->z_hat = z_new;
                 h->dzdt_hat = 0.0f;
@@ -664,8 +678,8 @@ static void* control_thread(void* arg) {
             if (fabsf(error) >= h->cfg.deadband) {
                 float u_p = h->cfg.kp * error - h->cfg.kd * h->dzdt_hat;
                 float i_new = h->integral + error * dt;
-                if (i_new > h->cfg.integral_clamp) i_new = h->cfg.integral_clamp;
-                if (i_new < -h->cfg.integral_clamp) i_new = -h->cfg.integral_clamp;
+                if (i_new > h->iclamp) i_new = h->iclamp;
+                if (i_new < -h->iclamp) i_new = -h->iclamp;
                 float n_try = h->n_ff - (u_p + h->cfg.ki * i_new) * h->sms_per_u;
                 int saturated = (n_try < 4.0f && error > 0.0f) ||
                                 (n_try > (float)N && error < 0.0f);
@@ -829,6 +843,7 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     h->held_sms = h->cfg.num_sm;
     h->n_ff = (float)h->cfg.num_sm;
     h->sms_per_u = 1.0f / 0.03f;   /* placeholder until the calibration table [F-09] */
+    gold_set_iclamp(h);
     /* Tensor sensor only runs inside the self-test kernel, and wmma needs sm_70+. */
     if (!h->cfg.launch_selftest_kernel || prop.major < 7) h->cfg.enable_tensor_sensor = 0;
     h->tensor_on = h->cfg.enable_tensor_sensor;

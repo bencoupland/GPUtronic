@@ -129,7 +129,8 @@ These replace the model-only claims above where they differ.
 
 - **Recommendation: tensor sensor off by default.** It costs up to 39% of throughput and its Z is the same
   number as the CUDA-core Z. Not yet changed in code (`GPUTRONIC_TENSOR_SENSOR=0` turns it off).
-- **Do not scale the integral clamp yet.** One Episode run parked on the clamp (1.0) at Z 1.43. The re-run
+- **Integral clamp now scaled (user decision, 2026-10-12, overrides the earlier "do not scale" advice).** Default `integral_clamp` 0 means: after calibration, clamp = 0.04 × num_sm / (Ki × sms_per_u), so the integral can move at most 4% of the SMs (84 SMs: ~3.4 SMs, close to the old ~4; 20 SMs: 0.8 SM). A config value > 0 still fixes it. Printed in the `[CAL] integral clamp=` line. Unmeasured on hardware; the C1 load step should validate it.
+- *(Earlier advice, superseded:)* **Do not scale the integral clamp yet.** One Episode run parked on the clamp (1.0) at Z 1.43. The re-run
   did not: mean Z 1.467, integral maximum 0.83. The reserve-4 run hit the clamp because the integral was
   undoing the extra SMs. Ki × 1.0 × `sms_per_u` is about four SMs. The line "Z hangs at 1.62–1.74" is the
   simulator. Leave `GPUTRONIC_GOLD_INTEGRAL_CLAMP` at 1.0 until path C1 in `NEXT.md` is measured.

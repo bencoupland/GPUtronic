@@ -157,7 +157,7 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Target Z | 1.5 | `GPUTRONIC_GOLD_TARGET_Z` |
 | Kp, Ki, Kd | 0.55, 0.08, 0 | `GPUTRONIC_GOLD_KP/KI/KD`, `gputronic_set_gains`, `gputronic_set_kd` |
 | Deadband | 0.015 | `GPUTRONIC_GOLD_DEADBAND`, `gputronic_set_deadband` |
-| Integral clamp | 1.0 | `GPUTRONIC_GOLD_INTEGRAL_CLAMP` |
+| Integral clamp | scaled after calibration: 0.04 × num_sm / (Ki × sms_per_u) | `integral_clamp` (> 0 = fixed override), `GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC` |
 | Z limits | 0.3 – 10 | `GPUTRONIC_GOLD_Z_FLOOR/CEILING` |
 | Calibration | warm-up 0.7 s, reference 0.7–1.8 s, then 4 × 300 ms table | `control_thread`, `GPUTRONIC_GOLD_PROBE_MS` |
 | Control tick | 10 µs | `GPUTRONIC_DEFAULT_CONTROL_DT_US` |

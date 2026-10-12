@@ -49,7 +49,12 @@ extern "C" {
 #define GPUTRONIC_GOLD_KP 0.55f
 #define GPUTRONIC_GOLD_KI 0.08f
 #define GPUTRONIC_GOLD_KD 0.0f   /* see function frame note; 0 = dZ/dt logged only */
-#define GPUTRONIC_GOLD_INTEGRAL_CLAMP 1.0f
+/* Integral clamp. 0 = scale after calibration so the integral's largest correction,
+ * Ki * clamp * sms_per_u (in SMs), equals GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC of the device
+ * SM count (84 SMs -> ~3.4 SMs, 20 SMs -> 0.8 SM). Set integral_clamp > 0 in the config
+ * to override with a fixed value. Was a fixed 1.0. */
+#define GPUTRONIC_GOLD_INTEGRAL_CLAMP 0.0f
+#define GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC 0.04f
 #define GPUTRONIC_GOLD_DEADBAND 0.015f
 #define GPUTRONIC_GOLD_PROBE_MS 300   /* per calibration point */
 #define GPUTRONIC_GOLD_SENSOR_HYSTERESIS 0.02f  /* [F-16] */
@@ -107,7 +112,7 @@ typedef struct GPUTronicConfig {
     float kp;
     float ki;
     float kd;                /* dZ/dt gain (Kalman slope); default 0 */
-    float integral_clamp;
+    float integral_clamp;    /* > 0 fixed; <= 0 scaled to SM count after calibration */
     float deadband;
     float z_ceiling;
     float z_floor;

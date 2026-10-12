@@ -99,7 +99,8 @@ sm_61 will not be run here. Compiling it is the check that no `__nanosleep` rema
 
 ## B. Do not do these on the back of the model
 
-- Do not scale `GPUTRONIC_GOLD_INTEGRAL_CLAMP`. Ki times 1.0 times `sms_per_u` is
+- **Integral clamp now scaled (user decision, 2026-10-12, overrides the earlier "do not scale" advice).** Default `integral_clamp` 0 means: after calibration, clamp = 0.04 × num_sm / (Ki × sms_per_u), so the integral can move at most 4% of the SMs (84 SMs: ~3.4 SMs, close to the old ~4; 20 SMs: 0.8 SM). A config value > 0 still fixes it. Printed in the `[CAL] integral clamp=` line. Unmeasured on hardware; the C1 load step should validate it.
+- (Superseded by the line above.) Do not scale `GPUTRONIC_GOLD_INTEGRAL_CLAMP`. Ki times 1.0 times `sms_per_u` is
   about four SMs. That limit is real, and it is not yet the thing that misses. One
   episode run parked on the clamp at Z 1.43. The re-run did not: from 8 s on, mean
   Z 1.467, count about 24, integral mean 0.55 and maximum 0.83. The reserve-4 run
