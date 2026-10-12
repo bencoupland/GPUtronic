@@ -504,7 +504,11 @@ static int mode_closedloop(int seconds) {
     printf("[LAW] target=%.2f | Gold SM-count table | max_sleep=500us (stock) | honour=%s shots=%d host=%d\n",
            GPUTRONIC_GOLD_TARGET_Z, g_honour, g_sleep_shots, g_host_wait);
 
-    usleep(2200000);
+    /* Full-width reference. The table probe finishes near 3 s (1.8 s sustain
+     * plus four 300 ms steps). A 2.2 s delay landed this window on a probe
+     * step, so the gate compared closed-loop rate with a cut rate and
+     * reported useful_drop=NO while Z was already near the target. */
+    usleep(4500000);
     legacy_set_sleep(h, 0);
     double fr_rate = 0, fr_gflops = 0, fr_z = 0;
     measure_window(h, 300000, 1000000, &fr_rate, &fr_gflops, &fr_z, NULL);
