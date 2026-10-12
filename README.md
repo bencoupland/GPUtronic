@@ -260,6 +260,13 @@ between samples of the mapped control words.
 `GPUTRONIC_ACTIVE_PASSES` and `GPUTRONIC_ACTIVE_SMS` are test switches, off by
 default. After calibration the host sets bit 4 and the block-index gate is
 replaced by that list. Unset, the gate is still `active_sms`.
+`GPUTRONIC_PULSE_LOCAL=1` is a test switch, off by default. Each warp keeps its
+pulse count in a register, and the block leader adds the batch to the mapped
+pulse counter about once a millisecond. Reads of the mapped control words stay
+on every pass. Unset, every pulsing warp still adds to the mapped counter.
+`GPUTRONIC_CTRL_CACHE=1` is a separate test switch, off by default. The block
+leader reads the mapped control words about once a millisecond and the other
+threads use that copy. Unset, every pass reads those words.
 
 ### Using Gold from another kernel [F-03]
 Another kernel can add to `total_work_pulses` with `atomicAdd` and run only `active_sms` blocks.
@@ -380,6 +387,8 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Sensor hysteresis | 0.02 | `sensor_hysteresis` (config field) |
 | Per-SM tally | off | `GPUTRONIC_SM_ACCUM=1` or `GPUTRONIC_SM_ACCUM_SM=<id>` |
 | Working-set filter | off | `GPUTRONIC_ACTIVE_PASSES` or `GPUTRONIC_ACTIVE_SMS`, then bit 4 |
+| Local pulse count | off | `GPUTRONIC_PULSE_LOCAL=1`. One mapped atomic per block per 1 ms |
+| Cached control words | off | `GPUTRONIC_CTRL_CACHE=1`. One mapped read of the control words per block per 1 ms |
 
 ## 5. API changes in PR #1
 
@@ -391,8 +400,10 @@ Added: `gputronic_set_kd`, `gputronic_set_deadband`, `gputronic_reset_counters`,
 Two-sensor change: new fields appended at the end of the control block; new config
 fields `enable_tensor_sensor`, `sensor_hysteresis`; four getters listed under F-16.
 `gold_launch_kernel` takes the tensor-sensor flag, the optional T9 work-counter
-pointer, and the optional T11 accumulator pointer, SM id, and bin length. A normal
-start passes nulls for both optional counters.
+pointer, the optional T11 accumulator pointer, SM id, and bin length, the idle-quiet
+flag, the working-set masks, and the test flags for a local pulse count and cached
+control words. A normal start passes nulls for both optional counters and leaves
+the test flags off.
 
 ## 6. Reading order
 

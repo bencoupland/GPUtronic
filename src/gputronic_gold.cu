@@ -103,11 +103,18 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  * GPUTRONIC_ACTIVE_PASSES and GPUTRONIC_ACTIVE_SMS are test switches, off by
  * default. After calibration the host sets GPUTRONIC_FLAG_SELECT and the block
  * index gate is replaced: a block works if its launch pass ((%%smid %% 14) / 2)
- * is in the list, or if its physical SM id is in the list. */
+ * is in the list, or if its physical SM id is in the list.
+ * GPUTRONIC_PULSE_LOCAL=1 is a test switch, off by default. Each warp counts
+ * pulses in a register. The block leader adds that batch to the mapped pulse
+ * counter about once a millisecond. Control-word reads stay every pass.
+ * GPUTRONIC_CTRL_CACHE=1 is a separate test switch, off by default. The block
+ * leader reads the mapped control words about once a millisecond and the block
+ * uses that shared copy. Unset, every pass reads the mapped words. */
 #define GOLD_OPS_CUDA_WARP_PASS (2ULL * GOLD_BATCH * GOLD_WORK_ITERS * 8ULL * 32ULL)
 #define GOLD_OPS_TENSOR_WARP_PASS (2ULL * 16 * 16 * 16 * GOLD_TENSOR_STEPS)
 #define GOLD_ACCUM_WORDS 5
 #define GOLD_IDLE_QUIET_NS 1000000ULL
+#define GOLD_PULSE_LOCAL_NS 1000000ULL
 
 __device__ __forceinline__ unsigned long long gold_globaltimer_ns(void) {
     unsigned long long t;
@@ -171,7 +178,9 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        int idle_quiet,
                                        unsigned int pass_mask,
                                        unsigned long long sm_mask_lo,
-                                       unsigned long long sm_mask_hi) {
+                                       unsigned long long sm_mask_hi,
+                                       int pulse_local,
+                                       int ctrl_cache) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
@@ -179,15 +188,25 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     unsigned int phys_sm = 0;
     float local = 0.0f;
     unsigned int local_pulses = 0;
+    unsigned int unpublished = 0;   /* pulses not yet added to the mapped counter */
+    unsigned long long pulse_last = 0ULL;
     unsigned int load_credit = 0;   /* T6/T7 synthetic load, see work_scale_milli */
     unsigned long long work_done = 0; /* T9: completed batches, this warp */
 
     __shared__ unsigned long long s_ops[2];   /* T11: CUDA ops, tensor ops. Block-wide. */
     __shared__ unsigned int s_phys;
+    __shared__ unsigned int s_warp_pulses[32];
+    __shared__ int s_flush;
+    __shared__ unsigned int s_flags;
+    __shared__ int s_active;
+    __shared__ unsigned long long s_ctrl_last;
     if (sm >= num_sm) return;
     if (tid == 0) {
         s_ops[0] = 0ULL;
         s_ops[1] = 0ULL;
+        s_flags = 0;
+        s_active = num_sm;
+        s_ctrl_last = 0ULL;
         asm volatile("mov.u32 %0, %%smid;" : "=r"(phys_sm));
         s_phys = phys_sm;
     }
@@ -205,7 +224,25 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     }
 
     while (true) {
-        unsigned int flags = ctrl->control_flags;
+        /* ctrl_cache is a launch argument, so the branch matches across the block.
+         * Off unless GPUTRONIC_CTRL_CACHE=1. Tensor-on blocks keep the per-pass
+         * reads: a barrier there would not be uniform. */
+        unsigned int flags;
+        int use_cache = ctrl_cache && (blockDim.x == cuda_warps * 32);
+        if (use_cache) {
+            if (tid == 0) {
+                unsigned long long now = gold_globaltimer_ns();
+                if (s_ctrl_last == 0ULL || now - s_ctrl_last >= GOLD_PULSE_LOCAL_NS) {
+                    s_flags = ctrl->control_flags;
+                    s_active = ctrl->active_sms;
+                    s_ctrl_last = now;
+                }
+            }
+            __syncthreads();
+            flags = s_flags;
+        } else {
+            flags = ctrl->control_flags;
+        }
         if (flags & GPUTRONIC_FLAG_STOP) break;
         if (flags & GPUTRONIC_FLAG_PAUSE) {
             (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
@@ -218,7 +255,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             continue;
         }
 
-        int active = ctrl->active_sms;
+        int active = use_cache ? s_active : ctrl->active_sms;
         if (active <= 0 || active > num_sm) active = num_sm;
         if (active < 4) active = 4;
         /* FLAG_SELECT is a test switch. The host sets it only after calibration,
@@ -290,12 +327,42 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             if (cuda_only) __syncthreads();
         }
 
+        /* pulse_local is a launch argument, so the branch is the same on every
+         * thread. It stays off unless GPUTRONIC_PULSE_LOCAL=1. Tensor-on blocks
+         * keep the per-pass mapped atomic: a barrier there would not be uniform. */
+        int use_local = pulse_local && (blockDim.x == cuda_warps * 32);
         if (lane == 0 && gold_load_pulse(flags, ctrl, &load_credit)) {
-            atomicAdd(&sm_counters[sm], 1ULL);
-            atomicAdd((unsigned long long*)&ctrl->total_work_pulses, 1ULL);
-            local_pulses++;
-            /* Fence every 32 pulses — enough for host visibility. */
-            if ((local_pulses & 31u) == 0u) __threadfence_system();
+            if (use_local) {
+                unpublished++;
+            } else {
+                atomicAdd(&sm_counters[sm], 1ULL);
+                atomicAdd((unsigned long long*)&ctrl->total_work_pulses, 1ULL);
+                local_pulses++;
+                /* Fence every 32 pulses — enough for host visibility. */
+                if ((local_pulses & 31u) == 0u) __threadfence_system();
+            }
+        }
+        if (use_local) {
+            if (lane == 0) s_warp_pulses[tid >> 5] = unpublished;
+            __syncthreads();
+            if (tid == 0) {
+                unsigned long long now = gold_globaltimer_ns();
+                s_flush = 0;
+                if (pulse_last == 0ULL || now - pulse_last >= GOLD_PULSE_LOCAL_NS) {
+                    unsigned int sum = 0;
+                    for (int w = 0; w < cuda_warps; w++) sum += s_warp_pulses[w];
+                    if (sum) {
+                        atomicAdd(&sm_counters[sm], (unsigned long long)sum);
+                        atomicAdd((unsigned long long*)&ctrl->total_work_pulses,
+                                  (unsigned long long)sum);
+                        __threadfence_system();
+                    }
+                    pulse_last = now;
+                    s_flush = 1;
+                }
+            }
+            __syncthreads();
+            if (s_flush && lane == 0) unpublished = 0;
         }
     }
 }
@@ -312,13 +379,16 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    int idle_quiet,
                                    unsigned int pass_mask,
                                    unsigned long long sm_mask_lo,
-                                   unsigned long long sm_mask_hi) {
+                                   unsigned long long sm_mask_hi,
+                                   int pulse_local,
+                                   int ctrl_cache) {
     /* CUDA-core warps stay as configured; the tensor sensor adds one warp. */
     int cuda_warps = (threads_per_block + 31) / 32;
     int threads = cuda_warps * 32 + (tensor_sensor ? 32 : 0);
     gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps, work_count,
                                                  accum, accum_sm, accum_bin_ns, idle_quiet,
-                                                 pass_mask, sm_mask_lo, sm_mask_hi);
+                                                 pass_mask, sm_mask_lo, sm_mask_hi,
+                                                 pulse_local, ctrl_cache);
 }
 
 /* ---- Host handle and control thread ---- */
@@ -409,6 +479,10 @@ struct GPUTronicHandle {
     unsigned int select_pass_mask;
     unsigned long long select_sm_lo;
     unsigned long long select_sm_hi;
+    /* Test only. GPUTRONIC_PULSE_LOCAL=1 batches the mapped pulse atomic. */
+    int pulse_local;
+    /* Test only. GPUTRONIC_CTRL_CACHE=1 batches the mapped control-word reads. */
+    int ctrl_cache;
 };
 
 static volatile int g_signal_stop = 0;
@@ -1167,10 +1241,23 @@ int gputronic_start(GPUTronicHandle* h) {
         if (idle_quiet)
             printf("[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms\n");
         gold_parse_select(h);
+        {
+            const char* pl = getenv("GPUTRONIC_PULSE_LOCAL");
+            h->pulse_local = (pl && strcmp(pl, "1") == 0) ? 1 : 0;
+        }
+        if (h->pulse_local)
+            printf("[PULSE] local count: one mapped atomic per block per 1 ms\n");
+        {
+            const char* cc = getenv("GPUTRONIC_CTRL_CACHE");
+            h->ctrl_cache = (cc && strcmp(cc, "1") == 0) ? 1 : 0;
+        }
+        if (h->ctrl_cache)
+            printf("[CTRL] cached control words: leader reads once per 1 ms\n");
         gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
                            h->cfg.enable_tensor_sensor, h->d_work,
                            h->d_accum, h->accum_sm, h->accum_bin_ns, idle_quiet,
-                           h->select_pass_mask, h->select_sm_lo, h->select_sm_hi);
+                           h->select_pass_mask, h->select_sm_lo, h->select_sm_hi,
+                           h->pulse_local, h->ctrl_cache);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             fprintf(stderr, "[GPUTronic] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -1840,6 +1927,8 @@ static void usage(const char* argv0) {
     printf("  %s noise [sms] [sec]                         # T10: open loop at fixed SMs, Z noise floor (default 46 30)\n", argv0);
     printf("    test only, off by default: GPUTRONIC_IDLE_QUIET=1\n");
     printf("    GPUTRONIC_ACTIVE_PASSES=0,1,3   GPUTRONIC_ACTIVE_SMS=0-11\n");
+    printf("    GPUTRONIC_PULSE_LOCAL=1\n");
+    printf("    GPUTRONIC_CTRL_CACHE=1\n");
     printf("  %s ratio [hold_s] [n1,n2,...]                 # T9: pulse-to-work ratio (default 5, N,3N/4,N/2,N/4)\n", argv0);
     printf("  %s fullwidth [sec]                            # T8: open loop, all SMs, no controller\n", argv0);
 }

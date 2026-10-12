@@ -1,0 +1,247 @@
+fifth-pass rest 2026-10-12T13:10:22-07:00 876c004 temp=42
+temp 42 C
+=== e1-n84-cached nsm=84 quiet=0 passes='' sms='' pulse=1 cache=1 expect=84 temp=42 2026-10-12T13:10:22-07:00 ===
+--- e1-n84-cached analyzer exit 0 ---
+[blocks] reporting 84, with work 84, idle 0
+[blocks] n 84, mean ops/bin 199077909, cv 1.2%, range 194800681..205369209, max/min 1.054
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 12 197249879 195422594 198652149
+  1 12 198312831 196795626 199493343
+  2 12 199982999 199235075 201673263
+  3 12 202903833 199902055 205369209
+  4 12 200559850 199207102 202663092
+  5 12 198073715 195862988 199364275
+  6 12 196462257 194800681 198006934
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 7394885724 pulses over 29.00 s, rate 255004149 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.03%, corr 0.996, best lag 0 corr 0.996
+OK e1-n84-cached work=84
+temp 45 C
+=== e3-gpc0-tpc0 nsm=84 quiet=1 passes='' sms='0,1' pulse=0 cache=0 expect=2 temp=45 2026-10-12T13:11:08-07:00 ===
+--- e3-gpc0-tpc0 analyzer exit 0 ---
+[blocks] reporting 84, with work 2, idle 82
+[blocks] n 2, mean ops/bin 13063134, cv 0.0%, range 13062067..13064201, max/min 1.000
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 2 13063134 13062067 13064201
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 11555316 pulses over 29.00 s, rate 398474 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.03%, corr 0.998, best lag 0 corr 0.998
+OK e3-gpc0-tpc0 work=2
+temp 48 C
+=== e3-gpc0-split nsm=84 quiet=1 passes='' sms='0,14' pulse=0 cache=0 expect=2 temp=48 2026-10-12T13:11:52-07:00 ===
+--- e3-gpc0-split analyzer exit 0 ---
+[blocks] reporting 84, with work 2, idle 82
+[blocks] n 2, mean ops/bin 13602072, cv 0.0%, range 13599819..13604325, max/min 1.000
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 2 13602072 13599819 13604325
+[phys-jump] no two working SMs have neighbouring ids
+[pulses] 12026354 pulses over 29.00 s, rate 414718 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.03%, corr 0.970, best lag 0 corr 0.970
+OK e3-gpc0-split work=2
+temp 50 C
+=== e3-gpc0-cluster nsm=84 quiet=1 passes='' sms='0,1,14,15,42,43' pulse=0 cache=0 expect=6 temp=50 2026-10-12T13:12:36-07:00 ===
+--- e3-gpc0-cluster analyzer exit 0 ---
+[blocks] reporting 84, with work 6, idle 78
+[blocks] n 6, mean ops/bin 4646205, cv 0.0%, range 4643965..4649010, max/min 1.001
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 6 4646205 4643965 4649010
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 12333419 pulses over 29.00 s, rate 425302 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.02%, corr 0.998, best lag 0 corr 0.998
+OK e3-gpc0-cluster work=6
+temp 52 C
+=== e3-gpc0-spread nsm=84 quiet=1 passes='' sms='0,1,14,15,28,29' pulse=0 cache=0 expect=6 temp=52 2026-10-12T13:13:20-07:00 ===
+--- e3-gpc0-spread analyzer exit 0 ---
+[blocks] reporting 84, with work 6, idle 78
+[blocks] n 6, mean ops/bin 4699930, cv 0.0%, range 4697819..4701486, max/min 1.001
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 6 4699930 4697819 4701486
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 12472770 pulses over 29.00 s, rate 430112 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.02%, corr 0.999, best lag 0 corr 0.999
+OK e3-gpc0-spread work=6
+temp 49 C
+=== e3-gpc0-all nsm=84 quiet=1 passes='' sms='0,1,14,15,28,29,42,43,56,57,70,71' pulse=0 cache=0 expect=12 temp=49 2026-10-12T13:14:04-07:00 ===
+--- e3-gpc0-all analyzer exit 0 ---
+[blocks] reporting 84, with work 12, idle 72
+[blocks] n 12, mean ops/bin 2487455, cv 0.1%, range 2485518..2489576, max/min 1.002
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 12 2487455 2485518 2489576
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 13195012 pulses over 29.00 s, rate 455015 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.02%, corr 0.994, best lag 0 corr 0.994
+OK e3-gpc0-all work=12
+temp 44 C
+=== e3-gpc3-tpc0 nsm=84 quiet=1 passes='' sms='6,7' pulse=0 cache=0 expect=2 temp=44 2026-10-12T13:14:48-07:00 ===
+--- e3-gpc3-tpc0 analyzer exit 0 ---
+[blocks] reporting 84, with work 2, idle 82
+[blocks] n 2, mean ops/bin 14673166, cv 0.0%, range 14672467..14673865, max/min 1.000
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  3 2 14673166 14672467 14673865
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 12972103 pulses over 29.00 s, rate 447328 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.02%, corr 0.949, best lag 0 corr 0.949
+OK e3-gpc3-tpc0 work=2
+temp 42 C
+=== e3-gpc3-split nsm=84 quiet=1 passes='' sms='6,20' pulse=0 cache=0 expect=2 temp=42 2026-10-12T13:15:32-07:00 ===
+--- e3-gpc3-split analyzer exit 0 ---
+[blocks] reporting 84, with work 2, idle 82
+[blocks] n 2, mean ops/bin 14720043, cv 0.0%, range 14718858..14721228, max/min 1.000
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  3 2 14720043 14718858 14721228
+[phys-jump] no two working SMs have neighbouring ids
+[pulses] 13013515 pulses over 29.00 s, rate 448757 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.02%, corr 0.989, best lag 0 corr 0.989
+OK e3-gpc3-split work=2
+temp 40 C
+=== e3-gpc3-cluster nsm=84 quiet=1 passes='' sms='6,7,20,21,48,49' pulse=0 cache=0 expect=6 temp=40 2026-10-12T13:16:16-07:00 ===
+--- e3-gpc3-cluster analyzer exit 0 ---
+[blocks] reporting 84, with work 6, idle 78
+[blocks] n 6, mean ops/bin 5247329, cv 0.0%, range 5247168..5247439, max/min 1.000
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  3 6 5247329 5247168 5247439
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 13920740 pulses over 29.00 s, rate 480041 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.02%, corr 0.994, best lag 0 corr 0.994
+OK e3-gpc3-cluster work=6
+temp 42 C
+=== e3-gpc3-spread nsm=84 quiet=1 passes='' sms='6,7,20,21,34,35' pulse=0 cache=0 expect=6 temp=42 2026-10-12T13:17:00-07:00 ===
+--- e3-gpc3-spread analyzer exit 0 ---
+[blocks] reporting 84, with work 6, idle 78
+[blocks] n 6, mean ops/bin 5183550, cv 0.0%, range 5183366..5183679, max/min 1.000
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  3 6 5183550 5183366 5183679
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 13747156 pulses over 29.00 s, rate 474057 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.01%, corr 0.940, best lag 0 corr 0.940
+OK e3-gpc3-spread work=6
+temp 44 C
+=== e3-gpc3-all nsm=84 quiet=1 passes='' sms='6,7,20,21,34,35,48,49,62,63,76,77' pulse=0 cache=0 expect=12 temp=44 2026-10-12T13:17:44-07:00 ===
+--- e3-gpc3-all analyzer exit 0 ---
+[blocks] reporting 84, with work 12, idle 72
+[blocks] n 12, mean ops/bin 2625843, cv 0.0%, range 2625680..2625987, max/min 1.000
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  3 12 2625843 2625680 2625987
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 13927990 pulses over 29.00 s, rate 480292 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.02%, corr 0.993, best lag 0 corr 0.993
+OK e3-gpc3-all work=12
+temp 46 C
+=== e4-n60-a nsm=60 quiet=1 passes='' sms='' pulse=0 cache=0 expect=60 temp=46 2026-10-12T13:18:28-07:00 ===
+--- e4-n60-a analyzer exit 0 ---
+[blocks] reporting 84, with work 60, idle 24
+[blocks] n 60, mean ops/bin 584108, cv 27.5%, range 387990..737299, max/min 1.900
+[jump] largest step in block order is 1.899x between block 48 (388279) and block 47 (737263)
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 12 388114 387990 388220
+  1 12 703385 703190 703583
+  2 12 703545 703362 703751
+  3 12 737150 736996 737299
+  4 12 388346 388270 388447
+[phys-jump] largest step between neighbouring physical SMs is 1.899x between SM 36 (388306) and SM 35 (737299)
+[pulses] 15490151 pulses over 29.00 s, rate 534158 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.01%, corr 0.996, best lag 0 corr 0.996
+OK e4-n60-a work=60
+temp 47 C
+=== e4-n60-b nsm=60 quiet=1 passes='' sms='' pulse=0 cache=0 expect=60 temp=47 2026-10-12T13:19:13-07:00 ===
+--- e4-n60-b analyzer exit 0 ---
+[blocks] reporting 84, with work 60, idle 24
+[blocks] n 60, mean ops/bin 625430, cv 27.0%, range 418963..786703, max/min 1.878
+[jump] largest step in block order is 1.877x between block 48 (419185) and block 47 (786672)
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 12 419058 418963 419122
+  1 12 751119 750985 751265
+  2 12 751132 751007 751279
+  3 12 786609 786486 786703
+  4 12 419232 419167 419307
+[phys-jump] largest step between neighbouring physical SMs is 1.877x between SM 36 (419203) and SM 35 (786703)
+[pulses] 16588582 pulses over 29.00 s, rate 572040 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.01%, corr 0.994, best lag 0 corr 0.994
+OK e4-n60-b work=60
+temp 48 C
+=== e4-n60-c nsm=60 quiet=1 passes='' sms='' pulse=0 cache=0 expect=60 temp=48 2026-10-12T13:19:57-07:00 ===
+--- e4-n60-c analyzer exit 0 ---
+[blocks] reporting 84, with work 60, idle 24
+[blocks] n 60, mean ops/bin 619219, cv 27.0%, range 414973..778779, max/min 1.877
+[jump] largest step in block order is 1.876x between block 48 (415177) and block 47 (778702)
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 12 415056 414973 415145
+  1 12 743441 743320 743592
+  2 12 743720 743596 743840
+  3 12 778655 778516 778779
+  4 12 415225 415168 415299
+[phys-jump] largest step between neighbouring physical SMs is 1.876x between SM 36 (415199) and SM 35 (778779)
+[pulses] 16427361 pulses over 29.00 s, rate 566478 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.01%, corr 0.991, best lag 0 corr 0.991
+OK e4-n60-c work=60
+temp 48 C
+=== e4-p024-a nsm=84 quiet=1 passes='0,2,4' sms='' pulse=0 cache=0 expect=36 temp=48 2026-10-12T13:20:42-07:00 ===
+--- e4-p024-a analyzer exit 0 ---
+[blocks] reporting 84, with work 36, idle 48
+[blocks] n 36, mean ops/bin 976214, cv 0.1%, range 975556..977316, max/min 1.002
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 12 975641 975556 975742
+  2 12 977168 977031 977316
+  4 12 975833 975755 975959
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 15534072 pulses over 29.00 s, rate 535676 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.02%, corr 0.991, best lag 0 corr 0.991
+OK e4-p024-a work=36
+temp 49 C
+=== e4-p024-b nsm=84 quiet=1 passes='0,2,4' sms='' pulse=0 cache=0 expect=36 temp=49 2026-10-12T13:21:27-07:00 ===
+--- e4-p024-b analyzer exit 0 ---
+[blocks] reporting 84, with work 36, idle 48
+[blocks] n 36, mean ops/bin 890917, cv 0.1%, range 890220..892093, max/min 1.002
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 12 890308 890220 890396
+  2 12 891877 891727 892093
+  4 12 890566 890478 890691
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 14176861 pulses over 29.00 s, rate 488875 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.01%, corr 0.996, best lag 0 corr 0.996
+OK e4-p024-b work=36
+temp 50 C
+=== e4-p024-c nsm=84 quiet=1 passes='0,2,4' sms='' pulse=0 cache=0 expect=36 temp=50 2026-10-12T13:22:11-07:00 ===
+--- e4-p024-c analyzer exit 0 ---
+[blocks] reporting 84, with work 36, idle 48
+[blocks] n 36, mean ops/bin 918689, cv 0.1%, range 917920..919956, max/min 1.002
+[jump] no neighboring blocks differ by 1.2x or more
+[placement] 84 physical SMs hold a block (1 blocks on 84 SMs)
+[pass] pass n mean min max
+  0 12 918027 917920 918110
+  2 12 919815 919680 919956
+  4 12 918225 918155 918273
+[phys-jump] no neighbouring physical SMs differ by 1.2x or more
+[pulses] 14622244 pulses over 29.00 s, rate 504233 /s
+[100 ms] bins 290: ratio mean 1.0000, drift 0.02%, corr 0.903, best lag 0 corr 0.903
+OK e4-p024-c work=36
+SUITE DONE fails=0 2026-10-12T13:22:56-07:00 temp=51
