@@ -90,13 +90,37 @@ GTX 1080 model (20 SMs, 5080 curve shape, spin-wait idle assumed to cost a few p
   then works around it: `n = n_ff - (Kp*e + Ki*I - Kd*dZ/dt) * sms_per_u`. In the model that start
   point already lands within about 0.01–0.04 of the target, and the PI only trims the rest.
 
+## 5a. Findings from the models (not measured)
+
+- **The RTX 5080 bottleneck is PCIe atomics, not clocks.** Every pulse is an `atomicAdd` to mapped host
+  memory across PCIe. Gold's ~288 µs pass is set by that path, not by SM clock or arithmetic rate, so
+  spec-sheet tables mislead. Example: a tensor curve built from the published FP16 tensor rate is linear
+  in SMs and ~1,000x faster than the kernel can pulse. The atomic-bound tensor curve instead tracks
+  Gold's shape at about 1/3 of the CUDA-core rate. With that curve both sensors settle near Z 1.49, so
+  with this kernel the two sensors are largely redundant.
+- **Transfer's curve bends between 63 and 42 SMs**, so a straight line from one probe point is wrong
+  there; the four-point table covers it.
+- **Two-sensor rule.** The default rule follows the **higher** Z (the max selector). It has also been
+  called "min-of-two-Z": both mean the same thing, because the higher Z is the sensor with the smaller
+  measured/reference rate ratio, i.e. the more-throttled sensor. The rule is switchable
+  (`GPUTRONIC_SENSOR_RULE=max|min`). Head-to-head model (Gold, Transfer, Episode; atomic-bound and
+  spec-ideal tensor curves): max kept the other sensor at or below 1.5 in every case; min let it reach
+  1.83 (Gold), 1.59 (Transfer) and 3.65 (Episode) with the spec-ideal curve and settled further below
+  target with the atomic-bound curve. Max stays the default; the full table is in the source comment
+  above the selector. Neither rule gets back within 0.02 after a sustained −20% load step.
+- **8 ms sensing window vs 10 µs control tick.** The loop runs every 10 µs but only sees new data every
+  8 ms. Bursts shorter than 8 ms are invisible; reaction to a real change takes 8–16 ms.
+- **Fixed pulse-batch size only holds for kernels we own.** Gold, Transfer and Episode pulse at a known
+  cadence. An unmodified workload cannot be counted this way.
+
 ## 6. Origin
 
 The project was inspired by Bosch Motronic 7 engine management on the Audi B5 S4.
 
 ## 7. Next steps
 
-1. Run `./build/gputronic_gold check`, `make transfer-check` and `make episode-check` on the RTX 5080.
+1. Run the test suite (`docs/analysis/TEST_SUITE.md`) on the RTX 5080 following
+   `docs/analysis/GROK_BUILD_INSTRUCTIONS.md`: tensor-sensor overhead first, then Gold, Transfer, Episode.
    Record mean Z, SM-count range and the calibration table.
 2. Run on a GTX 1080 after adding a `clock64` spin fallback for `__nanosleep` on sm_61.
 3. Measure the tensor warp's overhead: compare the CUDA-core rate with the tensor sensor on and off.
@@ -114,4 +138,5 @@ All work is on branch `controller-fixes` (PR #1). Nothing has been merged to `ma
 | `68aba6c` | Stop tracking `.grok/` |
 | `46b05a4` | Rewrite function reference and contributor notes |
 | `4fdb297` | Tensor-core sensor: second counter and Z, controller follows the higher Z |
-| (this commit) | This status page |
+| `bb3a90f` | This status page |
+| (next) | Test runbook, test suite, model findings, switchable sensor rule |
