@@ -1,1 +1,1 @@
-pulses=5418999 z=1.4578 z_mean=1.4596 target=1.500 sleep=5 fr_rate=257120.7 fr_gflops=8.425330 cl_rate=179955.1 cl_gflops=5.896769 tach=1 track=1 useful_drop=1 model=1 cal_swallow=0 PASS=1
+pulses=5041642 z=1.4493 z_mean=1.4269 target=1.500 sleep=5 fr_rate=242801.5 fr_gflops=7.956118 cl_rate=167983.2 cl_gflops=5.504474 tach=1 track=1 useful_drop=1 model=1 cal_swallow=0 PASS=1

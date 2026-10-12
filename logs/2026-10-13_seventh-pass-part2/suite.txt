@@ -1,0 +1,206 @@
+SEVENTH PASS PART 2 START 2026-10-12T16:15:52-07:00 temp=44
+--- nvidia-smi start ---
+Mon Oct 12 16:15:52 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.99.02              Driver Version: 595.99.02      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 5080        Off |   00000000:05:00.0  On |                  N/A |
+|  0%   44C    P3             37W /  360W |     596MiB /  16303MiB |      7%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            1984      G   /usr/lib/xorg/Xorg                      403MiB |
+|    0   N/A  N/A            2615      G   cinnamon                                 22MiB |
+|    0   N/A  N/A            4913      G   /usr/lib/firefox/firefox                 21MiB |
++-----------------------------------------------------------------------------------------+
+[GPUTronic] Building Gold 1.0.0...
+/usr/local/cuda-12.8/bin/nvcc -arch=sm_120 -O3 -Iinclude -Xcompiler "-Wall -Wextra" -lineinfo --use_fast_math -o build/gputronic_gold src/gputronic_gold.cu -lm -lpthread
+[GPUTronic] Built: build/gputronic_gold
+[GPUTronic] Building libgputronic_gold.a...
+/usr/local/cuda-12.8/bin/nvcc -arch=sm_120 -O3 -Iinclude -Xcompiler "-Wall -Wextra" -lineinfo --use_fast_math -c -o build/gputronic_gold.o src/gputronic_gold.cu
+# Strip main for the library object: rebuild with -DGPUTRONIC_NO_MAIN
+/usr/local/cuda-12.8/bin/nvcc -arch=sm_120 -O3 -Iinclude -Xcompiler "-Wall -Wextra" -lineinfo --use_fast_math -DGPUTRONIC_NO_MAIN -c -o build/gputronic_gold_lib.o src/gputronic_gold.cu
+src/gputronic_gold.cu(1557): warning #177-D: function "mode_run" was declared but never referenced
+  static int mode_run(int duration_s, float target, float kp, float ki) {
+             ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+src/gputronic_gold.cu(1583): warning #177-D: function "mode_dyno" was declared but never referenced
+  static int mode_dyno(void) {
+             ^
+
+src/gputronic_gold.cu(1689): warning #177-D: function "mode_step" was declared but never referenced
+  static int mode_step(void) {
+             ^
+
+src/gputronic_gold.cu(1728): warning #177-D: function "mode_closedloop_check" was declared but never referenced
+  static int mode_closedloop_check(int seconds) {
+             ^
+
+src/gputronic_gold.cu(2077): warning #177-D: function "usage" was declared but never referenced
+  static void usage(const char* argv0) {
+              ^
+
+src/gputronic_gold.cu:2077:13: warning: ‘void usage(const char*)’ defined but not used [-Wunused-function]
+ 2077 | static void usage(const char* argv0) {
+      |             ^~~~~
+src/gputronic_gold.cu:1728:12: warning: ‘int mode_closedloop_check(int)’ defined but not used [-Wunused-function]
+ 1728 | static int mode_closedloop_check(int seconds) {
+      |            ^~~~~~~~~~~~~~~~~~~~~
+src/gputronic_gold.cu:1689:12: warning: ‘int mode_step()’ defined but not used [-Wunused-function]
+ 1689 | static int mode_step(void) {
+      |            ^~~~~~~~~
+src/gputronic_gold.cu:1583:12: warning: ‘int mode_dyno()’ defined but not used [-Wunused-function]
+ 1583 | static int mode_dyno(void) {
+      |            ^~~~~~~~~
+src/gputronic_gold.cu:1557:12: warning: ‘int mode_run(int, float, float, float)’ defined but not used [-Wunused-function]
+ 1557 | static int mode_run(int duration_s, float target, float kp, float ki) {
+      |            ^~~~~~~~
+ar rcs build/libgputronic_gold.a build/gputronic_gold_lib.o
+[GPUTronic] Built: build/libgputronic_gold.a
+[GPUTronic] Building transfer plant...
+/usr/local/cuda-12.8/bin/nvcc -arch=sm_120 -O3 -Iinclude -Xcompiler "-Wall -Wextra" -lineinfo --use_fast_math -o build/gputronic_transfer src/gputronic_transfer.cu -Lbuild -lgputronic_gold -lm -lpthread
+[GPUTronic] Built: build/gputronic_transfer
+[GPUTronic] Building episode plant...
+/usr/local/cuda-12.8/bin/nvcc -arch=sm_120 -O3 -Iinclude -Xcompiler "-Wall -Wextra" -lineinfo --use_fast_math -o build/gputronic_episode src/gputronic_episode.cu -Lbuild -lgputronic_gold -lm -lpthread
+src/gputronic_episode.cu(770): warning #550-D: variable "sn" was set but never used
+          unsigned int sn = (unsigned int)sleep_ns;
+                       ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+src/gputronic_episode.cu(830): warning #550-D: variable "sn" was set but never used
+          unsigned int sn = (unsigned int)sleep_ns;
+                       ^
+
+src/gputronic_episode.cu(328): warning #177-D: function "parse_sleeps" was declared but never referenced
+  static int parse_sleeps(int* sleeps, int maxn) {
+             ^
+
+src/gputronic_episode.cu(348): warning #177-D: function "find_sleep" was declared but never referenced
+  static int find_sleep(const int* sleeps, int n, int target) {
+             ^
+
+src/gputronic_episode.cu:348:12: warning: ‘int find_sleep(const int*, int, int)’ defined but not used [-Wunused-function]
+  348 | static int find_sleep(const int* sleeps, int n, int target) {
+      |            ^~~~~~~~~~
+src/gputronic_episode.cu:328:12: warning: ‘int parse_sleeps(int*, int)’ defined but not used [-Wunused-function]
+  328 | static int parse_sleeps(int* sleeps, int maxn) {
+      |            ^~~~~~~~~~~~
+[GPUTronic] Built: build/gputronic_episode
+temp 44 C
+=== gold-check ./build/gputronic_gold check temp=44 2026-10-12T16:16:03-07:00 ===
+temp 47 C  exit 0
+dmon n=40 temp 44..48 mean 47.2 pwr mean 68.3 max 70.0 pclk mean 2848 min 1027 max 2895 mclk mean 14611 sm% mean 95 pviol max 0 tviol max 0 rx mean 102 tx mean 57
+temp 47 C
+=== transfer-check ./build/gputronic_transfer check temp=47 2026-10-12T16:16:45-07:00 ===
+temp 50 C  exit 0
+dmon n=59 temp 48..51 mean 49.6 pwr mean 71.2 max 74.0 pclk mean 2895 min 2895 max 2895 mclk mean 14808 sm% mean 97 pviol max 0 tviol max 0 rx mean 119 tx mean 52
+temp 50 C
+=== episode-check ./build/gputronic_episode check temp=50 2026-10-12T16:17:47-07:00 ===
+temp 52 C  exit 0
+dmon n=59 temp 50..53 mean 51.7 pwr mean 70.6 max 71.0 pclk mean 2891 min 2887 max 2895 mclk mean 14808 sm% mean 94 pviol max 0 tviol max 0 rx mean 109 tx mean 58
+temp 52 C
+=== t6-off ./build/gputronic_gold loadstep 60 1.2 20 temp=52 2026-10-12T16:18:48-07:00 ===
+temp 54 C  exit 0
+dmon n=61 temp 52..55 mean 53.6 pwr mean 71.1 max 72.0 pclk mean 2887 min 2887 max 2887 mclk mean 14804 sm% mean 98 pviol max 0 tviol max 0 rx mean 111 tx mean 63
+OK t6-off trace saved
+temp 54 C
+=== t6-on ./build/gputronic_gold loadstep 60 1.2 20 temp=54 2026-10-12T16:19:52-07:00 ===
+temp 52 C  exit 0
+dmon n=61 temp 52..57 mean 55.3 pwr mean 85.4 max 86.0 pclk mean 2887 min 2887 max 2887 mclk mean 14804 sm% mean 98 pviol max 0 tviol max 0 rx mean 24 tx mean 13
+OK t6-on trace saved
+temp 50 C
+=== q-n4 ./build/gputronic_gold noise 4 30 temp=50 2026-10-12T16:20:56-07:00 ===
+temp 47 C  exit 0
+dmon n=33 temp 48..52 mean 51.3 pwr mean 88.2 max 90.0 pclk mean 2891 min 2887 max 2895 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 21 tx mean 11
+OK q-n4 trace saved
+temp 47 C
+=== q-n12 ./build/gputronic_gold noise 12 30 temp=47 2026-10-12T16:21:31-07:00 ===
+temp 46 C  exit 0
+dmon n=33 temp 47..50 mean 49.2 pwr mean 86.5 max 89.0 pclk mean 2895 min 2895 max 2895 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 20 tx mean 11
+OK q-n12 trace saved
+temp 46 C
+=== q-n24 ./build/gputronic_gold noise 24 30 temp=46 2026-10-12T16:22:05-07:00 ===
+temp 44 C  exit 0
+dmon n=33 temp 46..48 mean 47.9 pwr mean 85.5 max 87.0 pclk mean 2895 min 2895 max 2895 mclk mean 14807 sm% mean 95 pviol max 0 tviol max 0 rx mean 24 tx mean 12
+OK q-n24 trace saved
+temp 44 C
+=== q-n36 ./build/gputronic_gold noise 36 30 temp=44 2026-10-12T16:22:40-07:00 ===
+temp 44 C  exit 0
+dmon n=33 temp 44..47 mean 46.9 pwr mean 85.4 max 87.0 pclk mean 2895 min 2895 max 2895 mclk mean 14807 sm% mean 96 pviol max 0 tviol max 0 rx mean 25 tx mean 13
+OK q-n36 trace saved
+temp 44 C
+=== q-n48 ./build/gputronic_gold noise 48 30 temp=44 2026-10-12T16:23:14-07:00 ===
+temp 43 C  exit 0
+dmon n=33 temp 43..47 mean 45.9 pwr mean 84.4 max 87.0 pclk mean 2895 min 2895 max 2895 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 24 tx mean 13
+OK q-n48 trace saved
+temp 43 C
+=== q-n56 ./build/gputronic_gold noise 56 30 temp=43 2026-10-12T16:23:49-07:00 ===
+temp 43 C  exit 0
+dmon n=33 temp 43..46 mean 45.2 pwr mean 84.3 max 87.0 pclk mean 2895 min 2895 max 2895 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 23 tx mean 13
+OK q-n56 trace saved
+temp 43 C
+=== q-n72 ./build/gputronic_gold noise 72 30 temp=43 2026-10-12T16:24:23-07:00 ===
+temp 42 C  exit 0
+dmon n=33 temp 42..46 mean 44.9 pwr mean 83.4 max 87.0 pclk mean 2895 min 2895 max 2902 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 27 tx mean 15
+OK q-n72 trace saved
+temp 42 C
+=== q-n82 ./build/gputronic_gold noise 82 30 temp=42 2026-10-12T16:24:58-07:00 ===
+temp 42 C  exit 0
+dmon n=33 temp 42..45 mean 44.1 pwr mean 82.5 max 87.0 pclk mean 2896 min 2895 max 2910 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 26 tx mean 15
+OK q-n82 trace saved
+temp 42 C
+=== q-n4-spin ./build/gputronic_gold noise 4 30 temp=42 2026-10-12T16:25:32-07:00 ===
+temp 42 C  exit 0
+dmon n=33 temp 42..44 mean 43.9 pwr mean 83.0 max 85.0 pclk mean 2896 min 2895 max 2910 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 22 tx mean 11
+OK q-n4-spin trace saved
+temp 42 C
+=== q-n36-spin ./build/gputronic_gold noise 36 30 temp=42 2026-10-12T16:26:07-07:00 ===
+temp 41 C  exit 0
+dmon n=33 temp 42..44 mean 43.9 pwr mean 82.8 max 85.0 pclk mean 2896 min 2895 max 2910 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 26 tx mean 12
+OK q-n36-spin trace saved
+temp 41 C
+=== q-n82-spin ./build/gputronic_gold noise 82 30 temp=41 2026-10-12T16:26:41-07:00 ===
+temp 41 C  exit 0
+dmon n=33 temp 41..44 mean 43.8 pwr mean 82.8 max 84.0 pclk mean 2896 min 2895 max 2910 mclk mean 14813 sm% mean 94 pviol max 0 tviol max 0 rx mean 26 tx mean 15
+OK q-n82-spin trace saved
+temp 41 C
+=== e3-quiet ./build/gputronic_gold noise 82 3 temp=41 2026-10-12T16:27:16-07:00 ===
+temp 41 C  exit 0
+dmon n=7 temp 41..44 mean 43.6 pwr mean 80.9 max 86.0 pclk mean 2897 min 2895 max 2910 mclk mean 14830 sm% mean 86 pviol max 0 tviol max 0 rx mean 29 tx mean 71
+OK e3-quiet tally saved
+--- nvidia-smi end ---
+Mon Oct 12 16:27:24 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.99.02              Driver Version: 595.99.02      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 5080        Off |   00000000:05:00.0  On |                  N/A |
+| 30%   41C    P0             56W /  360W |     660MiB /  16303MiB |      2%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            1984      G   /usr/lib/xorg/Xorg                      467MiB |
+|    0   N/A  N/A            2615      G   cinnamon                                 22MiB |
+|    0   N/A  N/A            4913      G   /usr/lib/firefox/firefox                 21MiB |
++-----------------------------------------------------------------------------------------+
+SUITE DONE fails=0 2026-10-12T16:27:24-07:00 temp=41

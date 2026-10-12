@@ -31,7 +31,7 @@ Allocated with `cudaHostAlloc(..., cudaHostAllocMapped)`; the device pointer com
 | Field | Type | Written by | Read by | Meaning |
 |---|---|---|---|---|
 | `control_flags` | volatile uint | host | kernel | bit0 stop, bit1 pause, bit2 reset, bit3 load |
-| `active_sms` | volatile int | control thread | kernel | number of working SMs (floor 4) |
+| `active_sms` | volatile int | control thread | kernel | number of working SMs (floor 2). 0 or at least `num_sm` means every launched block |
 | `total_work_pulses` | volatile u64 | kernel (`atomicAdd` only) | control thread | the pulse counter |
 | `throttle_sleep_ns`, `max_sleep_ns`, `base_sleep_ns` | int | create / Transfer / Episode | Transfer and Episode kernels | legacy sleep fields, not used by Gold's controller |
 | `tensor_work_pulses` | volatile u64 | tensor warp (`atomicAdd` only) | control thread | tensor-core pulse counter, appended at the end of the struct |
@@ -48,10 +48,14 @@ kernel `gold_zc_probe_kernel` reads it and writes back its complement, and the h
 If any part fails, create returns NULL. There is no copy-based fallback.
 
 ### Persistent self-test kernel [F-02]
-`gold_persistent_kernel`: one block per SM, 64 threads (two warps), launched once by
-`gputronic_start`. Each pass it reads `control_flags` and `active_sms`. Blocks numbered at or above
-`active_sms` skip the work and read those two words again. There is no device `__nanosleep` and no
-`clock64` spin. The others run 16 × 8 calls of `gold_work` (8 dependent FMAs each), then pulse.
+`gold_persistent_kernel`: one block per launched SM, 64 threads (two warps), launched once by
+`gputronic_start`. The launch count is the device SM count minus two. Those two SMs get no block,
+so the desktop still has a place to run. CUDA chooses which physical SMs they are. Thread 0 of
+each launched block writes `%smid` once into a mapped page, and `gputronic_log_smids` prints that
+map and the two ids that were left out. Each pass the kernel reads `control_flags` and `active_sms`.
+Blocks numbered at or above `active_sms` skip the work and read those two words again. There is no
+device `__nanosleep` and no `clock64` spin. The others run 16 × 8 calls of `gold_work` (8 dependent
+FMAs each), then pulse. The command floor is two working SMs.
 `work_scale_milli` is read only while bit3 (load) is set, unless the control-word cache is on. A normal pass does not touch it. With the cache on, the block leader reads it in that refresh.
 An optional per-SM work tally (T11) is off unless `GPUTRONIC_SM_ACCUM=1` or
 `GPUTRONIC_SM_ACCUM_SM` is set. Off, the kernel only tests a null pointer. On, each
@@ -186,7 +190,8 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Control tick | 10 µs | `GPUTRONIC_DEFAULT_CONTROL_DT_US` |
 | Rate window | 8 ms, average 0.7 / 0.3 | `control_thread` |
 | Threads per block | 64 | `GPUTRONIC_DEFAULT_THREADS_PER_BLOCK` |
-| SM floor | 4 | kernel and control thread |
+| SM floor | 2 | kernel and control thread. A quiet-idle sweep may still start at 4 |
+| OS reserve | 2 | launch count is the device SM count minus 2. No test block on those SMs |
 | Tensor sensor | off unless `GPUTRONIC_TENSOR_SENSOR=1`. One extra warp, 64 wmma steps per pulse | `enable_tensor_sensor`, `GOLD_TENSOR_STEPS` |
 | Sensor rule | follow the higher Z (max) | `sensor_rule` (0 = max, 1 = min), env `GPUTRONIC_SENSOR_RULE` |
 | Reserve | 0 extra SMs | `reserve_sms`, env `GPUTRONIC_RESERVE_SMS` |

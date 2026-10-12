@@ -115,7 +115,8 @@ static void episode_load_env(void) {
 /* ---- Episode kernel: launch-complete GEMM ---- */
 
 __global__ void episode_kernel(GPUTronicControl* ctrl, int num_sm,
-                               int pulses_per_episode, int sleep_shots) {
+                               int pulses_per_episode, int sleep_shots,
+                               unsigned int* smid_out) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int r = tid / EPISODE_TILE;
@@ -123,10 +124,16 @@ __global__ void episode_kernel(GPUTronicControl* ctrl, int num_sm,
     float acc = 0.0f;
 
     if (sm >= num_sm) return;
+    if (tid == 0 && smid_out) {
+        unsigned int phys = 0;
+        asm volatile("mov.u32 %0, %%smid;" : "=r"(phys));
+        ((volatile unsigned int*)smid_out)[sm] = phys;
+        __threadfence_system();
+    }
 
     int active = ctrl->active_sms;
     if (active <= 0 || active > num_sm) active = num_sm;
-    if (active < 4) active = 4;
+    if (active < GPUTRONIC_SM_FLOOR) active = GPUTRONIC_SM_FLOOR;
     if (sm >= active) return;
 
     unsigned int flags = ctrl->control_flags;
@@ -180,8 +187,10 @@ __global__ void episode_kernel(GPUTronicControl* ctrl, int num_sm,
 }
 
 struct EpisodePump {
+    GPUTronicHandle* host;
     GPUTronicControl* h_ctrl;
     GPUTronicControl* d_ctrl;
+    unsigned int* d_smid;
     int num_sm;
     pthread_t thr;
     int running;
@@ -200,8 +209,12 @@ static void* episode_pump_thread(void* arg) {
             continue;
         }
         double t0 = now_us();
-        episode_kernel<<<p->num_sm, EPISODE_THREADS>>>(p->d_ctrl, p->num_sm, g_pulses, g_sleep_shots);
+        /* The smid write is once per process. Later launches pass NULL so
+         * the mapped page is not touched on the hot path. */
+        unsigned int* smid = (p->launches == 0) ? p->d_smid : NULL;
+        episode_kernel<<<p->num_sm, EPISODE_THREADS>>>(p->d_ctrl, p->num_sm, g_pulses, g_sleep_shots, smid);
         cudaError_t err = cudaDeviceSynchronize();
+        if (p->launches == 0) gputronic_log_smids(p->host);
         if (g_host_wait) {
             int sleep_ns = p->h_ctrl->throttle_sleep_ns;
             int max_s = p->h_ctrl->max_sleep_ns;
@@ -232,6 +245,8 @@ static int episode_pump_start(EpisodePump* p, GPUTronicHandle* h) {
         fprintf(stderr, "[EPISODE] cudaHostGetDevicePointer failed: %s\n", cudaGetErrorString(err));
         return -1;
     }
+    p->host = h;
+    p->d_smid = gputronic_smid_device(h);
     p->num_sm = p->h_ctrl->num_sm;
     if (p->num_sm <= 0) p->num_sm = GPUTRONIC_DEFAULT_NUM_SM;
     p->running = 1;
@@ -381,7 +396,7 @@ static int mode_dyno(void) {
     if (df) fprintf(df, "active_sms,tile_rate,gflops,z_hat,delta_tiles,pulses,honour\n");
 
     for (int i = 0; i < n && !g_stop; i++) {
-        int nsm = counts[i] < 4 ? 4 : counts[i];
+        int nsm = counts[i] < GPUTRONIC_SM_FLOOR ? GPUTRONIC_SM_FLOOR : counts[i];
         counts[i] = nsm;
         gputronic_set_open_loop_sms(h, nsm);
         double rate, gflops, z;

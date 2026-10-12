@@ -330,13 +330,32 @@ def report_latency(name):
               f"tally {work:.3f} ms  pre_hi {pre_m:.0f}")
 
 
+def report_smids():
+    print("\n== smid ==")
+    for name in sorted(os.listdir(LOG)):
+        if not name.endswith(".txt"):
+            continue
+        path = os.path.join(LOG, name)
+        with open(path) as f:
+            for line in f:
+                if line.startswith("[SMID] left out:") or line.startswith("[SMID] recorded") or line.startswith("[GPU] "):
+                    print(f"{name[:-4]}: {line.rstrip()}")
+
+
 def main():
+    global LOG
+    ceiling = 84
+    if len(sys.argv) >= 2:
+        LOG = os.path.join(ROOT, "logs", sys.argv[1])
+    if len(sys.argv) >= 3:
+        ceiling = int(sys.argv[2])
     report_checks()
+    report_smids()
     report_t6("t6-off")
     report_t6("t6-on")
-    for n in (4, 12, 24, 36, 48, 56, 72, 84):
+    for n in (4, 12, 24, 36, 48, 56, 72, ceiling):
         report_hold(f"q-n{n}")
-    for n in (4, 36, 84):
+    for n in (4, 36, ceiling):
         report_hold(f"q-n{n}-spin")
     report_latency("e3-quiet")
     return 0

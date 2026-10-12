@@ -66,11 +66,12 @@ static inline double now_us(void) {
  * *n_work >= 0: only the lowest blocks run the tiles and pulse.
  * *n_work < 0: the stock sleep command selects that count. Full clamp maps
  * to half the SMs (measured Z ≈ 1.82 on this 5080, past the setpoint).
- * At least 4 SMs stay awake.
+ * At least GPUTRONIC_SM_FLOOR SMs stay awake.
  * Idle blocks do not pulse. They backoff 5 µs so they do not spin on the cable. */
 __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
                                           volatile int* sleep_sms,
-                                          volatile int* n_work) {
+                                          volatile int* n_work,
+                                          unsigned int* smid_out) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int r = tid / TRANSFER_TILE;
@@ -79,6 +80,12 @@ __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
     unsigned int local_pulses = 0;
 
     if (sm >= num_sm) return;
+    if (tid == 0 && smid_out) {
+        unsigned int phys = 0;
+        asm volatile("mov.u32 %0, %%smid;" : "=r"(phys));
+        ((volatile unsigned int*)smid_out)[sm] = phys;
+        __threadfence_system();
+    }
 
     __shared__ float As[TRANSFER_TILE][TRANSFER_TILE];
     __shared__ float Bs[TRANSFER_TILE][TRANSFER_TILE];
@@ -107,14 +114,14 @@ __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
         if (follow) {
             int clamp = (max_s > 0) ? max_s : 500000;
             int n_at_clamp = num_sm / 2;
-            if (n_at_clamp < 4) n_at_clamp = 4;
+            if (n_at_clamp < GPUTRONIC_SM_FLOOR) n_at_clamp = GPUTRONIC_SM_FLOOR;
             int span = num_sm - n_at_clamp;
             if (span < 0) span = 0;
             int drop = (clamp > 0) ? (int)(((long long)span * sleep_ns) / clamp) : 0;
             active = num_sm - drop;
         }
         if (n_work) {
-            if (active < 4) active = 4;
+            if (active < GPUTRONIC_SM_FLOOR) active = GPUTRONIC_SM_FLOOR;
             if (active > num_sm) active = num_sm;
             if (sm >= active) {
                 (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
@@ -123,7 +130,7 @@ __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
         } else {
             int cable = ctrl->active_sms;
             if (cable <= 0 || cable > num_sm) cable = num_sm;
-            if (cable < 4) cable = 4;
+            if (cable < GPUTRONIC_SM_FLOOR) cable = GPUTRONIC_SM_FLOOR;
             if (sm >= cable) {
                 (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
                 continue;
@@ -192,7 +199,8 @@ static int launch_transfer_plant(GPUTronicHandle* h) {
     int num_sm = h_ctrl->num_sm;
     if (num_sm <= 0) num_sm = GPUTRONIC_DEFAULT_NUM_SM;
 
-    transfer_persistent_kernel<<<num_sm, TRANSFER_THREADS>>>(d_ctrl, num_sm, NULL, NULL);
+    transfer_persistent_kernel<<<num_sm, TRANSFER_THREADS>>>(d_ctrl, num_sm, NULL, NULL,
+                                                            gputronic_smid_device(h));
     err = cudaGetLastError();
     if (err != cudaSuccess) {
         fprintf(stderr, "[TRANSFER] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -205,6 +213,7 @@ static int launch_transfer_plant(GPUTronicHandle* h) {
     printf("[TRANSFER] host_ctrl=%p device_ctrl=%p %s\n",
            (void*)h_ctrl, (void*)d_ctrl,
            ((uintptr_t)h_ctrl == (uintptr_t)d_ctrl) ? "ptr-equal" : "mapped");
+    gputronic_log_smids(h);
     return 0;
 }
 
@@ -284,7 +293,7 @@ static int mode_dyno(void) {
     if (df) fprintf(df, "sleep_ns,tile_rate,gflops,z_hat,delta_tiles\n");
 
     for (int i = 0; i < n && !g_stop; i++) {
-        gputronic_set_open_loop_sms(h, sleeps[i] < 4 ? 4 : sleeps[i]);
+        gputronic_set_open_loop_sms(h, sleeps[i] < GPUTRONIC_SM_FLOOR ? GPUTRONIC_SM_FLOOR : sleeps[i]);
         double rate, gflops, z;
         unsigned long long dp = 0;
         measure_window(h, 1500000, 2000000, &rate, &gflops, &z, &dp);
@@ -550,7 +559,7 @@ static int mode_mask(void) {
         cudaFreeHost((void*)h_k);
         return 1;
     }
-    transfer_persistent_kernel<<<num_sm, TRANSFER_THREADS>>>(dc, num_sm, d_k, NULL);
+    transfer_persistent_kernel<<<num_sm, TRANSFER_THREADS>>>(dc, num_sm, d_k, NULL, NULL);
     err = cudaGetLastError();
     if (err != cudaSuccess || gputronic_start(h) != 0) {
         fprintf(stderr, "[MASK] boot failed: %s\n", cudaGetErrorString(err));
@@ -696,7 +705,7 @@ static int mode_work(void) {
         cudaFreeHost((void*)h_n);
         return 1;
     }
-    transfer_persistent_kernel<<<num_sm, TRANSFER_THREADS>>>(dc, num_sm, NULL, d_n);
+    transfer_persistent_kernel<<<num_sm, TRANSFER_THREADS>>>(dc, num_sm, NULL, d_n, NULL);
     err = cudaGetLastError();
     if (err != cudaSuccess || gputronic_start(h) != 0) {
         fprintf(stderr, "[WORK] boot failed: %s\n", cudaGetErrorString(err));
@@ -727,7 +736,7 @@ static int mode_work(void) {
         int n = nsweep[i];
         double rate, gflops, zhat, z_wall, z_pred;
         if (n > num_sm) n = num_sm;
-        if (n < 4) n = 4;
+        if (n < GPUTRONIC_SM_FLOOR) n = GPUTRONIC_SM_FLOOR;
         *h_n = n;
         __sync_synchronize();
         measure_window(h, 350000, 1200000, &rate, &gflops, &zhat, NULL);
@@ -827,7 +836,8 @@ static int mode_work(void) {
         fprintf(rep, "num_sm=%d free_rate=%.3f free_gflops=%.6f n_best=%d Z_best=%.4f mono=%d\n",
                 num_sm, rate0, gf0, n_best, z_best, mono);
         fprintf(rep, "csv=results/gputronic_transfer_work.csv\n");
-        fprintf(rep, "Idle SMs skip tiles, do not pulse, backoff 5 us. Floor 4.\n");
+        fprintf(rep, "Idle SMs skip tiles, do not pulse, backoff 5 us. Floor %d.\n",
+                GPUTRONIC_SM_FLOOR);
         fclose(rep);
     }
 

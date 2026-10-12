@@ -20,7 +20,7 @@
 | Target Z | 1.5 |
 | Gains | Kp=0.55, Ki=0.08, Kd=0. Do not retune them to chase the tenth. The four-point table sets `n_ff` and `sms_per_u`. |
 | Policy | Two-sided PI around `n_ff` + 2-state Kalman. Deadband 0.08 holds the count and freezes the integral. Clamp is about 3.4 SMs on this 84-SM card. |
-| Actuator | `active_sms`. Idle SMs skip the work and do not pulse. Floor 4. |
+| Actuator | `active_sms`. Idle SMs skip the work and do not pulse. Floor 2. Launch leaves 2 SMs with no block. |
 | Tachometer | `atomicAdd` on aggregate `total_work_pulses`. Optional per-SM tally, off unless `GPUTRONIC_SM_ACCUM` is set. |
 | Tensor sensor | Off unless `GPUTRONIC_TENSOR_SENSOR=1`. On this 5080 it cut the CUDA rate about 39% and its Z matched the CUDA Z. |
 

@@ -227,7 +227,7 @@ Allocated with `cudaHostAlloc(..., cudaHostAllocMapped)`; the device pointer com
 | Field | Type | Written by | Read by | Meaning |
 |---|---|---|---|---|
 | `control_flags` | volatile uint | host | kernel | bit0 stop, bit1 pause, bit2 reset, bit3 load |
-| `active_sms` | volatile int | control thread | kernel | number of working SMs (floor 4) |
+| `active_sms` | volatile int | control thread | kernel | number of working SMs (floor 2) |
 | `total_work_pulses` | volatile u64 | kernel (`atomicAdd` only) | control thread | the pulse counter |
 | `throttle_sleep_ns`, `max_sleep_ns`, `base_sleep_ns` | int | create / Transfer / Episode | Transfer and Episode kernels | legacy sleep fields, not used by Gold's controller |
 | `tensor_work_pulses` | volatile u64 | tensor warp (`atomicAdd` only) | control thread | tensor-core pulse counter, appended at the end of the struct |

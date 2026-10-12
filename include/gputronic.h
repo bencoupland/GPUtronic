@@ -61,6 +61,13 @@ extern "C" {
 #define GPUTRONIC_GOLD_Z_CEILING 10.0f
 #define GPUTRONIC_GOLD_Z_FLOOR 0.3f
 
+/* Two SMs stay free for the desktop. gputronic_create launches
+ * device_sms - GPUTRONIC_OS_RESERVE_SMS blocks when the caller did not
+ * ask for a smaller grid. The command never goes below GPUTRONIC_SM_FLOOR.
+ * A quiet-idle sweep may still start at 4. */
+#define GPUTRONIC_OS_RESERVE_SMS 2
+#define GPUTRONIC_SM_FLOOR 2
+
 /* ---- Shared control block [F-01] ----
  * Mapped pinned memory. Host writes the commands; the device adds pulses.
  * Telemetry snapshots are host-written; the kernel must run without them. */
@@ -70,7 +77,8 @@ struct GPUTronicControl {
     int max_sleep_ns;                    /* legacy: transfer/episode clamp */
     int base_sleep_ns;                   /* legacy: initial throttle_sleep_ns */
     /* Working-SM count. Lowest active_sms blocks issue and pulse.
-     * 0 or >= num_sm means every SM. Never commanded below 4. */
+     * 0 or >= num_sm means every launched SM. Never commanded below
+     * GPUTRONIC_SM_FLOOR. num_sm is the launch count, after the OS reserve. */
     volatile int active_sms;
     /* Pulse total [F-04]. Device: atomicAdd only; never assign it from one SM. */
     volatile unsigned long long total_work_pulses;
@@ -167,6 +175,11 @@ float gputronic_get_z_tensor(const GPUTronicHandle* h);
 float gputronic_get_rate_tensor(const GPUTronicHandle* h);
 int gputronic_get_ctrl_sensor(const GPUTronicHandle* h);   /* 0 CUDA, 1 tensor */
 struct GPUTronicControl* gputronic_get_control(GPUTronicHandle* h);
+/* Mapped page of one physical %smid per launched block. NULL if create
+ * could not allocate it. Kernels write it once, from thread 0. */
+unsigned int* gputronic_smid_device(GPUTronicHandle* h);
+/* Print the block-to-smid map and the device SM ids that got no block. */
+void gputronic_log_smids(GPUTronicHandle* h);
 
 /* Host-side pulse [F-03, F-04]. Host atomic add (__sync_fetch_and_add). Only
  * coherent with concurrent device atomicAdd on platforms with

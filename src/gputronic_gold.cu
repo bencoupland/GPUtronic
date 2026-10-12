@@ -127,7 +127,7 @@ __device__ __forceinline__ unsigned long long gold_globaltimer_ns(void) {
 
 /*
  * Persistent self-test kernel [F-02].
- *   grid = num_sm (one block / SM)
+ *   grid = num_sm (one block per launched SM; two device SMs stay unlaunched)
  *   warp leaders (lane==0) add to the pulse total and the per-SM diagnostic [F-04]
  *   Actuator: the lowest active_sms blocks do the work and pulse.
  *   Idle blocks poll the mapped words and do not pulse. Duration is not the command.
@@ -195,7 +195,8 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        unsigned long long sm_mask_hi,
                                        int pulse_local,
                                        int ctrl_cache,
-                                       unsigned long long ctrl_cache_ns) {
+                                       unsigned long long ctrl_cache_ns,
+                                       unsigned int* smid_out) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
@@ -226,6 +227,13 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         s_ctrl_last = 0ULL;
         asm volatile("mov.u32 %0, %%smid;" : "=r"(phys_sm));
         s_phys = phys_sm;
+        /* Once, before the loop, including on a block that will sit idle.
+         * The two device SMs with no block never write, so the host can
+         * name them by absence. */
+        if (smid_out) {
+            ((volatile unsigned int*)smid_out)[sm] = phys_sm;
+            __threadfence_system();
+        }
     }
     __syncthreads();
     const int accum_on = (accum != NULL) && (accum_sm < 0 || accum_sm == sm);
@@ -276,7 +284,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
 
         int active = use_cache ? s_active : ctrl->active_sms;
         if (active <= 0 || active > num_sm) active = num_sm;
-        if (active < 4) active = 4;
+        if (active < GPUTRONIC_SM_FLOOR) active = GPUTRONIC_SM_FLOOR;
         /* FLAG_SELECT is a test switch. The host sets it only after calibration,
          * and only when a pass list or a physical-SM list was requested. */
         int selected = (flags & GPUTRONIC_FLAG_SELECT) &&
@@ -410,14 +418,15 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    unsigned long long sm_mask_hi,
                                    int pulse_local,
                                    int ctrl_cache,
-                                   unsigned long long ctrl_cache_ns) {
+                                   unsigned long long ctrl_cache_ns,
+                                   unsigned int* smid_out) {
     /* CUDA-core warps stay as configured; the tensor sensor adds one warp. */
     int cuda_warps = (threads_per_block + 31) / 32;
     int threads = cuda_warps * 32 + (tensor_sensor ? 32 : 0);
     gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps, work_count,
                                                  accum, accum_sm, accum_bin_ns, idle_quiet,
                                                  pass_mask, sm_mask_lo, sm_mask_hi,
-                                                 pulse_local, ctrl_cache, ctrl_cache_ns);
+                                                 pulse_local, ctrl_cache, ctrl_cache_ns, smid_out);
 }
 
 /* ---- Host handle and control thread ---- */
@@ -429,6 +438,9 @@ struct GPUTronicHandle {
     GPUTronicControl* h_ctrl;
     GPUTronicControl* d_ctrl;
     unsigned long long* d_sm;   /* per-SM diagnostic counters (device memory) */
+    int device_sms;             /* multiProcessorCount, before the OS reserve */
+    unsigned int* h_smid;       /* mapped %smid of each launched block */
+    unsigned int* d_smid;
     unsigned long long* d_work; /* T9 work counter, num_sm*32 slots; NULL = off (default) */
     unsigned long long* h_accum; /* T11 mapped slots, GOLD_ACCUM_WORDS x u64 per block; NULL = off */
     unsigned long long* d_accum;
@@ -726,10 +738,10 @@ static void* control_thread(void* arg) {
 
     /* Probe counts: 3/4, 1/2, 1/4, floor. Full width is the rate_ref point. */
     {
-        int c[4] = {N * 3 / 4, N / 2, N / 4, 4};
+        int c[4] = {N * 3 / 4, N / 2, N / 4, GPUTRONIC_SM_FLOOR};
         h->n_probe = 0;
         for (int i = 0; i < 4; i++) {
-            int n = c[i] < 4 ? 4 : c[i];
+            int n = c[i] < GPUTRONIC_SM_FLOOR ? GPUTRONIC_SM_FLOOR : c[i];
             if (n >= N) continue;
             if (h->n_probe > 0 && h->probe_n[h->n_probe - 1] == n) continue;
             h->probe_n[h->n_probe] = n;
@@ -955,7 +967,7 @@ static void* control_thread(void* arg) {
              */
             error = h->cfg.target_z - z;
             n_cmd = h->held_sms;
-            if (n_cmd < 4 || n_cmd > N) n_cmd = N;
+            if (n_cmd < GPUTRONIC_SM_FLOOR || n_cmd > N) n_cmd = N;
             float i_before = h->integral;
             h->st_ticks++;
             if (fabsf(error) < h->cfg.deadband) h->st_db_skip++;
@@ -966,7 +978,7 @@ static void* control_thread(void* arg) {
                 if (i_new > h->iclamp) i_new = h->iclamp;
                 if (i_new < -h->iclamp) i_new = -h->iclamp;
                 float n_try = h->n_ff - (u_p + h->cfg.ki * i_new) * h->sms_per_u;
-                int saturated = (n_try < 4.0f && error > 0.0f) ||
+                int saturated = (n_try < (float)GPUTRONIC_SM_FLOOR && error > 0.0f) ||
                                 (n_try > (float)N && error < 0.0f);
                 if (!saturated) h->integral = i_new;
                 float u = u_p + h->cfg.ki * h->integral;
@@ -976,12 +988,12 @@ static void* control_thread(void* arg) {
             int i_changed = fabsf(h->integral - i_before) > 1e-6f;
             if (i_changed) h->st_int_upd++;
             if (h->iclamp > 0.0f && fabsf(h->integral) >= 0.999f * h->iclamp) h->st_rail++;
-            int nc = n_cmd < 4 ? 4 : (n_cmd > N ? N : n_cmd);
+            int nc = n_cmd < GPUTRONIC_SM_FLOOR ? GPUTRONIC_SM_FLOOR : (n_cmd > N ? N : n_cmd);
             if (nc != h->held_sms) { h->st_moves++; if (!i_changed) h->st_p_only++; }
         }
         h->st_loop++;
 
-        if (n_cmd < 4) n_cmd = 4;
+        if (n_cmd < GPUTRONIC_SM_FLOOR) n_cmd = GPUTRONIC_SM_FLOOR;
         if (n_cmd > N) n_cmd = N;
         h->held_sms = n_cmd;
         h->h_ctrl->active_sms = n_cmd;
@@ -1064,6 +1076,52 @@ static int gold_verify_zero_copy(GPUTronicHandle* h) {
            (h->h_ctrl == h->d_ctrl) ? ", same address (UVA)" : "");
     return type_ok && host_ok && dev_ok && rt_ok;
 }
+unsigned int* gputronic_smid_device(GPUTronicHandle* h) {
+    return (h && h->d_smid) ? h->d_smid : NULL;
+}
+
+void gputronic_log_smids(GPUTronicHandle* h) {
+    if (!h || !h->h_smid || h->cfg.num_sm <= 0) {
+        printf("[SMID] no map\n");
+        return;
+    }
+    int n = h->cfg.num_sm;
+    int dev = h->device_sms > 0 ? h->device_sms : n;
+    if (dev > 256) dev = 256;
+    volatile unsigned int* map = h->h_smid;
+    for (int spin = 0; spin < 500; spin++) {
+        int ready = 1;
+        for (int i = 0; i < n; i++) {
+            if (map[i] == 0xFFFFFFFFu) { ready = 0; break; }
+        }
+        if (ready) break;
+        usleep(1000);
+    }
+    unsigned char seen[256];
+    memset(seen, 0, sizeof seen);
+    int ready_n = 0;
+    printf("[SMID] launched %d blocks on a %d-SM device\n", n, h->device_sms);
+    printf("[SMID] block:smid");
+    for (int i = 0; i < n; i++) {
+        unsigned int id = map[i];
+        printf(" %d:%u", i, id);
+        if (id != 0xFFFFFFFFu) {
+            ready_n++;
+            if (id < 256) seen[id] = 1;
+        }
+    }
+    printf("\n");
+    printf("[SMID] left out:");
+    int left = 0;
+    for (int id = 0; id < dev; id++) {
+        if (!seen[id]) { printf(" %d", id); left++; }
+    }
+    if (left == 0) printf(" none");
+    printf("\n");
+    printf("[SMID] recorded %d of %d\n", ready_n, n);
+    fflush(stdout);
+}
+
 GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     /* Map the shared control block and query the SM count. No copy-based fallback [F-01]. */
     GPUTronicHandle* h = (GPUTronicHandle*)calloc(1, sizeof(GPUTronicHandle));
@@ -1087,7 +1145,25 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
 
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, 0);
-    if (h->cfg.num_sm <= 0) h->cfg.num_sm = prop.multiProcessorCount;
+    h->device_sms = prop.multiProcessorCount;
+    if (h->cfg.num_sm <= 0) h->cfg.num_sm = h->device_sms;
+    /* Caller asked for the whole device. Leave two SMs with no block. */
+    if (h->device_sms > GPUTRONIC_OS_RESERVE_SMS + GPUTRONIC_SM_FLOOR
+        && h->cfg.num_sm == h->device_sms)
+        h->cfg.num_sm = h->device_sms - GPUTRONIC_OS_RESERVE_SMS;
+    h->h_smid = NULL;
+    h->d_smid = NULL;
+    if (h->cfg.num_sm > 0 &&
+        cudaHostAlloc((void**)&h->h_smid,
+                      (size_t)h->cfg.num_sm * sizeof(unsigned int),
+                      cudaHostAllocMapped) == cudaSuccess) {
+        for (int i = 0; i < h->cfg.num_sm; i++) h->h_smid[i] = 0xFFFFFFFFu;
+        if (cudaHostGetDevicePointer((void**)&h->d_smid, h->h_smid, 0) != cudaSuccess) {
+            cudaFreeHost(h->h_smid);
+            h->h_smid = NULL;
+            h->d_smid = NULL;
+        }
+    }
     if (h->cfg.threads_per_block <= 0) h->cfg.threads_per_block = 64;
     if (h->cfg.control_dt_us <= 0) h->cfg.control_dt_us = 10;
 
@@ -1095,6 +1171,7 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     err = cudaHostAlloc((void**)&h->h_ctrl, sizeof(GPUTronicControl), cudaHostAllocMapped);
     if (err != cudaSuccess) {
         fprintf(stderr, "[GPUTronic] cudaHostAlloc control failed: %s\n", cudaGetErrorString(err));
+        if (h->h_smid) cudaFreeHost(h->h_smid);
         free(h);
         return NULL;
     }
@@ -1102,6 +1179,7 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     if (err != cudaSuccess) {
         fprintf(stderr, "[GPUTronic] cudaHostGetDevicePointer failed: %s\n", cudaGetErrorString(err));
         cudaFreeHost(h->h_ctrl);
+        if (h->h_smid) cudaFreeHost(h->h_smid);
         free(h);
         return NULL;
     }
@@ -1111,6 +1189,7 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     if (!h->zero_copy_ok) {
         fprintf(stderr, "[GPUTronic] zero-copy verification failed; no PCIe fallback\n");
         cudaFreeHost(h->h_ctrl);
+        if (h->h_smid) cudaFreeHost(h->h_smid);
         free(h);
         return NULL;
     }
@@ -1125,6 +1204,7 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     if (err != cudaSuccess) {
         fprintf(stderr, "[GPUTronic] cudaMalloc sm counters failed: %s\n", cudaGetErrorString(err));
         cudaFreeHost(h->h_ctrl);
+        if (h->h_smid) cudaFreeHost(h->h_smid);
         free(h);
         return NULL;
     }
@@ -1146,12 +1226,14 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     printf("═══════════════════════════════════════════════════════════\n");
     printf("[GPUTronic Gold %s]\n", GPUTRONIC_VERSION_STRING);
     printf("═══════════════════════════════════════════════════════════\n");
-    printf("[GPU] %s | SMs=%d (using %d) | thr/block=%d\n",
-           prop.name, prop.multiProcessorCount, h->cfg.num_sm, h->cfg.threads_per_block);
+    printf("[GPU] %s | SMs=%d (launching %d, %d reserved for the OS) | thr/block=%d\n",
+           prop.name, h->device_sms, h->cfg.num_sm, h->device_sms - h->cfg.num_sm,
+           h->cfg.threads_per_block);
     printf("[LAW] target_z=%.2f Kp=%.3f Ki=%.4f Kd=%.4f deadband=%.3f width-actuator two-sided\n",
            h->cfg.target_z, h->cfg.kp, h->cfg.ki, h->cfg.kd, h->cfg.deadband);
-    printf("[LOOP] dt=%d us (%.0f kHz) active_sms=%d floor=4\n\n",
-           h->cfg.control_dt_us, 1000.0 / h->cfg.control_dt_us, h->cfg.num_sm);
+    printf("[LOOP] dt=%d us (%.0f kHz) active_sms=%d floor=%d\n\n",
+           h->cfg.control_dt_us, 1000.0 / h->cfg.control_dt_us, h->cfg.num_sm,
+           GPUTRONIC_SM_FLOOR);
 
     return h;
 }
@@ -1301,7 +1383,7 @@ int gputronic_start(GPUTronicHandle* h) {
                            h->cfg.enable_tensor_sensor, h->d_work,
                            h->d_accum, h->accum_sm, h->accum_bin_ns, idle_quiet,
                            h->select_pass_mask, h->select_sm_lo, h->select_sm_hi,
-                           h->pulse_local, h->ctrl_cache, h->ctrl_cache_ns);
+                           h->pulse_local, h->ctrl_cache, h->ctrl_cache_ns, h->d_smid);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             fprintf(stderr, "[GPUTronic] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -1312,6 +1394,7 @@ int gputronic_start(GPUTronicHandle* h) {
         }
         printf("[OK] Persistent self-test kernel launched (%d blocks x %d threads)\n",
                h->cfg.num_sm, h->cfg.threads_per_block);
+        gputronic_log_smids(h);
     }
 
     if (pthread_create(&h->thr, NULL, control_thread, h) != 0) {
@@ -1358,6 +1441,7 @@ void gputronic_destroy(GPUTronicHandle* h) {
     if (!h) return;
     if (h->started) gputronic_stop(h);
     if (h->d_sm) cudaFree(h->d_sm);
+    if (h->h_smid) cudaFreeHost(h->h_smid);
     if (h->d_work) cudaFree(h->d_work);
     if (h->h_accum) cudaFreeHost(h->h_accum);
     if (h->h_ctrl) cudaFreeHost(h->h_ctrl);
@@ -1527,7 +1611,7 @@ static int mode_dyno(void) {
 
     for (int i = 0; i < n && !g_signal_stop; i++) {
         int nsm = counts[i];
-        if (nsm < 4) nsm = 4;
+        if (nsm < GPUTRONIC_SM_FLOOR) nsm = GPUTRONIC_SM_FLOOR;
         gputronic_set_open_loop_sms(h, nsm);
         usleep(800000);
         unsigned long long p0 = h->h_ctrl->total_work_pulses;
@@ -1615,7 +1699,7 @@ static int mode_step(void) {
     }
 
     int n_full = h->cfg.num_sm;
-    int n_step = n_full / 2 < 4 ? 4 : n_full / 2;
+    int n_step = n_full / 2 < GPUTRONIC_SM_FLOOR ? GPUTRONIC_SM_FLOOR : n_full / 2;
     printf("\n=== STEP RESPONSE (open-loop working SMs) ===\n");
     gputronic_set_open_loop_sms(h, 0);
     for (int s = 0; s < 5 && !g_signal_stop; s++) {
@@ -1802,7 +1886,7 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
         if (a && *a && s && *s) {
             step_at = atof(a);
             step_sms = atoi(s);
-            if (step_sms < 4) step_sms = 4;
+            if (step_sms < GPUTRONIC_SM_FLOOR) step_sms = GPUTRONIC_SM_FLOOR;
             printf("[STEP] will set active_sms %d at %.3f ms\n", step_sms, step_at);
         }
         a = getenv("GPUTRONIC_STEP2_AT_MS");
@@ -1810,7 +1894,7 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
         if (a && *a && s && *s) {
             step2_at = atof(a);
             step2_sms = atoi(s);
-            if (step2_sms < 4) step2_sms = 4;
+            if (step2_sms < GPUTRONIC_SM_FLOOR) step2_sms = GPUTRONIC_SM_FLOOR;
             printf("[STEP] will set active_sms %d at %.3f ms\n", step2_sms, step2_at);
         }
     }
@@ -1959,7 +2043,7 @@ static int mode_ratio(int hold_s, const char* list) {
             int v = atoi(t); if (v >= 4 && v <= N) counts[nc++] = v;
         }
     }
-    if (nc == 0) { counts[0] = N; counts[1] = N * 3 / 4; counts[2] = N / 2; counts[3] = N / 4 < 4 ? 4 : N / 4; nc = 4; }
+    if (nc == 0) { counts[0] = N; counts[1] = N * 3 / 4; counts[2] = N / 2; counts[3] = N / 4 < GPUTRONIC_SM_FLOOR ? GPUTRONIC_SM_FLOOR : N / 4; nc = 4; }
     cudaStream_t st; cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking);
     unsigned long long* buf = (unsigned long long*)malloc((size_t)N * 32 * sizeof(unsigned long long));
     FILE* f = fopen("results/gputronic_gold_ratio.csv", "w");
@@ -2072,7 +2156,7 @@ int main(int argc, char** argv) {
     if (strcmp(mode, "noise") == 0) {   /* T10: open loop at a fixed SM count, no control */
         int nsm = argc >= 3 ? atoi(argv[2]) : 46;
         int sec = argc >= 4 ? atoi(argv[3]) : 30;
-        if (nsm < 4) nsm = 4;
+        if (nsm < GPUTRONIC_SM_FLOOR) nsm = GPUTRONIC_SM_FLOOR;
         if (sec <= 0) sec = 30;
         return gold_load_run("results/gputronic_gold_noise.csv", NULL, 0, sec, nsm);
     }
