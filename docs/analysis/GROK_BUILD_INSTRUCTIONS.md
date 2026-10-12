@@ -125,8 +125,9 @@ gh issue create --repo bencoupland/GPUtronic \
 ```
 Compare each result with the "Model prediction" lines in `TEST_SUITE.md` and say which matched.
 
-## 10. Queued work (after the current roadmap)
-Current roadmap, in order (see `HANDOFF.md`): port the 4.5 s free-run wait (`ff4e97c`), scale the
-integral clamp, tensor sensor off by default. Queued after that, both proposed and not yet runnable:
-1. Synthetic load generator and tests T6 (sustained steps) and T7 (bursts), `TEST_SUITE.md`.
-2. Cyberpunk 2077 co-run benchmark, T8, `cyberpunk-benchmark-plan.md`.
+## 10. Queued work
+
+The order is `docs/analysis/NEXT.md`. Section A of that file is the PR cleanup
+(free-run wait, tensor sensor off, deadband 0.08, `__nanosleep` removed). The
+integral clamp is not scaled until the in-kernel plant-gain step in that file has
+been measured. T6 as a second process, T7, and the Cyberpunk co-run stay proposed.

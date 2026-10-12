@@ -1,7 +1,9 @@
 # GPUTronic test suite
 
-Run in order. Commands are in `GROK_BUILD_INSTRUCTIONS.md`. "Model prediction" values come from
-simulations in `HANDOFF.md`; none has been measured on hardware.
+Run in order. Commands are in `GROK_BUILD_INSTRUCTIONS.md`. The "Model prediction" lines were
+written before the 2026-10-12 RTX 5080 run. T1, T2, T3, and T5 were measured that day. The score
+is `5080-2026-10-12.md` on `test-results/2026-10-12_5080`. T4 has not been run. T6, T7, and T8
+are still proposals. The order from here is `NEXT.md`.
 
 ## T1. Tensor-sensor overhead (run first)
 **What:** `gputronic_gold dyno` with `GPUTRONIC_TENSOR_SENSOR=0`, then `=1`. The dyno holds fixed SM
@@ -54,6 +56,11 @@ near 1.65 because the integral clamp limits correction.
 **Pass:** steady Z decreases as k increases; report peak Z and time above 1.5 for any external load.
 
 ## Proposed: synthetic load generator (not implemented)
+
+The order for this work is `NEXT.md`. The plant-gain step (C1 there) is an in-kernel
+change to the work per pulse, run once before any edit to the integral clamp. A
+second CUDA process is the coexistence question, not this one. The 1.62–1.74 figure
+below is the simulator. It has not been measured.
 Nothing below exists in the code yet. It is a plan for a companion program, `gputronic_load`, used by
 T6 and T7. Purpose: reproduce and then tune the integral-clamp recovery bug (after a sustained 20% load
 step Z hangs about 1.62–1.74; the clamp is hard-coded 1.0 in `include/gputronic.h`, which gives only

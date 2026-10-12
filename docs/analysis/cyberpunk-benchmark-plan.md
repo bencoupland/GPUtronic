@@ -1,5 +1,15 @@
 # Plan: Cyberpunk 2077 co-run benchmark (proposed, not run)
 
+Read `NEXT.md` section C7 before using the table below. Condition B is not
+`gputronic_gold run <sec> 1.0`. On this branch that request sat at a mean of 83 SMs,
+and only 57% of the samples were at 84. Full width is an open-loop count of every SM
+(`gputronic_set_open_loop_sms(h, 0)`). There is no `run` argument that does that.
+Condition D is Gold alone at the same closed-loop target. It is not the free-run
+ceiling. The ceiling is that run's calibration `rate_ref`. This machine's measured
+game was Space Marine 2 at 4K, Ultra, DLSS Quality, frame generation on. Do not
+change those settings to match the preset below. A co-run is a demo, and it is later
+than the changes in section A of `NEXT.md`.
+
 ## What this can and cannot show
 GPUTronic controls **only its own kernel's SM count** (`active_sms`). It does not throttle, schedule or
 see the game. The experiment is therefore a co-run: Gold runs beside the game on the same RTX 5080, and
@@ -10,9 +20,9 @@ full-width Gold, while Gold still delivers useful throughput.
 | ID | Game | GPUTronic |
 |---|---|---|
 | A | benchmark | none (baseline) |
-| B | benchmark | `gputronic_gold run <sec> 1.0` (asks for full width: uncontrolled reference) |
+| B | benchmark | open-loop, every SM (`gputronic_set_open_loop_sms(h, 0)`). `run` at Z 1.0 is not this |
 | C | benchmark | `gputronic_gold run <sec> 1.5` (closed loop) |
-| D | none | `gputronic_gold run <sec> 1.5` (free-run reference for throughput %) |
+| D | none | `gputronic_gold run <sec> 1.5` (Gold alone). Ceiling is that run's `rate_ref`, not this row |
 Tensor sensor off (`GPUTRONIC_TENSOR_SENSOR=0`, per 2026-10-12 results). Start GPUTronic first and let
 calibration finish (~3–4.5 s) before launching the game; run it long enough to cover the game run.
 

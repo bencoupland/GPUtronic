@@ -27,8 +27,12 @@ Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
 
 ## 3. Code blockers on sm_61
 
-- Actuation is by SM count, so no sleep primitive is part of the design for any kernel or card.
-- The open code to-do for sm_61 is tracked in HANDOFF.md, next steps.
+- Actuation is the SM count. Sleep duration is not a command on any card. A `clock64`
+  spin is not a stand-in actuator: it burns the SM and does not grade the rate.
+- The device kernels still call `__nanosleep` (idle poll, pause poll, reset nap, and
+  the old commanded stall in Transfer and Episode). sm_61 will not compile until
+  those calls are gone. Removing them is A4 in `NEXT.md`. Do not replace them with
+  a spin.
 - Any legacy sleep-sweep numbers from transfer/episode are not comparable across cards.
 
 ## 4. Zero-copy / mapped memory on Pascal
@@ -59,7 +63,7 @@ Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
  a) Device query: nvidia-smi; deviceQuery or cudaGetDeviceProperties: name, CC 6.1,
     multiProcessorCount 20, canMapHostMemory=1, unifiedAddressing=1, hostNativeAtomicSupported,
     clockRate, pciBusID.
- b) Build only: make gold ARCH=-arch=sm_61 (after the HANDOFF code to-do). Check warnings.
+ b) Build only: make gold ARCH=-arch=sm_61, after A4 in `NEXT.md` has removed the device sleeps. Check warnings.
  c) Zero-copy: ./build/gputronic_gold run 5, confirm "[ZC ] type=host host_ptr=OK dev_ptr=OK
     round_trip=OK", pulses increasing, control_hz_ema near 100 kHz.
  d) Open loop: ./build/gputronic_gold dyno, then step. Rate must fall monotonically 20 -> 4 SMs.
@@ -67,7 +71,7 @@ Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
  e) Calibration table: check [CAL] lines (rate_ref, table n/rate/Z, n_ff, dZ/dn, sms_per_u).
  f) Closed loop: ./build/gputronic_gold check, then run 60. Look at mean Z vs 1.50, the active_sms
     range, and limit cycling.
- g) Only then transfer/episode (which need the spin fallback too).
+ g) Only then transfer and episode, once those kernels have no device `__nanosleep` either.
 
 ## 7. Logs to capture
 
@@ -77,6 +81,6 @@ Or make them `NVCC ?=` / `ARCH ?=` and add a fat binary option, e.g.
   second, [STATS] mean/std Z and active_sms range, dyno/closed-loop reports in results/.
 - In parallel: nvidia-smi --query-gpu=timestamp,clocks.sm,clocks.mem,power.draw,temperature.gpu,
   utilization.gpu,clocks_throttle_reasons.active --format=csv -lms 100 > smi.csv
-  (for D-axis: clocks/power/thermal, and whether the spin fallback changes boost behavior).
+  (clocks, power, and temperature).
 - Environment: driver version, CUDA version, nvcc version, kernel/OS, PCIe link gen/width
   (nvidia-smi -q | grep -A3 "Link").

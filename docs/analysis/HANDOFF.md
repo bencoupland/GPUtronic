@@ -1,8 +1,9 @@
 # GPUTronic: project status and next steps
 
-This page summarises where the `controller-fixes` branch (PR #1) stands. **Nothing on this
-branch has been run on a GPU yet.** Results marked "model" come from simulations built on the
-RTX 5080 measurements that are already in `results/`.
+This page summarises where the `controller-fixes` branch (PR #1) stands. The 5080 has
+run this branch. The order from here is [`NEXT.md`](NEXT.md). The suite score and the
+dispatch note are on `test-results/2026-10-12_5080`. Sections below that still say
+"model" were written before that run.
 
 ## 1. Project overview
 
@@ -128,10 +129,10 @@ These replace the model-only claims above where they differ.
 
 - **Recommendation: tensor sensor off by default.** It costs up to 39% of throughput and its Z is the same
   number as the CUDA-core Z. Not yet changed in code (`GPUTRONIC_TENSOR_SENSOR=0` turns it off).
-- **Integral clamp bug seen on hardware.** One Episode run parked on the clamp (1.0), and the reserve-4 run
-  hit it. Clamp × Ki × `sms_per_u` is only about 4 SMs of authority, so a low starting count cannot be
-  walked far. The clamp (`GPUTRONIC_GOLD_INTEGRAL_CLAMP`, hard-coded 1.0 in `include/gputronic.h`) should
-  scale with SM count, e.g. chosen so `Ki * clamp * sms_per_u` covers a meaningful fraction of the SMs.
+- **Do not scale the integral clamp yet.** One Episode run parked on the clamp (1.0) at Z 1.43. The re-run
+  did not: mean Z 1.467, integral maximum 0.83. The reserve-4 run hit the clamp because the integral was
+  undoing the extra SMs. Ki × 1.0 × `sms_per_u` is about four SMs. The line "Z hangs at 1.62–1.74" is the
+  simulator. Leave `GPUTRONIC_GOLD_INTEGRAL_CLAMP` at 1.0 until path C1 in `NEXT.md` is measured.
 - **T3 needs the 4.5 s wait fix.** `mode_closedloop` in Transfer and Episode slept 2.2 s, then sampled the
   free-run rate while the four-point table (now ~3 s) was still probing, so the gates failed with Z in band.
   Commit `ff4e97c` on `test-results/2026-10-12_5080` waits 4.5 s. It is not yet on `controller-fixes`;
@@ -145,12 +146,18 @@ The project was inspired by Bosch Motronic 7 engine management on the Audi B5 S4
 
 ## 7. Next steps
 
-1. Port the 4.5 s free-run wait (`ff4e97c`) to `controller-fixes`.
-2. Fix the integral clamp: scale it to SM count instead of the hard-coded 1.0.
-3. Make the tensor sensor off by default.
-4. Queued: synthetic load generator and T6/T7 (`TEST_SUITE.md`), then the Cyberpunk 2077 co-run
-   (`cyberpunk-benchmark-plan.md`).
-5. Code to-do: the kernels still contain sleep calls in their idle/pause loops (Gold, Transfer, Episode, Show) that a later code pass removes, required before an sm_61 build compiles.
+The order is [`NEXT.md`](NEXT.md). Short form:
+
+1. Port the 4.5 s free-run wait (`ff4e97c` on `test-results/2026-10-12_5080`).
+2. Tensor sensor off by default.
+3. Deadband back to 0.08. One 5080 run at that band held Z 1.52 at 46 SMs with the
+   integral frozen. The 0.015 band is what lets the count walk. Kp and Ki stay.
+4. Remove device `__nanosleep`. It is not the actuator. Do not replace it with a
+   `clock64` spin.
+5. Do not scale the integral clamp until a measured plant-gain step says the four
+   SMs of authority are what miss. That step is path C1 in `NEXT.md`, an in-kernel
+   work change, not a second CUDA process.
+6. The counter that outlives a launch is path C5. Do not start it as part of this PR.
 
 ## 8. Git state
 
@@ -167,4 +174,6 @@ All work is on branch `controller-fixes` (PR #1). Nothing has been merged to `ma
 | `bb3a90f` | This status page |
 | `edb6dac` | Switchable sensor rule (max default) |
 | `0a4d495` | Test runbook, test suite, model findings |
-| (next) | RTX 5080 results and revised roadmap |
+| `133156b` | RTX 5080 results and revised roadmap |
+| `8588bb3` | Plan load-generator tests and a Cyberpunk co-run |
+| (next) | Order from the 5080 seat: `NEXT.md` |
