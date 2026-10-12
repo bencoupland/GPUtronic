@@ -149,3 +149,14 @@ Default deadband is now 0.08 and device `__nanosleep` is gone. Run in this order
 2. T10 noise floor and the closed-loop comparison at 1 ms (commands in `TEST_SUITE.md`, T10).
 3. Deadband probe 0.015 vs 0.08 with `loadstep` (TEST_SUITE, "Deadband probe").
 4. `timeout 180 ./build/gputronic_transfer check`, `timeout 300 ./build/gputronic_episode check` (free-run wait port).
+
+## 12. Next run after `7400273` (per-SM accumulator)
+Free-run is settled (543k-585k vs 533k; idle polling kept). Tensor sensor off (now the default).
+1. T10 at 46 SMs, 30 s, `GPUTRONIC_TRACE_BIN_US=1000`; analyze with `scripts/analyze_loadstep.py`.
+2. T11 one SM (`GPUTRONIC_SM_ACCUM_SM=0`), then all SMs (`GPUTRONIC_SM_ACCUM=1`); `scripts/analyze_smaccum.py`.
+   If the accumulator agrees with the pulse counter (drift < 1%, corr >= 0.9) the per-SM idea holds before
+   wiring all 84 SMs into control; if the ops stream is steady while pulses swing, the ~0.05 Z spread is
+   in the sensing path.
+Exact commands: `TEST_SUITE.md`, T11. Commit outputs (`results/gputronic_gold_noise.csv`,
+`results/gputronic_gold_smaccum.csv`, stdout, analyzer output) to `test-results/YYYY-MM-DD_t11` with
+`git add -f`. The all-SM CSV is ~150 MB for 30 s: compress it or keep the single-SM one.

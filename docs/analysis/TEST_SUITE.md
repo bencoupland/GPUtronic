@@ -177,8 +177,19 @@ loop rate, and the PI counters (deadband held %, integral updated %, on rail %, 
 
 ## T11. Per-SM ops accumulator (prototype, implemented, not yet run)
 Design and PCIe math: `per-sm-accumulator.md`.
+
+**Why now (results of `7400273`):** open loop at a fixed 48 SMs gave Z std 0.051, the same as closed loop
+(0.052). The swing is not the controller. T11 decides where it is: if the per-SM ops stream shows the same
+spread as the pulse counter, the work itself varies (plant); if the ops stream is steady while pulses
+swing, the variation is in the pulse / mapped-PCIe sensing path.
+Run order: T10 at 46 SMs with 1 ms bins first (the last noise run used 48 SMs and 10 ms bins), then T11
+with one SM, then all SMs.
 ```
+GPUTRONIC_TENSOR_SENSOR=0 GPUTRONIC_TRACE_BIN_US=1000 timeout 60 ./build/gputronic_gold noise 46 30          # T10, 1 ms
+python3 scripts/analyze_loadstep.py results/gputronic_gold_noise.csv
 GPUTRONIC_TENSOR_SENSOR=0 GPUTRONIC_SM_ACCUM_SM=0 GPUTRONIC_TRACE_BIN_US=1000 timeout 60 ./build/gputronic_gold noise 46 30
+python3 scripts/analyze_smaccum.py results/gputronic_gold_smaccum.csv
+GPUTRONIC_TENSOR_SENSOR=0 GPUTRONIC_SM_ACCUM=1 GPUTRONIC_TRACE_BIN_US=1000 timeout 60 ./build/gputronic_gold noise 46 30
 python3 scripts/analyze_smaccum.py results/gputronic_gold_smaccum.csv
 ```
 Then all SMs with `GPUTRONIC_SM_ACCUM=1`. **Pass:** ratio drift < 1% and correlation ≥ 0.9 (10-bin level).
