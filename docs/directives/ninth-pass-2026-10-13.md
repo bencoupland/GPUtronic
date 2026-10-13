@@ -1,6 +1,6 @@
 # Ninth pass: the README as a landing page, plus a controller-engaged dyno run
 
-Items 1 to 5 and 8 are text only. Item 6 is the one GPU run in this pass, and item 7 is cleanup on the box. There are no code changes. Start from `main` at `b8b66e7`. Post the change to a new branch, `test-results/2026-10-13_ninth-pass`. Do not merge anything, and do not force-push.
+Items 1 to 5 and 8 are text only. Item 6 is the one GPU run in this pass, item 7 is cleanup on the box, and item 9 is a text change on Ben's X profile. There are no code changes. Start from `main` at `b8b66e7`. Post the change to a new branch, `test-results/2026-10-13_ninth-pass`. Do not merge anything, and do not force-push.
 
 ## Where things stand
 
@@ -11,12 +11,14 @@ Items 1 to 5 and 8 are text only. Item 6 is the one GPU run in this pass, and it
 - The README shows the full-pipe result, but there is no fresh run with the controller engaged to sit next to the open-loop baseline. Item 6 adds one, and its numbers go in a short Results section.
 - The old clone at `/workspace/GPUtronic` on the box lost its Git metadata. The working copy is `/workspace/GPUtronic-fresh`.
 - The README doesn't say where the project came from. It started with the Pascal governor, released in January 2026.
+- Ben's X profile ([@benracoupland](https://x.com/benracoupland)) says nothing about GPUtronic. Someone who clicks through from the thread doesn't land on the same story as the thread and the README.
 
 ## Standing rules
 
 - Items 1 to 5 and 8 are text only. Do not touch `src/`, `include/` logic, gains, switches or results for them. Kp 0.55, Ki 0.08 and the 0.08 deadband stay as they are.
 - Item 6 is the only item that runs hardware, and the only one that adds results or logs. Those go on the results branch, `test-results/2026-10-13_ninth-pass`.
 - Item 7 touches only the box filesystem, outside the repo. Nothing is committed for it.
+- Item 9 touches only Ben's X profile, outside the repo. Nothing is committed for it. It is text only, with no numbers.
 - Do not force-push, and never merge to `main`. Do not turn any test switch on by default.
 - Do not add any number that isn't already measured and written down in the repo. Quote each one from its source file.
 - Keep the plain-English style the README already uses.
@@ -62,6 +64,10 @@ On the box, move `/workspace/GPUtronic` to `/workspace/_quarantine/GPUtronic-dam
 
 Add one line to the README naming the Pascal governor, the simple GPU governor released in January 2026, as the project that started GPUtronic. It gives the current closed-loop work a story arc. Keep it to one line.
 
+## 9. Add an X profile blurb
+
+Add a short "About this project" blurb to Ben's X profile ([@benracoupland](https://x.com/benracoupland)), one or two sentences pointing at the GPUtronic repo (`https://github.com/bencoupland/GPUtronic`) and the dyno result in the README. Anyone who clicks the profile after reading the thread should land on the same story. Text only, no numbers, and keep the GPUtronic spelling. This is an account-side change, like item 7: nothing gets committed. Put the exact blurb text in the report, and say whether it was applied to the profile.
+
 ## Checks
 
 - Build the three standard targets with every switch unset, and confirm they still compile.
@@ -70,7 +76,8 @@ Add one line to the README naming the Pascal governor, the simple GPU governor r
 - Run `git grep -i gputronic` outside `archive/`, `logs/` and `results/`, and confirm every hit uses the GPUtronic spelling (or the unchanged `GPUTRONIC_*` environment variables).
 - Confirm `/workspace/GPUtronic` is gone from `/workspace`.
 - Confirm the Pascal governor lineage line is in the README.
+- Confirm the X profile blurb is live on @benracoupland, links to the repo, and has no numbers.
 
 ## The report
 
-Put it at `docs/analysis/ninth-pass-2026-10-13.md`. It should be short: the new top of the README as it now reads, the list of files touched by the rename, the Results section as written with the path to its logs, where the damaged clone went, and the result of the checks.
+Put it at `docs/analysis/ninth-pass-2026-10-13.md`. It should be short: the new top of the README as it now reads, the list of files touched by the rename, the Results section as written with the path to its logs, where the damaged clone went, the X profile blurb as written and whether it is live, and the result of the checks.
