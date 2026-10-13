@@ -129,8 +129,8 @@ diagonal terms, R = 0.018, run every tick. Because the measurement only changes 
 behaves like spikes at window edges. See `docs/analysis/kalman-analysis.md`.
 
 ### Calibration table [F-09]
-After `rate_ref`, the control thread runs the SM count at 3/4, 1/2, 1/4 of full width and at 4 SMs,
-300 ms each (`probe_ms`), measuring the rate over the last two-thirds of each step.
+After `rate_ref`, the control thread runs the SM count at 3/4, 1/2, 1/4 of full width and at the
+command floor (2 SMs), 300 ms each (`probe_ms`), measuring the rate over the last two-thirds of each step.
 `gold_build_table` converts the points to Z, finds the two points around the target, and
 interpolates the starting SM count `n_ff`. `sms_per_u` is one over the local slope dZ/dn, so a
 controller output of 1 means "one unit of Z". If the target is outside the table, it pins to the
@@ -142,11 +142,11 @@ Two-sided PI with an optional D term, around `n_ff`:
 ```
 e = target_z - Z
 u = Kp*e + Ki*I - Kd*dZ/dt
-n = round(n_ff - u * sms_per_u),  clamped to 4..num_sm
+n = round(n_ff - u * sms_per_u),  clamped to 2..num_sm
 ```
 
 - Inside the deadband (|e| < 0.08) the SM count is held and the integral is frozen.
-- The integral is clamped to ±`integral_clamp` and does not grow further while `n` is pinned at 4
+- The integral is clamped to ±`integral_clamp` and does not grow further while `n` is pinned at 2
   or at full width (anti-windup).
 - Below target it turns SMs off; above target it turns them back on gradually. There is no reset to
   full width at the target.
