@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# T8: game co-run with GPUTronic Gold (Linux, Steam + Proton, MangoHud).
+# T8: game co-run with GPUtronic Gold (Linux, Steam + Proton, MangoHud).
 # Default game: Warhammer 40,000: Space Marine 2, Steam app id 2183900.
 # The game has no built-in benchmark, so each run is a MANUAL fixed route,
-# timed by MangoHud (autostart_log + log_duration). GPUTronic only controls
+# timed by MangoHud (autostart_log + log_duration). GPUtronic only controls
 # its own kernel's SM count; it does not throttle the game.
 #
 # Usage: scripts/t8_game_corun.sh <condition> [run_index]

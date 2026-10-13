@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GPUTronic Step Response Analysis Script
+GPUtronic Step Response Analysis Script
 Calculates overshoot %, settling time, rise time from step response data
 
 Usage: python3 analyze_step.py < step_response_output.txt
@@ -139,7 +139,7 @@ def calculate_metrics(data):
 
 def main():
     print("\n" + "="*70)
-    print("  GPUTronic Step Response Analysis")
+    print("  GPUtronic Step Response Analysis")
     print("="*70 + "\n")
     
     # Read input from stdin

@@ -1,4 +1,4 @@
-# GPUTronic test suite
+# GPUtronic test suite
 
 Run in order. Commands are in `GROK_BUILD_INSTRUCTIONS.md`. The "Model prediction" lines were
 written before the 2026-10-12 RTX 5080 run. T1, T2, T3, and T5 were measured that day. The score
@@ -56,7 +56,7 @@ near 1.65 because the integral clamp limits correction.
 **Pass:** steady Z decreases as k increases; report peak Z and time above 1.5 for any external load.
 
 ## Synthetic load (implemented, not yet run on hardware)
-Mechanism: field `work_scale_milli`, appended at the end of `GPUTronicControl` (default 0/1000 = no load).
+Mechanism: field `work_scale_milli`, appended at the end of `GPUtronicControl` (default 0/1000 = no load).
 At S > 1000 the Gold kernel's pulsing warps emit one pulse per S/1000 batches, so the pulse rate falls to
 1000/S and the sensors see S/1000 times more work per pulse. Why not literally more FMAs: a Gold pass is
 ~288 µs of mapped atomics and ~1.6 µs of arithmetic, so 20% more arithmetic would barely move the rate.
@@ -97,7 +97,7 @@ Per burst: peak Z, ms above target, whether the controller moved SMs; summary pe
 
 ## T8. Game co-run (implemented as a script, not yet run)
 Game on this box: Warhammer 40,000: Space Marine 2 (Steam app id 2183900). Cyberpunk 2077 remains the
-alternative (`cyberpunk-benchmark-plan.md`). GPUTronic throttles only its own kernel, never the game.
+alternative (`cyberpunk-benchmark-plan.md`). GPUtronic throttles only its own kernel, never the game.
 ```
 scripts/t8_game_corun.sh alone 1        # repeat runs 1..5 per condition, discard run 1
 scripts/t8_game_corun.sh fullwidth 1    # Gold open loop, all SMs (`gputronic_gold fullwidth`)

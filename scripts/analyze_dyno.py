@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GPUTronic Dyno Sweep Analysis Script
+GPUtronic Dyno Sweep Analysis Script
 Calculates R² value and linear regression for thread fraction vs throughput
 
 Usage: python3 analyze_dyno.py < dyno_sweep_output.txt
@@ -70,7 +70,7 @@ def linear_regression(x_vals, y_vals):
 
 def main():
     print("\n" + "="*70)
-    print("  GPUTronic Dyno Sweep Analysis")
+    print("  GPUtronic Dyno Sweep Analysis")
     print("="*70 + "\n")
     
     # Read input from stdin

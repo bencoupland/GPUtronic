@@ -1,4 +1,4 @@
-# GPUTronic on a GTX 1080 (Pascal GP104, sm_61, 20 SMs): bring-up plan
+# GPUtronic on a GTX 1080 (Pascal GP104, sm_61, 20 SMs): bring-up plan
 
 Branch: controller-fixes (PR #1). Nothing here has been run on a GTX 1080. The January v0.1
 (archive/v0.1-gtx1080-2026-01/main.cu) did run on a GTX 1080, but it used a

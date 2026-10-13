@@ -1,5 +1,5 @@
 /* =============================================================================
- * GPUTronic Gold 1.0.0
+ * GPUtronic Gold 1.0.0
  * -----------------------------------------------------------------------------
  * Read with: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md  (GT-FF-GOLD-1.0)
  *
@@ -214,7 +214,7 @@ __device__ __forceinline__ unsigned long long gold_globaltimer_ns(void) {
  * the pulse rate falls to 1000/S. A literal extra-FMA multiplier would not work:
  * the pass is about 288 us of mapped atomics and only ~1.6 us of arithmetic, so 20%
  * more arithmetic barely moves the rate. Default 1000/0 always pulses. */
-__device__ __forceinline__ int gold_load_pulse(unsigned int flags, GPUTronicControl* ctrl,
+__device__ __forceinline__ int gold_load_pulse(unsigned int flags, GPUtronicControl* ctrl,
                                                unsigned int* credit) {
     /* work_scale_milli is only read while the host has set GPUTRONIC_FLAG_LOAD in
      * control_flags, which every pass already reads. Normal runs add no mapped read.
@@ -259,7 +259,7 @@ __device__ __forceinline__ int gold_sm_selected(unsigned int phys,
  * is the independent-FMA test kernel. */
 template<int Peak, int Acc>
 __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
-                                       GPUTronicControl* ctrl,
+                                       GPUtronicControl* ctrl,
                                        int num_sm,
                                        int cuda_warps,
                                        unsigned long long* work_count,
@@ -520,7 +520,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
 }
 
 extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
-                                   GPUTronicControl* d_ctrl,
+                                   GPUtronicControl* d_ctrl,
                                    int num_sm,
                                    int threads_per_block,
                                    int tensor_sensor,
@@ -581,10 +581,10 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
 
 #define GOLD_MAX_PROBE 8
 
-struct GPUTronicHandle {
-    GPUTronicConfig cfg;
-    GPUTronicControl* h_ctrl;
-    GPUTronicControl* d_ctrl;
+struct GPUtronicHandle {
+    GPUtronicConfig cfg;
+    GPUtronicControl* h_ctrl;
+    GPUtronicControl* d_ctrl;
     unsigned long long* d_sm;   /* per-SM diagnostic counters (device memory) */
     int device_sms;             /* multiProcessorCount, before the OS reserve */
     unsigned int* h_smid;       /* mapped %smid of each launched block */
@@ -718,7 +718,7 @@ static void on_signal(int sig) {
     g_signal_stop = 1;
 }
 
-void gputronic_config_gold(GPUTronicConfig* cfg) {
+void gputronic_config_gold(GPUtronicConfig* cfg) {
     if (!cfg) return;
     memset(cfg, 0, sizeof(*cfg));
     cfg->num_sm = 0; /* query */
@@ -771,7 +771,7 @@ void gputronic_config_gold(GPUTronicConfig* cfg) {
     cfg->csv_path = "results/gputronic_gold.csv";
 }
 
-static void kalman_update(GPUTronicHandle* h, float z_meas, float dt) {
+static void kalman_update(GPUtronicHandle* h, float z_meas, float dt) {
     /* Constant-velocity model on [Z, dZ/dt] [F-08].
      * P_pred is the explicit F P F^T + Q expansion. Do not replace with P[i]+=Q. */
     float z_pred = h->z_hat + h->dzdt_hat * dt;
@@ -805,7 +805,7 @@ static void kalman_update(GPUTronicHandle* h, float z_meas, float dt) {
  * units. Expectation from the committed dyno CSVs (sanity only, not used):
  * Z(n) is concave in n on the episode plant (flat above ~42 SMs), close to
  * 1/n-shaped on gold/transfer, so a single half-width point mis-scales it. */
-static void gold_fit_table(GPUTronicHandle* h, const char* label, double rate_ref,
+static void gold_fit_table(GPUtronicHandle* h, const char* label, double rate_ref,
                            const double* rates, float* n_ff_out, float* spu_out) {
     const int N = h->cfg.num_sm;
     const float tz = h->cfg.target_z;
@@ -866,7 +866,7 @@ static int gold_iclamp_sms_env(float* sms_out) {
     return 1;
 }
 
-static void gold_set_iclamp(GPUTronicHandle* h) {
+static void gold_set_iclamp(GPUtronicHandle* h) {
     float sms = 0.0f;
     float denom = h->cfg.ki * h->sms_per_u;
     if (gold_iclamp_sms_env(&sms)) {
@@ -877,7 +877,7 @@ static void gold_set_iclamp(GPUTronicHandle* h) {
     h->iclamp = (denom > 1e-6f && h->cfg.num_sm > 0) ? GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC * (float)h->cfg.num_sm / denom : 1.0f;
 }
 
-static void gold_build_table(GPUTronicHandle* h) {
+static void gold_build_table(GPUtronicHandle* h) {
     gold_fit_table(h, "cuda", h->rate_ref, h->probe_rate, &h->n_ff_s[0], &h->spu_s[0]);
     h->sel = 0;
     if (h->tensor_on) {
@@ -903,7 +903,7 @@ static void gold_build_table(GPUTronicHandle* h) {
            how, h->cfg.ki * h->iclamp * h->sms_per_u, h->cfg.num_sm);
 }
 
-static void gold_launch_this(GPUTronicHandle* h, int nblocks, int block_base, cudaStream_t stream) {
+static void gold_launch_this(GPUtronicHandle* h, int nblocks, int block_base, cudaStream_t stream) {
     gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
                        h->cfg.enable_tensor_sensor, h->d_work,
                        h->d_accum, h->accum_sm, h->accum_bin_ns, h->idle_quiet,
@@ -919,7 +919,7 @@ static void gold_launch_this(GPUTronicHandle* h, int nblocks, int block_base, cu
 }
 
 /* Short map of one launch. Waits at most 2 ms for %smid, then prints the ends. */
-static void gold_note_smids(GPUTronicHandle* h, int nblocks, int block_base) {
+static void gold_note_smids(GPUtronicHandle* h, int nblocks, int block_base) {
     if (!h->h_smid || nblocks <= 0) return;
     int ready = 0;
     for (int spin = 0; spin < 20 && ready < nblocks; spin++) {
@@ -953,7 +953,7 @@ static void gold_note_smids(GPUTronicHandle* h, int nblocks, int block_base) {
 
 /* Idle-exit only. A logical SM whose slot is 0 is not running. Claim it and
  * launch a block. Contiguous holes go out as one grid. */
-static void gold_spawn_holes(GPUTronicHandle* h, int want) {
+static void gold_spawn_holes(GPUtronicHandle* h, int want) {
     if (!h->idle_exit || !h->h_slot || !h->side_on) return;
     if (h->h_ctrl->control_flags & GPUTRONIC_FLAG_STOP) return;
     if (want < GPUTRONIC_SM_FLOOR) want = GPUTRONIC_SM_FLOOR;
@@ -1000,7 +1000,7 @@ static void gold_spawn_holes(GPUTronicHandle* h, int want) {
 
 /* Test switches. Unset, this returns without a launch. Relaunch retires the
  * whole grid. Idle-exit only fills holes below the command. */
-static void gold_service_width(GPUTronicHandle* h, int n_cmd) {
+static void gold_service_width(GPUtronicHandle* h, int n_cmd) {
     if (!h || !h->h_ctrl) return;
     if (h->h_ctrl->control_flags & GPUTRONIC_FLAG_STOP) return;
     if (n_cmd < GPUTRONIC_SM_FLOOR) n_cmd = GPUTRONIC_SM_FLOOR;
@@ -1042,7 +1042,7 @@ static void gold_service_width(GPUTronicHandle* h, int n_cmd) {
     if (h->idle_exit) gold_spawn_holes(h, n_cmd);
 }
 
-static void gold_reset_rate_state(GPUTronicHandle* h) {
+static void gold_reset_rate_state(GPUtronicHandle* h) {
     h->prev_pulses = h->h_ctrl->total_work_pulses;
     h->rate_win_pulses = 0;
     h->rate_win_dt = 0.0;
@@ -1054,7 +1054,7 @@ static void gold_reset_rate_state(GPUTronicHandle* h) {
 
 static void* control_thread(void* arg) {
     /* Control thread [F-12]. Each tick: rate [F-05], Z [F-06, F-07], Kalman [F-08], controller [F-10], write active_sms. */
-    GPUTronicHandle* h = (GPUTronicHandle*)arg;
+    GPUtronicHandle* h = (GPUtronicHandle*)arg;
     const float dt_target = h->cfg.control_dt_us * 1e-6f;
     double last = now_us();
     double hz_ema = 1.0 / dt_target;
@@ -1388,7 +1388,7 @@ static void* control_thread(void* arg) {
 
 /* Zero-copy round trip [F-01]: device reads a host-written word through the mapped
  * pointer and writes back its complement. */
-__global__ void gold_zc_probe_kernel(GPUTronicControl* ctrl) {
+__global__ void gold_zc_probe_kernel(GPUtronicControl* ctrl) {
     if (blockIdx.x == 0 && threadIdx.x == 0) {
         int v = *(volatile int*)&ctrl->proactive_corrections;
         *(volatile int*)&ctrl->control_hz_ema = ~v;
@@ -1396,7 +1396,7 @@ __global__ void gold_zc_probe_kernel(GPUTronicControl* ctrl) {
     }
 }
 
-static int gold_verify_zero_copy(GPUTronicHandle* h) {
+static int gold_verify_zero_copy(GPUtronicHandle* h) {
     cudaPointerAttributes attr;
     memset(&attr, 0, sizeof(attr));
     cudaError_t err = cudaPointerGetAttributes(&attr, h->h_ctrl);
@@ -1424,11 +1424,11 @@ static int gold_verify_zero_copy(GPUTronicHandle* h) {
            (h->h_ctrl == h->d_ctrl) ? ", same address (UVA)" : "");
     return type_ok && host_ok && dev_ok && rt_ok;
 }
-unsigned int* gputronic_smid_device(GPUTronicHandle* h) {
+unsigned int* gputronic_smid_device(GPUtronicHandle* h) {
     return (h && h->d_smid) ? h->d_smid : NULL;
 }
 
-void gputronic_log_smids(GPUTronicHandle* h) {
+void gputronic_log_smids(GPUtronicHandle* h) {
     if (!h || !h->h_smid || h->cfg.num_sm <= 0) {
         printf("[SMID] no map\n");
         return;
@@ -1471,9 +1471,9 @@ void gputronic_log_smids(GPUTronicHandle* h) {
     fflush(stdout);
 }
 
-GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
+GPUtronicHandle* gputronic_create(const GPUtronicConfig* cfg_in) {
     /* Map the shared control block and query the SM count. No copy-based fallback [F-01]. */
-    GPUTronicHandle* h = (GPUTronicHandle*)calloc(1, sizeof(GPUTronicHandle));
+    GPUtronicHandle* h = (GPUtronicHandle*)calloc(1, sizeof(GPUtronicHandle));
     if (!h) return NULL;
 
     if (cfg_in)
@@ -1487,7 +1487,7 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
 
     cudaError_t err = cudaSetDevice(0);
     if (err != cudaSuccess) {
-        fprintf(stderr, "[GPUTronic] cudaSetDevice failed: %s\n", cudaGetErrorString(err));
+        fprintf(stderr, "[GPUtronic] cudaSetDevice failed: %s\n", cudaGetErrorString(err));
         free(h);
         return NULL;
     }
@@ -1526,26 +1526,26 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     if (h->cfg.control_dt_us <= 0) h->cfg.control_dt_us = 10;
 
     /* Mapped control block */
-    err = cudaHostAlloc((void**)&h->h_ctrl, sizeof(GPUTronicControl), cudaHostAllocMapped);
+    err = cudaHostAlloc((void**)&h->h_ctrl, sizeof(GPUtronicControl), cudaHostAllocMapped);
     if (err != cudaSuccess) {
-        fprintf(stderr, "[GPUTronic] cudaHostAlloc control failed: %s\n", cudaGetErrorString(err));
+        fprintf(stderr, "[GPUtronic] cudaHostAlloc control failed: %s\n", cudaGetErrorString(err));
         if (h->h_smid) cudaFreeHost(h->h_smid);
         free(h);
         return NULL;
     }
     err = cudaHostGetDevicePointer((void**)&h->d_ctrl, h->h_ctrl, 0);
     if (err != cudaSuccess) {
-        fprintf(stderr, "[GPUTronic] cudaHostGetDevicePointer failed: %s\n", cudaGetErrorString(err));
+        fprintf(stderr, "[GPUtronic] cudaHostGetDevicePointer failed: %s\n", cudaGetErrorString(err));
         cudaFreeHost(h->h_ctrl);
         if (h->h_smid) cudaFreeHost(h->h_smid);
         free(h);
         return NULL;
     }
 
-    memset(h->h_ctrl, 0, sizeof(GPUTronicControl));
+    memset(h->h_ctrl, 0, sizeof(GPUtronicControl));
     h->zero_copy_ok = gold_verify_zero_copy(h);
     if (!h->zero_copy_ok) {
-        fprintf(stderr, "[GPUTronic] zero-copy verification failed; no PCIe fallback\n");
+        fprintf(stderr, "[GPUtronic] zero-copy verification failed; no PCIe fallback\n");
         cudaFreeHost(h->h_ctrl);
         if (h->h_smid) cudaFreeHost(h->h_smid);
         free(h);
@@ -1560,7 +1560,7 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     /* Per-SM counters in device memory */
     err = cudaMalloc((void**)&h->d_sm, (size_t)h->cfg.num_sm * sizeof(unsigned long long));
     if (err != cudaSuccess) {
-        fprintf(stderr, "[GPUTronic] cudaMalloc sm counters failed: %s\n", cudaGetErrorString(err));
+        fprintf(stderr, "[GPUtronic] cudaMalloc sm counters failed: %s\n", cudaGetErrorString(err));
         cudaFreeHost(h->h_ctrl);
         if (h->h_smid) cudaFreeHost(h->h_smid);
         free(h);
@@ -1582,7 +1582,7 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     h->started = 0;
 
     printf("═══════════════════════════════════════════════════════════\n");
-    printf("[GPUTronic Gold %s]\n", GPUTRONIC_VERSION_STRING);
+    printf("[GPUtronic Gold %s]\n", GPUTRONIC_VERSION_STRING);
     printf("═══════════════════════════════════════════════════════════\n");
     printf("[GPU] %s | SMs=%d (launching %d, %d reserved for the OS) | thr/block=%d\n",
            prop.name, h->device_sms, h->cfg.num_sm, h->device_sms - h->cfg.num_sm,
@@ -1598,7 +1598,7 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
 
 /* Test-only. GPUTRONIC_ACTIVE_PASSES=0,1,3 or GPUTRONIC_ACTIVE_SMS=0-11.
  * Both at once is refused. The mask stays dark until FLAG_SELECT. */
-static void gold_parse_select(GPUTronicHandle* h) {
+static void gold_parse_select(GPUtronicHandle* h) {
     h->select_pass_mask = 0;
     h->select_sm_lo = 0;
     h->select_sm_hi = 0;
@@ -1647,7 +1647,7 @@ static void gold_parse_select(GPUTronicHandle* h) {
     }
 }
 
-int gputronic_start(GPUTronicHandle* h) {
+int gputronic_start(GPUtronicHandle* h) {
     if (!h || h->started) return -1;
 
     /* CSV. GPUTRONIC_NO_CSV=1 skips the 10 us file for one run. */
@@ -1838,7 +1838,7 @@ int gputronic_start(GPUTronicHandle* h) {
         h->smid_expect = h->cfg.num_sm;
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
-            fprintf(stderr, "[GPUTronic] kernel launch failed: %s\n", cudaGetErrorString(err));
+            fprintf(stderr, "[GPUtronic] kernel launch failed: %s\n", cudaGetErrorString(err));
             h->running = 0;
             if (h->csv) fclose(h->csv);
             h->csv = NULL;
@@ -1855,7 +1855,7 @@ int gputronic_start(GPUTronicHandle* h) {
     }
 
     if (pthread_create(&h->thr, NULL, control_thread, h) != 0) {
-        fprintf(stderr, "[GPUTronic] pthread_create failed\n");
+        fprintf(stderr, "[GPUtronic] pthread_create failed\n");
         h->h_ctrl->control_flags |= GPUTRONIC_FLAG_STOP;
         h->running = 0;
         return -1;
@@ -1865,7 +1865,7 @@ int gputronic_start(GPUTronicHandle* h) {
     return 0;
 }
 
-void gputronic_stop(GPUTronicHandle* h) {
+void gputronic_stop(GPUtronicHandle* h) {
     if (!h || !h->started) return;
     h->running = 0;
     g_signal_stop = 1;
@@ -1916,10 +1916,10 @@ void gputronic_stop(GPUTronicHandle* h) {
                (long long)h->csv_rows);
     }
     h->started = 0;
-    printf("[GPUTronic Gold] Stopped cleanly.\n");
+    printf("[GPUtronic Gold] Stopped cleanly.\n");
 }
 
-void gputronic_destroy(GPUTronicHandle* h) {
+void gputronic_destroy(GPUtronicHandle* h) {
     if (!h) return;
     if (h->started) gputronic_stop(h);
     if (h->smid_boot) free(h->smid_boot);
@@ -1935,34 +1935,34 @@ void gputronic_destroy(GPUTronicHandle* h) {
     free(h);
 }
 
-void gputronic_set_target(GPUTronicHandle* h, float target_z) {
+void gputronic_set_target(GPUtronicHandle* h, float target_z) {
     if (!h) return;
     h->cfg.target_z = target_z;
     if (h->h_ctrl) h->h_ctrl->target_z = target_z;
 }
 
-void gputronic_set_gains(GPUTronicHandle* h, float kp, float ki) {
+void gputronic_set_gains(GPUtronicHandle* h, float kp, float ki) {
     if (!h) return;
     h->cfg.kp = kp;
     h->cfg.ki = ki;
 }
 
-void gputronic_set_kd(GPUTronicHandle* h, float kd) {
+void gputronic_set_kd(GPUtronicHandle* h, float kd) {
     if (!h) return;
     h->cfg.kd = kd;
 }
 
-void gputronic_set_deadband(GPUTronicHandle* h, float deadband) {
+void gputronic_set_deadband(GPUtronicHandle* h, float deadband) {
     if (!h) return;
     h->cfg.deadband = (deadband < 0.0f) ? 0.0f : deadband;
 }
 
-void gputronic_set_open_loop_sms(GPUTronicHandle* h, int n) {
+void gputronic_set_open_loop_sms(GPUtronicHandle* h, int n) {
     if (!h) return;
     h->open_loop_sms = n;
 }
 
-int gputronic_reset_counters(GPUTronicHandle* h) {
+int gputronic_reset_counters(GPUtronicHandle* h) {
     if (!h || !h->h_ctrl) return -1;
     if (!h->started) {
         /* No kernel/thread running: plain host writes are safe. */
@@ -1975,54 +1975,54 @@ int gputronic_reset_counters(GPUTronicHandle* h) {
     return h->reset_req == 0 ? 0 : -1;
 }
 
-float gputronic_get_z(const GPUTronicHandle* h) {
+float gputronic_get_z(const GPUtronicHandle* h) {
     return (h && h->h_ctrl) ? h->h_ctrl->z_hat : 0.0f;
 }
 
-float gputronic_get_z_raw(const GPUTronicHandle* h) {
+float gputronic_get_z_raw(const GPUtronicHandle* h) {
     return (h && h->h_ctrl) ? h->h_ctrl->z_raw : 0.0f;
 }
 
-float gputronic_get_rate(const GPUTronicHandle* h) {
+float gputronic_get_rate(const GPUtronicHandle* h) {
     return (h && h->h_ctrl) ? h->h_ctrl->rate_ema : 0.0f;
 }
 
-float gputronic_get_z_cuda(const GPUTronicHandle* h) {
+float gputronic_get_z_cuda(const GPUtronicHandle* h) {
     return (h && h->h_ctrl) ? h->h_ctrl->z_cuda : 0.0f;
 }
 
-float gputronic_get_z_tensor(const GPUTronicHandle* h) {
+float gputronic_get_z_tensor(const GPUtronicHandle* h) {
     return (h && h->h_ctrl) ? h->h_ctrl->z_tensor : 0.0f;
 }
 
-float gputronic_get_rate_tensor(const GPUTronicHandle* h) {
+float gputronic_get_rate_tensor(const GPUtronicHandle* h) {
     return (h && h->h_ctrl) ? h->h_ctrl->rate_tensor_ema : 0.0f;
 }
 
-int gputronic_get_ctrl_sensor(const GPUTronicHandle* h) {
+int gputronic_get_ctrl_sensor(const GPUtronicHandle* h) {
     return (h && h->h_ctrl) ? h->h_ctrl->ctrl_sensor : 0;
 }
 
-int gputronic_get_active_sms(const GPUTronicHandle* h) {
+int gputronic_get_active_sms(const GPUtronicHandle* h) {
     return (h && h->h_ctrl) ? h->h_ctrl->active_sms : 0;
 }
 
-struct GPUTronicControl* gputronic_get_control(GPUTronicHandle* h) {
+struct GPUtronicControl* gputronic_get_control(GPUtronicHandle* h) {
     return h ? h->h_ctrl : NULL;
 }
 
-void gputronic_pulse(GPUTronicHandle* h, unsigned long long units) {
+void gputronic_pulse(GPUtronicHandle* h, unsigned long long units) {
     if (!h || !h->h_ctrl || units == 0) return;
     /* Host atomic RMW (was a plain +=, which lost updates against itself and
      * against device atomics). See header for the device-coherence caveat. */
     __sync_fetch_and_add((unsigned long long*)&h->h_ctrl->total_work_pulses, units);
 }
 
-int gputronic_zero_copy_ok(const GPUTronicHandle* h) {
+int gputronic_zero_copy_ok(const GPUtronicHandle* h) {
     return h ? h->zero_copy_ok : 0;
 }
 
-void gputronic_print_status(const GPUTronicHandle* h, int elapsed_s) {
+void gputronic_print_status(const GPUtronicHandle* h, int elapsed_s) {
     if (!h || !h->h_ctrl) return;
     printf("[TEL] t=%4ds | Z_raw=%.3f Z_hat=%.3f dZ=%.3f | Zc=%.3f Zt=%.3f sel=%s | rate=%.0f rate_t=%.0f | n=%3d | hz~%d | pulses=%llu\n",
            elapsed_s,
@@ -2042,14 +2042,14 @@ void gputronic_print_status(const GPUTronicHandle* h, int elapsed_s) {
 /* ---- Command-line modes [F-13] ---- */
 
 static int mode_run(int duration_s, float target, float kp, float ki) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.target_z = target;
     cfg.kp = kp;
     cfg.ki = ki;
     cfg.csv_path = "results/gputronic_gold_run.csv";
 
-    GPUTronicHandle* h = gputronic_create(&cfg);
+    GPUtronicHandle* h = gputronic_create(&cfg);
     if (!h) return 1;
     if (gputronic_start(h) != 0) {
         gputronic_destroy(h);
@@ -2068,11 +2068,11 @@ static int mode_run(int duration_s, float target, float kp, float ki) {
 
 /* Dyno: open-loop working-SM sweep. Rate = wall Δpulses/Δt. */
 static int mode_dyno(void) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = "results/gputronic_gold_dyno.csv";
 
-    GPUTronicHandle* h = gputronic_create(&cfg);
+    GPUtronicHandle* h = gputronic_create(&cfg);
     if (!h) return 1;
     if (gputronic_start(h) != 0) {
         gputronic_destroy(h);
@@ -2159,7 +2159,7 @@ static int mode_dyno(void) {
 
     FILE* rf = fopen("results/gputronic_gold_dyno_report.txt", "w");
     if (rf) {
-        fprintf(rf, "GPUTronic Gold Dyno Report\n");
+        fprintf(rf, "GPUtronic Gold Dyno Report\n");
         fprintf(rf, "R2=%.4f slope=%.6f intercept=%.1f plant_ok=%d decreasing=%d PASS=%d\n",
                 r2, b, a, plant_ok, decreasing, pass);
         for (int i = 0; i < n; i++)
@@ -2174,11 +2174,11 @@ static int mode_dyno(void) {
 
 /* Step: open-loop working SMs N → N/2 → N, watch rate/Z transient */
 static int mode_step(void) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = "results/gputronic_gold_step.csv";
 
-    GPUTronicHandle* h = gputronic_create(&cfg);
+    GPUtronicHandle* h = gputronic_create(&cfg);
     if (!h) return 1;
     if (gputronic_start(h) != 0) {
         gputronic_destroy(h);
@@ -2213,11 +2213,11 @@ static int mode_step(void) {
 
 /* Closed-loop short validation after dyno */
 static int mode_closedloop_check(int seconds) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = "results/gputronic_gold_closedloop.csv";
 
-    GPUTronicHandle* h = gputronic_create(&cfg);
+    GPUtronicHandle* h = gputronic_create(&cfg);
     if (!h) return 1;
     if (gputronic_start(h) != 0) {
         gputronic_destroy(h);
@@ -2350,10 +2350,10 @@ static int gold_load_bursts(GoldLoadPoint* p, int maxn, double scale, unsigned i
  * GPUTRONIC_STEP_AT_MS and GPUTRONIC_STEP_SMS, and the STEP2 pair, are test only.
  * During this timed loop they change the open-loop SM count. Unset, the count stays. */
 static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, int duration_s, int full_width) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = full_width ? "results/gputronic_gold_fullwidth.csv" : "results/gputronic_gold_load.csv";
-    GPUTronicHandle* h = gputronic_create(&cfg);
+    GPUtronicHandle* h = gputronic_create(&cfg);
     if (!h) return 1;
     if (gputronic_start(h) != 0) { gputronic_destroy(h); return 1; }
     h->h_ctrl->work_scale_milli = 1000u;
@@ -2504,7 +2504,7 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
  * 5080), settle 1 s, hold `hold_s`, and compare CUDA-core pulses with completed
  * batches read from the device work counter (separate non-blocking stream, so the
  * copy does not wait for the persistent kernel). ratio = pulses * GOLD_BATCH / work. */
-static unsigned long long gold_work_sum(GPUTronicHandle* h, cudaStream_t st, unsigned long long* buf) {
+static unsigned long long gold_work_sum(GPUtronicHandle* h, cudaStream_t st, unsigned long long* buf) {
     size_t n = (size_t)h->cfg.num_sm * 32;
     if (cudaMemcpyAsync(buf, h->d_work, n * sizeof(unsigned long long), cudaMemcpyDeviceToHost, st) != cudaSuccess) return 0;
     cudaStreamSynchronize(st);
@@ -2516,10 +2516,10 @@ static unsigned long long gold_work_sum(GPUTronicHandle* h, cudaStream_t st, uns
 static int mode_ratio(int hold_s, const char* list) {
     setenv("GPUTRONIC_WORK_COUNTER", "1", 1);
     setenv("GPUTRONIC_TENSOR_SENSOR", "0", 1);
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = "results/gputronic_gold_ratio_trace.csv";
-    GPUTronicHandle* h = gputronic_create(&cfg);
+    GPUtronicHandle* h = gputronic_create(&cfg);
     if (!h) return 1;
     if (gputronic_start(h) != 0) { gputronic_destroy(h); return 1; }
     if (!h->d_work) { gputronic_stop(h); gputronic_destroy(h); return 1; }
@@ -2563,7 +2563,7 @@ static int mode_ratio(int hold_s, const char* list) {
 #endif /* GPUTRONIC_NO_MAIN */
 
 static void usage(const char* argv0) {
-    printf("GPUTronic Gold %s\n\n", GPUTRONIC_VERSION_STRING);
+    printf("GPUtronic Gold %s\n\n", GPUTRONIC_VERSION_STRING);
     printf("Usage:\n");
     printf("  %s                 # 30s closed-loop free-run (Gold defaults)\n", argv0);
     printf("  %s run [sec] [Z] [Kp] [Ki]\n", argv0);

@@ -1,4 +1,4 @@
-# GPUTronic Gold: Kalman filter (Z, dZ/dt) analysis, branch controller-fixes
+# GPUtronic Gold: Kalman filter (Z, dZ/dt) analysis, branch controller-fixes
 
 Model and simulation only. Not run on a GPU. Code: src/gputronic_gold.cu, kalman_update().
 

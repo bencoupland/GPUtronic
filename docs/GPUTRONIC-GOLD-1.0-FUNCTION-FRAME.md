@@ -1,4 +1,4 @@
-# GPUTronic 1.0 Gold: Function Reference
+# GPUtronic 1.0 Gold: Function Reference
 
 This document is the contract for each part of the Gold controller. A function page names
 what the piece is for, when it runs, what it reads, what it writes, and the calculation.
@@ -11,7 +11,7 @@ and the code. Measured runs live in `docs/analysis/`. They are not repeated here
 
 ## 1. What it is
 
-GPUTronic holds a GPU at a requested rate of useful work. It counts finished work units, compares
+GPUtronic holds a GPU at a requested rate of useful work. It counts finished work units, compares
 the rate with the rate measured at full speed, and changes how many SMs are allowed to do the work.
 Clocks, temperature and power stay with the NVIDIA driver. It uses only the stock driver and the
 standard CUDA runtime.
@@ -27,7 +27,7 @@ Two different reserves appear below. The OS reserve is how many SMs get no block
 (default 2). `reserve_sms` is an extra number of SMs added to the starting command after
 calibration (default 0). They are not the same field.
 
-## 2. Signals (`struct GPUTronicControl`)
+## 2. Signals (`struct GPUtronicControl`)
 
 Allocated with `cudaHostAlloc(..., cudaHostAllocMapped)`. The device pointer comes from
 `cudaHostGetDevicePointer`. Host and device use that mapping. There is no copy fallback.
@@ -59,9 +59,9 @@ unless a run sets them, and they are listed in section 4.
 
 **Runs when.** `gputronic_create`.
 
-**Reads.** `GPUTronicConfig`, or the Gold defaults when the pointer is null. Device 0's SM count.
+**Reads.** `GPUtronicConfig`, or the Gold defaults when the pointer is null. Device 0's SM count.
 
-**Writes.** A `GPUTronicHandle`. The mapped `GPUTronicControl`. The launch count, which is the device SM count minus the OS reserve when the caller did not ask for a smaller grid.
+**Writes.** A `GPUtronicHandle`. The mapped `GPUtronicControl`. The launch count, which is the device SM count minus the OS reserve when the caller did not ask for a smaller grid.
 
 **Calculation.** Allocate the block with `cudaHostAllocMapped` and take the device pointer. `gold_verify_zero_copy` requires host memory, matching host and device pointers, and a round trip: the host writes a value, `gold_zc_probe_kernel` writes back its complement, and the host checks it. Any failure frees the block and returns NULL.
 
@@ -275,7 +275,7 @@ The default rule follows the higher Z. The PI then turns off the fewer SMs, and 
 
 **Runs when.** The caller drives it.
 
-**Reads.** A `GPUTronicConfig` for create. Nothing further for stop.
+**Reads.** A `GPUtronicConfig` for create. Nothing further for stop.
 
 **Writes.** The running flag, the CSV, the kernel, and the control thread. Stop sets the stop flag.
 

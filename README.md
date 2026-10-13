@@ -1,8 +1,8 @@
-# GPUTronic
+# GPUtronic
 
 Closed-loop control of instruction-flow throughput on a GPU.
 
-Reference: **GPUTronic 1.0 Gold**
+Reference: **GPUtronic 1.0 Gold**
 
 ![GPUTRONIC](docs/assets/gputronic-mark.jpg)
 
@@ -12,7 +12,7 @@ Other machines we control have a measured rate, an estimate of what we cannot se
 
 A unit of that work is a pulse. The kernel adds one when a piece of work finishes: a tile, a batch of arithmetic, whatever the author of the kernel chose to count. The rate is how many of those finish per second.
 
-GPUTronic is that interface, checked on three test kernels. The control in this tree is how many SMs do the work (`active_sms`). An earlier version used sleep duration instead. That source is in `archive/gold-1.0.0-nanosleep/`. The function frame matches this tree.
+GPUtronic is that interface, checked on three test kernels. The control in this tree is how many SMs do the work (`active_sms`). An earlier version used sleep duration instead. That source is in `archive/gold-1.0.0-nanosleep/`. The function frame matches this tree.
 
 The function-by-function writeup is [`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md). This README is the tour of the ideas. The same function frame is copied at the end of this file.
 
@@ -30,8 +30,8 @@ The names are borrowed from motor control because the split is the same: measure
 
 | Name | What it is | Who handles it |
 |------|------------|----------------|
-| **Q** | Finished work per second | GPUTronic. One running total of pulses. |
-| **Z** | \(Z = r_{\mathrm{ref}} / r\) | GPUTronic. Full speed is about 1. |
+| **Q** | Finished work per second | GPUtronic. One running total of pulses. |
+| **Z** | \(Z = r_{\mathrm{ref}} / r\) | GPUtronic. Full speed is about 1. |
 | **D** | Temperature and power | The NVIDIA driver. Not in this loop. |
 
 Q is the pulse rate. The kernel adds each finished unit into one total, `total_work_pulses`, with `atomicAdd`. The rate is that total over about 8 ms. A single 10 µs tick is shorter than the work, so a rate taken from one tick is mostly empty samples. Utilization is a different reading. The chip can look fully busy while the counted work is stalled. The last SM must not store its own count over the total. That bug made Z stick at a floor or a ceiling.
@@ -72,7 +72,7 @@ Three mistakes that look like a working controller until you measure the work:
 
 1. **Peak-hold calibration.** Taking the peak of a rate EMA during free-run inflates \(r_{\mathrm{ref}}\). Free-run Z then sits at 1.4–1.7. A one-sided PI, which only adds sleep when \(Z\) is *below* target, never engages. The log says “tracking.” The actuator is at base sleep. Nothing moved.
 
-2. **A 10 µs rate EMA.** The persistent loop on this 5080 is about 300 µs, set by mapped atomics, not by the math inside the tile. Forming rate on a 10 µs tick and holding on empty samples leaves the EMA at free-run while a wall-clock pulse window already shows the cut. The observer is blind to the plant it is supposed to regulate. GPUTronic forms rate over ~8 ms, then a slow EMA.
+2. **A 10 µs rate EMA.** The persistent loop on this 5080 is about 300 µs, set by mapped atomics, not by the math inside the tile. Forming rate on a 10 µs tick and holding on empty samples leaves the EMA at free-run while a wall-clock pulse window already shows the cut. The observer is blind to the plant it is supposed to regulate. GPUtronic forms rate over ~8 ms, then a slow EMA.
 
 3. **A gain that commands about 8 µs of sleep.** On this 5080, `__nanosleep` does little below about 200 µs and then jumps near 500 µs. The old default gain, at a normal error, asked for about 8 µs. The GPU did not slow down. Changing Kp does not fix a control input the hardware ignores.
 
@@ -88,7 +88,7 @@ On 2026-09-23 the three checks passed on the SM-count control. Closed-loop avera
 
 The tables below are the older sleep-duration command, kept because they show the jump. They are not the controller in this tree.
 
-**Self-test plant** — GPUTronic’s own persistent kernel. Dyno, open-loop sleep sweep, rate from wall \(\Delta p / \Delta t\):
+**Self-test plant** — GPUtronic’s own persistent kernel. Dyno, open-loop sleep sweep, rate from wall \(\Delta p / \Delta t\):
 
 | sleep | pulse/s | Z |
 |------:|--------:|--:|
@@ -98,7 +98,7 @@ The tables below are the older sleep-duration command, kept because they show th
 
 Closed-loop, target \(Z = 1.50\): 445k → 324k pulse/s (−27%). Mean Z ≈ 1.37. Sleep ≈ 415 µs, in the authority band.
 
-**Transfer plant** — a second, cooperative kernel. Real 8×8×8 FP32 GEMM tiles, 32 tiles per pulse, 32768 FLOP/pulse. Same GPUTronic controller. No gain override.
+**Transfer plant** — a second, cooperative kernel. Real 8×8×8 FP32 GEMM tiles, 32 tiles per pulse, 32768 FLOP/pulse. Same GPUtronic controller. No gain override.
 
 Open-loop: 9.03 → 5.15 GFLOP/s at 500 µs, locked to tile rate. Free-run Z ≈ 1.02.
 
@@ -123,7 +123,7 @@ CSV lands under `results/` every run. Dyno rate is always a wall window, never t
 
 ## The shared control block
 
-The CPU and the GPU share one struct, `GPUTronicControl`, allocated with `cudaHostAllocMapped`.
+The CPU and the GPU share one struct, `GPUtronicControl`, allocated with `cudaHostAllocMapped`.
 
 The GPU writes one thing that matters: `total_work_pulses`, with `atomicAdd`, from the thread that finishes a unit of work. Fence every 32 pulses, not every pulse. A fence on every pulse swamps the copy.
 
@@ -175,7 +175,7 @@ about 39% at full width, and the two Z values were the same number, so the defau
 
 ## Test kernels
 
-- **Gold**: GPUTronic's own self-test kernel and the reference controller (`src/gputronic_gold.cu`).
+- **Gold**: GPUtronic's own self-test kernel and the reference controller (`src/gputronic_gold.cu`).
 - **Transfer**: a persistent kernel doing small GEMM tiles that reports its own work (`src/gputronic_transfer.cu`).
 - **Episode**: a GEMM kernel launched once per work episode, closer to a normal application (`src/gputronic_episode.cu`).
 
@@ -218,7 +218,7 @@ MIT
 
 The rest of this file is the function reference. The standalone copy is [`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md). When one changes, change the other.
 
-# GPUTronic 1.0 Gold: Function Reference
+# GPUtronic 1.0 Gold: Function Reference
 
 This document is the contract for each part of the Gold controller. A function page names
 what the piece is for, when it runs, what it reads, what it writes, and the calculation.
@@ -231,7 +231,7 @@ and the code. Measured runs live in `docs/analysis/`. They are not repeated here
 
 ## 1. What it is
 
-GPUTronic holds a GPU at a requested rate of useful work. It counts finished work units, compares
+GPUtronic holds a GPU at a requested rate of useful work. It counts finished work units, compares
 the rate with the rate measured at full speed, and changes how many SMs are allowed to do the work.
 Clocks, temperature and power stay with the NVIDIA driver. It uses only the stock driver and the
 standard CUDA runtime.
@@ -247,7 +247,7 @@ Two different reserves appear below. The OS reserve is how many SMs get no block
 (default 2). `reserve_sms` is an extra number of SMs added to the starting command after
 calibration (default 0). They are not the same field.
 
-## 2. Signals (`struct GPUTronicControl`)
+## 2. Signals (`struct GPUtronicControl`)
 
 Allocated with `cudaHostAlloc(..., cudaHostAllocMapped)`. The device pointer comes from
 `cudaHostGetDevicePointer`. Host and device use that mapping. There is no copy fallback.
@@ -279,9 +279,9 @@ unless a run sets them, and they are listed in section 4.
 
 **Runs when.** `gputronic_create`.
 
-**Reads.** `GPUTronicConfig`, or the Gold defaults when the pointer is null. Device 0's SM count.
+**Reads.** `GPUtronicConfig`, or the Gold defaults when the pointer is null. Device 0's SM count.
 
-**Writes.** A `GPUTronicHandle`. The mapped `GPUTronicControl`. The launch count, which is the device SM count minus the OS reserve when the caller did not ask for a smaller grid.
+**Writes.** A `GPUtronicHandle`. The mapped `GPUtronicControl`. The launch count, which is the device SM count minus the OS reserve when the caller did not ask for a smaller grid.
 
 **Calculation.** Allocate the block with `cudaHostAllocMapped` and take the device pointer. `gold_verify_zero_copy` requires host memory, matching host and device pointers, and a round trip: the host writes a value, `gold_zc_probe_kernel` writes back its complement, and the host checks it. Any failure frees the block and returns NULL.
 
@@ -495,7 +495,7 @@ The default rule follows the higher Z. The PI then turns off the fewer SMs, and 
 
 **Runs when.** The caller drives it.
 
-**Reads.** A `GPUTronicConfig` for create. Nothing further for stop.
+**Reads.** A `GPUtronicConfig` for create. Nothing further for stop.
 
 **Writes.** The running flag, the CSV, the kernel, and the control thread. Stop sets the stop flag.
 

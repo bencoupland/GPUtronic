@@ -1,4 +1,4 @@
-# GPUTronic Episode Plant
+# GPUtronic Episode Plant
 
 Third counted kernel on the Gold interface. The kernel returns. The host launches it again.
 

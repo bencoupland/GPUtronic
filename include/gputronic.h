@@ -1,8 +1,8 @@
 /* =============================================================================
- * GPUTronic Gold — Public API
+ * GPUtronic Gold — Public API
  * Version: 1.0.0-gold
  *
- * If a signal is not in GPUTronicControl, the device cannot see it.
+ * If a signal is not in GPUtronicControl, the device cannot see it.
  * Function list: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md
  *
  * Names, not a claim that the GPU is a motor:
@@ -72,7 +72,7 @@ extern "C" {
 /* ---- Shared control block [F-01] ----
  * Mapped pinned memory. Host writes the commands; the device adds pulses.
  * Telemetry snapshots are host-written; the kernel must run without them. */
-struct GPUTronicControl {
+struct GPUtronicControl {
     volatile unsigned int control_flags; /* bit0 STOP, bit1 PAUSE, bit2 RESET, bit3 LOAD [F-02] */
     volatile int throttle_sleep_ns;      /* legacy: read only by transfer/episode kernels */
     int max_sleep_ns;                    /* legacy: transfer/episode clamp */
@@ -121,9 +121,9 @@ struct GPUTronicControl {
  * can launch again at the new count. Unset, the bit stays clear. */
 #define GPUTRONIC_FLAG_RETIRE 0x20u
 
-typedef struct GPUTronicHandle GPUTronicHandle;
+typedef struct GPUtronicHandle GPUtronicHandle;
 
-typedef struct GPUTronicConfig {
+typedef struct GPUtronicConfig {
     int num_sm;              /* 0 = query device */
     int threads_per_block;   /* default 64 */
     int control_dt_us;       /* default 10 (=100 kHz *path*) */
@@ -147,51 +147,51 @@ typedef struct GPUTronicConfig {
     int sensor_rule;         /* 0 = follow the higher Z (default), 1 = follow the lower Z [F-16] */
     int reserve_sms;         /* extra SMs kept on above the calibrated starting count, default 0 */
     const char* csv_path;    /* NULL = results/gputronic_gold.csv */
-} GPUTronicConfig;
+} GPUtronicConfig;
 
 /* ---- Configuration ---- */
 
 /* Fill config with Gold calibration defaults. */
-void gputronic_config_gold(GPUTronicConfig* cfg);
+void gputronic_config_gold(GPUtronicConfig* cfg);
 
 /* ---- Lifecycle [F-12] ---- */
-GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg);
-int gputronic_start(GPUTronicHandle* h);   /* control thread, plus self-test kernel if configured [F-02] */
-void gputronic_stop(GPUTronicHandle* h);
-void gputronic_destroy(GPUTronicHandle* h);
+GPUtronicHandle* gputronic_create(const GPUtronicConfig* cfg);
+int gputronic_start(GPUtronicHandle* h);   /* control thread, plus self-test kernel if configured [F-02] */
+void gputronic_stop(GPUtronicHandle* h);
+void gputronic_destroy(GPUtronicHandle* h);
 
 /* ---- Runtime ---- */
-void gputronic_set_target(GPUTronicHandle* h, float target_z);
-void gputronic_set_gains(GPUTronicHandle* h, float kp, float ki);
-void gputronic_set_kd(GPUTronicHandle* h, float kd);
-void gputronic_set_deadband(GPUTronicHandle* h, float deadband);
-void gputronic_set_open_loop_sms(GPUTronicHandle* h, int n); /* <0 closed loop, 0 all, else working SMs */
+void gputronic_set_target(GPUtronicHandle* h, float target_z);
+void gputronic_set_gains(GPUtronicHandle* h, float kp, float ki);
+void gputronic_set_kd(GPUtronicHandle* h, float kd);
+void gputronic_set_deadband(GPUtronicHandle* h, float deadband);
+void gputronic_set_open_loop_sms(GPUtronicHandle* h, int n); /* <0 closed loop, 0 all, else working SMs */
 /* Zero total_work_pulses, per-SM counters and host rate state. Blocks up to
  * ~50 ms. rate_ref and the calibration table are kept. Returns 0 on success. */
-int gputronic_reset_counters(GPUTronicHandle* h);
-float gputronic_get_z(const GPUTronicHandle* h);
-float gputronic_get_z_raw(const GPUTronicHandle* h);
-float gputronic_get_rate(const GPUTronicHandle* h);
-int gputronic_get_active_sms(const GPUTronicHandle* h);
+int gputronic_reset_counters(GPUtronicHandle* h);
+float gputronic_get_z(const GPUtronicHandle* h);
+float gputronic_get_z_raw(const GPUtronicHandle* h);
+float gputronic_get_rate(const GPUtronicHandle* h);
+int gputronic_get_active_sms(const GPUtronicHandle* h);
 /* Two-sensor telemetry [F-16]. Tensor values are 0 when the sensor is off. */
-float gputronic_get_z_cuda(const GPUTronicHandle* h);
-float gputronic_get_z_tensor(const GPUTronicHandle* h);
-float gputronic_get_rate_tensor(const GPUTronicHandle* h);
-int gputronic_get_ctrl_sensor(const GPUTronicHandle* h);   /* 0 CUDA, 1 tensor */
-struct GPUTronicControl* gputronic_get_control(GPUTronicHandle* h);
+float gputronic_get_z_cuda(const GPUtronicHandle* h);
+float gputronic_get_z_tensor(const GPUtronicHandle* h);
+float gputronic_get_rate_tensor(const GPUtronicHandle* h);
+int gputronic_get_ctrl_sensor(const GPUtronicHandle* h);   /* 0 CUDA, 1 tensor */
+struct GPUtronicControl* gputronic_get_control(GPUtronicHandle* h);
 /* Mapped page of one physical %smid per launched block. NULL if create
  * could not allocate it. Kernels write it once, from thread 0. */
-unsigned int* gputronic_smid_device(GPUTronicHandle* h);
+unsigned int* gputronic_smid_device(GPUtronicHandle* h);
 /* Print the block-to-smid map and the device SM ids that got no block. */
-void gputronic_log_smids(GPUTronicHandle* h);
+void gputronic_log_smids(GPUtronicHandle* h);
 
 /* Host-side pulse [F-03, F-04]. Host atomic add (__sync_fetch_and_add). Only
  * coherent with concurrent device atomicAdd on platforms with
  * hostNativeAtomicSupported; otherwise do not mix with a pulsing kernel. */
-void gputronic_pulse(GPUTronicHandle* h, unsigned long long units);
+void gputronic_pulse(GPUtronicHandle* h, unsigned long long units);
 
-int gputronic_zero_copy_ok(const GPUTronicHandle* h);
-void gputronic_print_status(const GPUTronicHandle* h, int elapsed_s);
+int gputronic_zero_copy_ok(const GPUtronicHandle* h);
+void gputronic_print_status(const GPUtronicHandle* h, int elapsed_s);
 
 #ifdef __cplusplus
 }

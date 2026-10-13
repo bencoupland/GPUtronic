@@ -17,7 +17,7 @@ rows = []
 start = [None]
 phase = [0.0]
 
-win = Gtk.Window(title="GPUTronic present probe")
+win = Gtk.Window(title="GPUtronic present probe")
 win.set_default_size(960, 540)
 win.move(120, 120)
 area = Gtk.DrawingArea()

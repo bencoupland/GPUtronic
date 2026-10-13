@@ -1,6 +1,6 @@
 # Test runbook: RTX 5080, CUDA 12.8
 
-Step-by-step instructions for an automated tester running GPUTronic on Ben's RTX 5080. Every
+Step-by-step instructions for an automated tester running GPUtronic on Ben's RTX 5080. Every
 binary, mode, environment variable and file path below exists on branch `controller-fixes`.
 Test definitions and pass/fail criteria are in `TEST_SUITE.md`.
 

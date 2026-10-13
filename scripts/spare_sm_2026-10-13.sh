@@ -112,13 +112,13 @@ for reserve in 0 1 2 4; do
     done
     firefox --new-window "http://127.0.0.1:8877/" >/dev/null 2>&1 &
     for _i in $(seq 1 60); do
-        if wmctrl -l | grep -q "GPUTronic frame clock"; then
+        if wmctrl -l | grep -q "GPUtronic frame clock"; then
             break
         fi
         sleep 0.25
     done
-    wmctrl -r "GPUTronic frame clock" -e 0,140,700,1100,720 || true
-    wmctrl -a "GPUTronic frame clock" || true
+    wmctrl -r "GPUtronic frame clock" -e 0,140,700,1100,720 || true
+    wmctrl -a "GPUtronic frame clock" || true
     for _i in $(seq 1 30); do
         if ! kill -0 "$spid" 2>/dev/null; then
             break
@@ -131,7 +131,7 @@ for reserve in 0 1 2 4; do
         kill "$spid" 2>/dev/null || true
         wait "$spid" 2>/dev/null || true
     fi
-    wmctrl -c "GPUTronic frame clock" || true
+    wmctrl -c "GPUtronic frame clock" || true
     sleep 0.5
     kill "$gpid" 2>/dev/null || true
     wait "$gpid" 2>/dev/null || true

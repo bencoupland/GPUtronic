@@ -1,4 +1,4 @@
-# X thread — GPUTronic Gold 1.0.0
+# X thread — GPUtronic Gold 1.0.0
 # @benracoupland
 # Draft from the first public post, when the control was sleep duration.
 # The repo now uses an SM count. See the README.
@@ -10,7 +10,7 @@
 ---
 
 1/
-GPUTronic Gold 1.0.0
+GPUtronic Gold 1.0.0
 
 Reference closed-loop control on a GPU execution path.
 
@@ -89,7 +89,7 @@ Gold 1.0.0 is that interface, plus one second plant that moves counted FLOPs.
 
 # Single post
 
-GPUTronic Gold 1.0.0 — closed-loop GPU governor (RTX 5080).
+GPUtronic Gold 1.0.0 — closed-loop GPU governor (RTX 5080).
 
 Q tach · sustained Z cal · period-scaled PI → nanosleep · zero-copy.
 

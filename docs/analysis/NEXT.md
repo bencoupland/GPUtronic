@@ -222,7 +222,7 @@ look like the 5080.
 ### C7. A game beside Gold
 
 A co-run shows whether a Gold kernel held at Z 1.5 leaves the game's frame times
-alone better than the same kernel at full width. GPUTronic does not see the game
+alone better than the same kernel at full width. GPUtronic does not see the game
 and does not throttle it. The Cyberpunk write-up's conditions A through D are the
 right shape. Use the tensor sensor off, and finish calibration before the game
 starts, or `rate_ref` is not the kernel's own ceiling.

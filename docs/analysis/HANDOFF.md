@@ -1,4 +1,4 @@
-# GPUTronic: project status and next steps
+# GPUtronic: project status and next steps
 
 This page summarises where the `controller-fixes` branch (PR #1) stands. The 5080 has
 run this branch. The order from here is [`NEXT.md`](NEXT.md). The suite score and the
@@ -7,7 +7,7 @@ dispatch note are on `test-results/2026-10-12_5080`. Sections below that still s
 
 ## 1. Project overview
 
-GPUTronic holds a GPU at a requested rate of useful work.
+GPUtronic holds a GPU at a requested rate of useful work.
 
 - **Sensor:** the kernel counts finished work units ("pulses") in a counter that the host and
   the GPU share through mapped (zero-copy) memory.

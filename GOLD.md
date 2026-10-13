@@ -1,4 +1,4 @@
-# GPUTronic 1.0 Gold
+# GPUtronic 1.0 Gold
 
 Reference closed-loop control for a GPU execution path.
 

@@ -1,5 +1,5 @@
 /* =============================================================================
- * GPUTronic Show: one cooperative kernel, one strip chart
+ * GPUtronic Show: one cooperative kernel, one strip chart
  *
  * Phases: full-speed rate, SM-count map, the same step again, stock
  * controller, release back to full speed. Full speed (all SMs) is the
@@ -86,7 +86,7 @@ __global__ void show_twin(unsigned long long* pulses, int num_sm, int tiles, vol
     if (tid == 0 && acc == 3.14159265f) pulses[sm] = local_n;
 }
 
-__global__ void show_kernel(GPUTronicControl* ctrl, int num_sm, int tiles) {
+__global__ void show_kernel(GPUtronicControl* ctrl, int num_sm, int tiles) {
     const int sm = blockIdx.x;
     const int tid = threadIdx.x;
     const int r = tid / SHOW_TILE;
@@ -141,9 +141,9 @@ __global__ void show_kernel(GPUTronicControl* ctrl, int num_sm, int tiles) {
 
 /* ---- Sampling and chart output ---- */
 
-static int sample_at(GPUTronicHandle* h, struct Sample* s, double t0, int phase,
+static int sample_at(GPUtronicHandle* h, struct Sample* s, double t0, int phase,
                      unsigned long long* p_prev, double* t_prev) {
-    GPUTronicControl* c = gputronic_get_control(h);
+    GPUtronicControl* c = gputronic_get_control(h);
     double t = now_us();
     unsigned long long p = c->total_work_pulses;
     double dt = (t - *t_prev) * 1e-6;
@@ -161,7 +161,7 @@ static int sample_at(GPUTronicHandle* h, struct Sample* s, double t0, int phase,
     return 0;
 }
 
-static void hold(GPUTronicHandle* h, struct Sample* sam, int* nsam, double t0,
+static void hold(GPUtronicHandle* h, struct Sample* sam, int* nsam, double t0,
                  int phase, double seconds, unsigned long long* p_prev, double* t_prev) {
     double end = now_us() + seconds * 1e6;
     while (now_us() < end && *nsam < SHOW_MAX_SAMPLES) {
@@ -236,7 +236,7 @@ static void write_chart(const struct Sample* s, int n, double twin_gflops,
     fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">\n",
             W, H, W, H);
     fprintf(fp, "<rect width=\"100%%\" height=\"100%%\" fill=\"#101114\"/>\n");
-    fprintf(fp, "<text x=\"64\" y=\"32\" fill=\"#e8e4dc\" font-family=\"ui-sans-serif,sans-serif\" font-size=\"18\">GPUTronic — aggregate rate</text>\n");
+    fprintf(fp, "<text x=\"64\" y=\"32\" fill=\"#e8e4dc\" font-family=\"ui-sans-serif,sans-serif\" font-size=\"18\">GPUtronic — aggregate rate</text>\n");
     fprintf(fp, "<text x=\"64\" y=\"50\" fill=\"#8d897f\" font-family=\"ui-sans-serif,sans-serif\" font-size=\"12\">free-run is the ceiling · width is the command · Z = rate_ref / rate</text>\n");
 
     for (ph = 0; ph < 6; ph++) {
@@ -307,7 +307,7 @@ static void write_chart(const struct Sample* s, int n, double twin_gflops,
 
     fp = fopen(path_html, "w");
     if (!fp) return;
-    fprintf(fp, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>GPUTronic</title>\n");
+    fprintf(fp, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>GPUtronic</title>\n");
     fprintf(fp, "<style>body{margin:0;background:#101114;color:#e8e4dc;font-family:ui-sans-serif,sans-serif;}");
     fprintf(fp, "main{max-width:1100px;margin:32px auto;padding:0 16px;} p{color:#8d897f;line-height:1.5;}</style></head><body><main>\n");
     fprintf(fp, "<object data=\"gputronic_show.svg\" type=\"image/svg+xml\" width=\"1100\"></object>\n");
@@ -351,11 +351,11 @@ static double run_twin(int num_sm, int tiles, double seconds) {
     return gflops;
 }
 
-static GPUTronicHandle* boot_show(int num_sm, int tiles) {
-    GPUTronicConfig cfg;
-    GPUTronicHandle* h;
-    GPUTronicControl* hc;
-    GPUTronicControl* dc = NULL;
+static GPUtronicHandle* boot_show(int num_sm, int tiles) {
+    GPUtronicConfig cfg;
+    GPUtronicHandle* h;
+    GPUtronicControl* hc;
+    GPUtronicControl* dc = NULL;
     gputronic_config_gold(&cfg);
     cfg.launch_selftest_kernel = 0;
     cfg.csv_path = "results/gputronic_sweep_gold.csv";
@@ -370,8 +370,8 @@ static GPUTronicHandle* boot_show(int num_sm, int tiles) {
     return h;
 }
 
-static void shutdown_show(GPUTronicHandle* h) {
-    GPUTronicControl* c;
+static void shutdown_show(GPUtronicHandle* h) {
+    GPUtronicControl* c;
     if (!h) return;
     c = gputronic_get_control(h);
     if (c) c->control_flags |= GPUTRONIC_FLAG_STOP;
@@ -379,9 +379,9 @@ static void shutdown_show(GPUTronicHandle* h) {
     gputronic_destroy(h);
 }
 
-static void one_window(GPUTronicHandle* h, int tiles, int settle_us, int window_us,
+static void one_window(GPUtronicHandle* h, int tiles, int settle_us, int window_us,
                       double* gflops, double* z, int* n_out) {
-    GPUTronicControl* c = gputronic_get_control(h);
+    GPUtronicControl* c = gputronic_get_control(h);
     unsigned long long p0, p1;
     double t0, dt;
     if (settle_us > 0) usleep((useconds_t)settle_us);
@@ -416,7 +416,7 @@ static int sweep_main(int num_sm) {
     csv = fopen("results/gputronic_sweep_tiles.csv", "w");
     if (csv) fprintf(csv, "tiles,twin_gflops,cable_gflops,ratio\n");
     for (ti = 0; ti < ntiles; ti++) {
-        GPUTronicHandle* h;
+        GPUtronicHandle* h;
         double z;
         int nnow;
         twin_g[ti] = run_twin(num_sm, tiles_list[ti], 1.2);
@@ -444,7 +444,7 @@ static int sweep_main(int num_sm) {
     csv = fopen("results/gputronic_sweep_sms.csv", "w");
     if (csv) fprintf(csv, "tiles,n,gflops,z\n");
     for (pass = 0; pass < 2; pass++) {
-        GPUTronicHandle* h = boot_show(num_sm, sweep_tiles[pass]);
+        GPUtronicHandle* h = boot_show(num_sm, sweep_tiles[pass]);
         int n;
         double best_e = 1e9;
         if (!h) return 1;
@@ -547,10 +547,10 @@ int main(int argc, char** argv) {
     unsigned long long* twin_h = NULL;
     double twin_gflops = 0.0;
     double t_twin0, t_twin1;
-    GPUTronicConfig cfg;
-    GPUTronicHandle* h;
-    GPUTronicControl* hc;
-    GPUTronicControl* dc = NULL;
+    GPUtronicConfig cfg;
+    GPUtronicHandle* h;
+    GPUtronicControl* hc;
+    GPUtronicControl* dc = NULL;
     struct Sample sam[SHOW_MAX_SAMPLES];
     int nsam = 0;
     double t0, tprev;
@@ -569,7 +569,7 @@ int main(int argc, char** argv) {
     num_sm = prop.multiProcessorCount;
     if (num_sm <= 0) num_sm = 84;
     if (argc > 1 && strcmp(argv[1], "sweep") == 0) return sweep_main(num_sm);
-    printf("\nGPUTronic show  ·  %s  ·  %d SMs  ·  %d tiles/pulse\n", prop.name, num_sm, SHOW_TILES);
+    printf("\nGPUtronic show  ·  %s  ·  %d SMs  ·  %d tiles/pulse\n", prop.name, num_sm, SHOW_TILES);
     printf("Free-run is the ceiling. Width is the command.\n\n");
     fflush(stdout);
 

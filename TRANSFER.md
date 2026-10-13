@@ -1,4 +1,4 @@
-# GPUTronic Transfer Plant
+# GPUtronic Transfer Plant
 
 Second plant on the Gold 1.0.0 interface.
 

@@ -11,7 +11,7 @@ port = int(sys.argv[3]) if len(sys.argv) > 3 else 8877
 
 PAGE = """<!DOCTYPE html>
 <meta charset="utf-8">
-<title>GPUTronic frame clock</title>
+<title>GPUtronic frame clock</title>
 <style>
   html, body { margin: 0; height: 100%%; background: #111; color: #eee;
     font: 20px sans-serif; overflow: hidden; }

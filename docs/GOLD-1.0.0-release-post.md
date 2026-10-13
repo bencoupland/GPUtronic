@@ -1,4 +1,4 @@
-# GPUTronic Gold 1.0.0
+# GPUtronic Gold 1.0.0
 
 > **Superseded.** This describes the original sleep-duration control. Commit `600ed66` (2026-09-23) replaced sleep actuation with SM-count actuation (`active_sms`), and PR #1 removed the remaining sleep API (`gputronic_set_open_loop_sleep`, `gputronic_get_sleep_ns`, the sleep scale settings) and made the controller two-sided. See the README and `docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md` for the current design.
 
@@ -6,7 +6,7 @@ This note is the first public description. At that time the control was how long
 
 Most GPU software still treats the device like a firehose with a thermal fuse. Measure heat. Hope. Throttle clocks.
 
-GPUTronic starts from a different premise: a modern GPU has a work rate you can count, and a response to how hard you let it run. If you can measure that rate and change it without fighting the driver's temperature control, the rest is an ordinary feedback loop.
+GPUtronic starts from a different premise: a modern GPU has a work rate you can count, and a response to how hard you let it run. If you can measure that rate and change it without fighting the driver's temperature control, the rest is an ordinary feedback loop.
 
 Gold 1.0.0 is the reference that makes that claim reproducible. It had not been posted yet; this is the first public 1.0, with the transfer-plant corrections already in.
 

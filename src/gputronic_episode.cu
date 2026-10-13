@@ -1,5 +1,5 @@
 /* =============================================================================
- * GPUTronic Episode Plant — launch-complete GEMM on Gold 1.0
+ * GPUtronic Episode Plant — launch-complete GEMM on Gold 1.0
  * -----------------------------------------------------------------------------
  * Uses Gold's control thread. Blocks at or above active_sms return
  * without a pulse. The honour= sleep modes below are the older experiments.
@@ -38,13 +38,13 @@
  * throttle_sleep_ns. Gold 1.0 removed gputronic_set_open_loop_sleep /
  * gputronic_get_sleep_ns; the control thread no longer writes this field, so
  * the value set here persists. ns < 0 = closed loop with base sleep. */
-static void legacy_set_sleep(GPUTronicHandle* h, int ns) {
-    struct GPUTronicControl* c = gputronic_get_control(h);
+static void legacy_set_sleep(GPUtronicHandle* h, int ns) {
+    struct GPUtronicControl* c = gputronic_get_control(h);
     gputronic_set_open_loop_sms(h, ns < 0 ? -1 : 0);
     if (c) c->throttle_sleep_ns = (ns < 0) ? c->base_sleep_ns : ns;
 }
-static int legacy_get_sleep(GPUTronicHandle* h) {
-    struct GPUTronicControl* c = gputronic_get_control(h);
+static int legacy_get_sleep(GPUtronicHandle* h) {
+    struct GPUtronicControl* c = gputronic_get_control(h);
     return c ? c->throttle_sleep_ns : 0;
 }
 
@@ -114,7 +114,7 @@ static void episode_load_env(void) {
 
 /* ---- Episode kernel: launch-complete GEMM ---- */
 
-__global__ void episode_kernel(GPUTronicControl* ctrl, int num_sm,
+__global__ void episode_kernel(GPUtronicControl* ctrl, int num_sm,
                                int pulses_per_episode, int sleep_shots,
                                unsigned int* smid_out) {
     const int sm = blockIdx.x;
@@ -187,9 +187,9 @@ __global__ void episode_kernel(GPUTronicControl* ctrl, int num_sm,
 }
 
 struct EpisodePump {
-    GPUTronicHandle* host;
-    GPUTronicControl* h_ctrl;
-    GPUTronicControl* d_ctrl;
+    GPUtronicHandle* host;
+    GPUtronicControl* h_ctrl;
+    GPUtronicControl* d_ctrl;
     unsigned int* d_smid;
     int num_sm;
     pthread_t thr;
@@ -233,7 +233,7 @@ static void* episode_pump_thread(void* arg) {
     return NULL;
 }
 
-static int episode_pump_start(EpisodePump* p, GPUTronicHandle* h) {
+static int episode_pump_start(EpisodePump* p, GPUtronicHandle* h) {
     memset(p, 0, sizeof(*p));
     p->h_ctrl = gputronic_get_control(h);
     if (!p->h_ctrl) {
@@ -272,9 +272,9 @@ static void episode_pump_stop(EpisodePump* p) {
     p->thr = 0;
 }
 
-static GPUTronicHandle* episode_boot(GPUTronicConfig* cfg, EpisodePump* pump) {
+static GPUtronicHandle* episode_boot(GPUtronicConfig* cfg, EpisodePump* pump) {
     cfg->launch_selftest_kernel = 0;
-    GPUTronicHandle* h = gputronic_create(cfg);
+    GPUtronicHandle* h = gputronic_create(cfg);
     if (!h) return NULL;
     if (episode_pump_start(pump, h) != 0) {
         gputronic_destroy(h);
@@ -288,7 +288,7 @@ static GPUTronicHandle* episode_boot(GPUTronicConfig* cfg, EpisodePump* pump) {
     return h;
 }
 
-static void episode_shutdown(GPUTronicHandle* h, EpisodePump* pump) {
+static void episode_shutdown(GPUtronicHandle* h, EpisodePump* pump) {
     episode_pump_stop(pump);
     if (h) {
         gputronic_stop(h);
@@ -300,11 +300,11 @@ static double gflops_from_rate(double pulse_rate) {
     return pulse_rate * (double)EPISODE_FLOPS_PER_PULSE / 1.0e9;
 }
 
-static void measure_window(GPUTronicHandle* h, int settle_us, int window_us,
+static void measure_window(GPUtronicHandle* h, int settle_us, int window_us,
                            double* rate_out, double* gflops_out, double* z_out,
                            unsigned long long* dp_out) {
     if (settle_us > 0) usleep((useconds_t)settle_us);
-    GPUTronicControl* c = gputronic_get_control(h);
+    GPUtronicControl* c = gputronic_get_control(h);
     unsigned long long p0 = c->total_work_pulses;
     double t0 = now_us();
     double z_acc = 0.0;
@@ -365,7 +365,7 @@ static void path_join(char* out, size_t n, const char* suffix) {
 /* ---- Command-line modes ---- */
 
 static int mode_dyno(void) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     char csv[320], sum[320], rep[320];
     path_join(csv, sizeof(csv), "_dyno.csv");
@@ -375,7 +375,7 @@ static int mode_dyno(void) {
     cfg.max_sleep_ns = 2000000;
 
     EpisodePump pump;
-    GPUTronicHandle* h = episode_boot(&cfg, &pump);
+    GPUtronicHandle* h = episode_boot(&cfg, &pump);
     if (!h) return 1;
 
     gputronic_set_open_loop_sms(h, 0);
@@ -484,7 +484,7 @@ static int mode_dyno(void) {
 
     FILE* rf = fopen(rep, "w");
     if (rf) {
-        fprintf(rf, "GPUTronic Episode Dyno Report\n");
+        fprintf(rf, "GPUtronic Episode Dyno Report\n");
         fprintf(rf, "pulses=%d honour=%s sleep_shots=%d host_wait=%d\n",
                 g_pulses, g_honour, g_sleep_shots, g_host_wait);
         fprintf(rf, "R2=%.4f slope=%.6f intercept=%.1f window=%d plant=%d gold_act_500us=%d PASS=%d\n",
@@ -502,7 +502,7 @@ static int mode_dyno(void) {
 }
 
 static int mode_closedloop(int seconds) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     char csv[320], rep[320];
     path_join(csv, sizeof(csv), "_closedloop.csv");
@@ -512,7 +512,7 @@ static int mode_closedloop(int seconds) {
     cfg.launch_selftest_kernel = 0;
 
     EpisodePump pump;
-    GPUTronicHandle* h = episode_boot(&cfg, &pump);
+    GPUtronicHandle* h = episode_boot(&cfg, &pump);
     if (!h) return 1;
 
     printf("\n=== EPISODE CLOSED-LOOP ===\n");
@@ -551,7 +551,7 @@ static int mode_closedloop(int seconds) {
         usleep(1000000);
         gputronic_print_status(h, s + 1);
         if (s >= 3) {
-            GPUTronicControl* c = gputronic_get_control(h);
+            GPUtronicControl* c = gputronic_get_control(h);
             unsigned long long p0 = c->total_work_pulses;
             double t0 = now_us();
             usleep(200000);
@@ -569,7 +569,7 @@ static int mode_closedloop(int seconds) {
     float z = gputronic_get_z(h);
     float rate_ema = gputronic_get_rate(h);
     int sleep_ns = legacy_get_sleep(h);
-    GPUTronicControl* c = gputronic_get_control(h);
+    GPUtronicControl* c = gputronic_get_control(h);
     unsigned long long pulses = c ? c->total_work_pulses : 0ULL;
     float z_mean = (z_n > 0) ? (float)(z_acc / z_n) : z;
     double cl_rate = (z_n > 0) ? (cl_rate_acc / z_n) : 0.0;
@@ -637,7 +637,7 @@ static int mode_closedloop(int seconds) {
 }
 
 static int mode_run(int seconds) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     char csv[320];
     path_join(csv, sizeof(csv), "_run.csv");
@@ -645,7 +645,7 @@ static int mode_run(int seconds) {
     cfg.launch_selftest_kernel = 0;
 
     EpisodePump pump;
-    GPUTronicHandle* h = episode_boot(&cfg, &pump);
+    GPUtronicHandle* h = episode_boot(&cfg, &pump);
     if (!h) return 1;
 
     printf("Episode closed-loop %ds | launch-complete GEMM (%.0f FLOP/pulse, %d pulses/launch, honour=%s)\n",
@@ -694,8 +694,8 @@ static volatile long long g_proof_dfull_ns = 0;
 static volatile long long g_proof_extra_ns = 0;
 
 struct ProofPump {
-    GPUTronicControl* h_ctrl;
-    GPUTronicControl* d_ctrl;
+    GPUtronicControl* h_ctrl;
+    GPUtronicControl* d_ctrl;
     float* sink;
     int num_sm;
     pthread_t thr;
@@ -775,7 +775,7 @@ __global__ void episode_var_kernel(unsigned long long* pulses, float* sink,
         sink[sm] = acc;
 }
 
-__global__ void episode_proof_kernel(GPUTronicControl* ctrl, float* sink,
+__global__ void episode_proof_kernel(GPUtronicControl* ctrl, float* sink,
                                     int num_sm, int n_pulses, int n_tiles,
                                     int sleep_shots) {
     const int sm = blockIdx.x;
@@ -971,7 +971,7 @@ static void* proof_pump_thread(void* arg) {
     return NULL;
 }
 
-static int proof_pump_start(ProofPump* p, GPUTronicHandle* h) {
+static int proof_pump_start(ProofPump* p, GPUtronicHandle* h) {
     memset(p, 0, sizeof(*p));
     p->h_ctrl = gputronic_get_control(h);
     if (!p->h_ctrl) return -1;
@@ -1018,10 +1018,10 @@ struct ThrowPoint {
     double rate;
 };
 
-static int proof_window(GPUTronicHandle* h, ProofPump* pump, int settle_us, int window_us,
+static int proof_window(GPUtronicHandle* h, ProofPump* pump, int settle_us, int window_us,
                         double* rate, double* gflops, double* z_hat, double* launch_us,
                         double* act_wait_us) {
-    GPUTronicControl* c;
+    GPUtronicControl* c;
     unsigned long long l0, p0, wn0;
     double wacc0, t0, dt, z_acc;
     int samples = 10;
@@ -1057,9 +1057,9 @@ static int proof_window(GPUTronicHandle* h, ProofPump* pump, int settle_us, int 
     return 0;
 }
 
-static GPUTronicHandle* proof_boot(ProofPump* pump, int tiles, int path_us) {
-    GPUTronicConfig cfg;
-    GPUTronicHandle* h;
+static GPUtronicHandle* proof_boot(ProofPump* pump, int tiles, int path_us) {
+    GPUtronicConfig cfg;
+    GPUtronicHandle* h;
     gputronic_config_gold(&cfg);
     cfg.launch_selftest_kernel = 0;
     cfg.max_sleep_ns = PROOF_CLAMP_NS;
@@ -1086,7 +1086,7 @@ static GPUTronicHandle* proof_boot(ProofPump* pump, int tiles, int path_us) {
     return h;
 }
 
-static void proof_shutdown(GPUTronicHandle* h, ProofPump* pump) {
+static void proof_shutdown(GPUtronicHandle* h, ProofPump* pump) {
     proof_pump_stop(pump);
     if (h) {
         gputronic_stop(h);
@@ -1240,7 +1240,7 @@ static int mode_proof(void) {
 
     for (c = 0; c < n_cand && !throw_ok; c++) {
         ProofPump pump;
-        GPUTronicHandle* h;
+        GPUtronicHandle* h;
         double rate, gflops, zhat, launch_us, act_us;
         double T_us;
         int fi;
@@ -1520,7 +1520,7 @@ static int mode_proof(void) {
 
     rep = fopen("results/episode_proof_report.txt", "w");
     if (rep) {
-        fprintf(rep, "GPUTronic Episode Proof\n");
+        fprintf(rep, "GPUtronic Episode Proof\n");
         fprintf(rep, "gold_frozen=1 kp=%.2f ki=%.2f clamp_ns=%d path_us=%d pulses=%d\n",
                 GPUTRONIC_GOLD_KP, GPUTRONIC_GOLD_KI, PROOF_CLAMP_NS, path_us, g_pulses);
         fprintf(rep, "tax_ok=%d throw_ok=%d loop_ok=%d release_ok=%d law=%s\n",
@@ -1590,7 +1590,7 @@ static int mode_proof(void) {
 }
 
 static void usage(const char* argv0) {
-    printf("GPUTronic Episode Plant (Gold 1.0 launch-complete GEMM)\n\n");
+    printf("GPUtronic Episode Plant (Gold 1.0 launch-complete GEMM)\n\n");
     printf("Usage:\n");
     printf("  %s check           # dyno + closed-loop episode gate\n", argv0);
     printf("  %s dyno            # sleep → tile/s + GFLOP/s\n", argv0);

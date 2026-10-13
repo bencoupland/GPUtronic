@@ -1,8 +1,8 @@
-# GPUTronic Status – Gold 1.0.0
+# GPUtronic Status – Gold 1.0.0
 
 ## Current Working State
 
-**GPUTronic Gold 1.0.0**, changed 2026-09-23. Full speed is every SM running. The aim is to get close to the rate you asked for when the workload is not ideal. The sleep-duration version is in `archive/gold-1.0.0-nanosleep/`.
+**GPUtronic Gold 1.0.0**, changed 2026-09-23. Full speed is every SM running. The aim is to get close to the rate you asked for when the workload is not ideal. The sleep-duration version is in `archive/gold-1.0.0-nanosleep/`.
 
 | Item | Value |
 |------|--------|

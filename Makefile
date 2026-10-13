@@ -1,4 +1,4 @@
-# GPUTronic — Makefile (Gold 1.0.0)
+# GPUtronic — Makefile (Gold 1.0.0)
 # Target: NVIDIA Blackwell RTX 5080 (sm_120), CUDA 12.8
 
 NVCC = /usr/local/cuda-12.8/bin/nvcc
@@ -20,28 +20,28 @@ $(BUILD_DIR):
 gold: $(BUILD_DIR)/gputronic_gold
 
 $(BUILD_DIR)/gputronic_gold: src/gputronic_gold.cu include/gputronic.h | $(BUILD_DIR)
-	@echo "[GPUTronic] Building Gold 1.0.0..."
+	@echo "[GPUtronic] Building Gold 1.0.0..."
 	$(NVCC) $(COMMON_FLAGS) -o $@ src/gputronic_gold.cu $(LIBS)
-	@echo "[GPUTronic] Built: $@"
+	@echo "[GPUtronic] Built: $@"
 
 # ---- Static library (same translation unit exports the C API) ----
 lib: $(BUILD_DIR)/libgputronic_gold.a
 
 $(BUILD_DIR)/libgputronic_gold.a: src/gputronic_gold.cu include/gputronic.h | $(BUILD_DIR)
-	@echo "[GPUTronic] Building libgputronic_gold.a..."
+	@echo "[GPUtronic] Building libgputronic_gold.a..."
 	$(NVCC) $(COMMON_FLAGS) -c -o $(BUILD_DIR)/gputronic_gold.o src/gputronic_gold.cu
 	# Strip main for the library object: rebuild with -DGPUTRONIC_NO_MAIN
 	$(NVCC) $(COMMON_FLAGS) -DGPUTRONIC_NO_MAIN -c -o $(BUILD_DIR)/gputronic_gold_lib.o src/gputronic_gold.cu
 	ar rcs $@ $(BUILD_DIR)/gputronic_gold_lib.o
-	@echo "[GPUTronic] Built: $@"
+	@echo "[GPUtronic] Built: $@"
 
 # ---- Example demo linking the library ----
 demo: $(BUILD_DIR)/gputronic_demo
 
 $(BUILD_DIR)/gputronic_demo: examples/gold_demo.c $(BUILD_DIR)/libgputronic_gold.a include/gputronic.h | $(BUILD_DIR)
-	@echo "[GPUTronic] Building gold demo..."
+	@echo "[GPUtronic] Building gold demo..."
 	$(NVCC) $(COMMON_FLAGS) -o $@ examples/gold_demo.c -L$(BUILD_DIR) -lgputronic_gold $(LIBS)
-	@echo "[GPUTronic] Built: $@"
+	@echo "[GPUtronic] Built: $@"
 
 # ---- Watchable Gold closed-loop (same binary as demo) ----
 watch: demo
@@ -51,9 +51,9 @@ watch: demo
 transfer: $(BUILD_DIR)/gputronic_transfer
 
 $(BUILD_DIR)/gputronic_transfer: src/gputronic_transfer.cu $(BUILD_DIR)/libgputronic_gold.a include/gputronic.h | $(BUILD_DIR)
-	@echo "[GPUTronic] Building transfer plant..."
+	@echo "[GPUtronic] Building transfer plant..."
 	$(NVCC) $(COMMON_FLAGS) -o $@ src/gputronic_transfer.cu -L$(BUILD_DIR) -lgputronic_gold $(LIBS)
-	@echo "[GPUTronic] Built: $@"
+	@echo "[GPUtronic] Built: $@"
 
 transfer-check: transfer
 	./$(BUILD_DIR)/gputronic_transfer check
@@ -62,9 +62,9 @@ transfer-check: transfer
 episode: $(BUILD_DIR)/gputronic_episode
 
 $(BUILD_DIR)/gputronic_episode: src/gputronic_episode.cu $(BUILD_DIR)/libgputronic_gold.a include/gputronic.h | $(BUILD_DIR)
-	@echo "[GPUTronic] Building episode plant..."
+	@echo "[GPUtronic] Building episode plant..."
 	$(NVCC) $(COMMON_FLAGS) -o $@ src/gputronic_episode.cu -L$(BUILD_DIR) -lgputronic_gold $(LIBS)
-	@echo "[GPUTronic] Built: $@"
+	@echo "[GPUtronic] Built: $@"
 
 episode-check: episode
 	./$(BUILD_DIR)/gputronic_episode check
@@ -77,9 +77,9 @@ show: $(BUILD_DIR)/gputronic_show
 	./$(BUILD_DIR)/gputronic_show
 
 $(BUILD_DIR)/gputronic_show: src/gputronic_show.cu $(BUILD_DIR)/libgputronic_gold.a include/gputronic.h | $(BUILD_DIR)
-	@echo "[GPUTronic] Building show..."
+	@echo "[GPUtronic] Building show..."
 	$(NVCC) $(COMMON_FLAGS) -o $@ src/gputronic_show.cu -L$(BUILD_DIR) -lgputronic_gold $(LIBS)
-	@echo "[GPUTronic] Built: $@"
+	@echo "[GPUtronic] Built: $@"
 
 # ---- Test gates ----
 check: gold
@@ -95,12 +95,12 @@ run: gold
 	./$(BUILD_DIR)/gputronic_gold run 30
 
 clean:
-	@echo "[GPUTronic] Cleaning build artifacts..."
+	@echo "[GPUtronic] Cleaning build artifacts..."
 	rm -rf $(BUILD_DIR)
-	@echo "[GPUTronic] Clean complete"
+	@echo "[GPUtronic] Clean complete"
 
 help:
-	@echo "GPUTronic Gold 1.0.0"
+	@echo "GPUtronic Gold 1.0.0"
 	@echo ""
 	@echo "  make gold           - build ./build/gputronic_gold"
 	@echo "  make lib            - build ./build/libgputronic_gold.a"

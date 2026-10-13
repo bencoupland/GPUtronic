@@ -1,4 +1,4 @@
-# GPUTronic Gold: expected pulses/s vs SM count, consumer GeForce GTX 10 through RTX 50
+# GPUtronic Gold: expected pulses/s vs SM count, consumer GeForce GTX 10 through RTX 50
 
 File: docs/analysis/pulse-rate-table.csv (generator script not in the repo)
 This is a model, not measurements, except the RTX 5080 ANCHOR row.

@@ -1,5 +1,5 @@
 /* =============================================================================
- * GPUTronic Transfer Plant — cooperative GEMM microtiles on Gold 1.0
+ * GPUtronic Transfer Plant — cooperative GEMM microtiles on Gold 1.0
  * -----------------------------------------------------------------------------
  * Read with: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md [F-03, F-14]
  *
@@ -30,13 +30,13 @@
  * throttle_sleep_ns. Gold 1.0 removed gputronic_set_open_loop_sleep /
  * gputronic_get_sleep_ns; the control thread no longer writes this field, so
  * the value set here persists. ns < 0 = closed loop with base sleep. */
-static void legacy_set_sleep(GPUTronicHandle* h, int ns) {
-    struct GPUTronicControl* c = gputronic_get_control(h);
+static void legacy_set_sleep(GPUtronicHandle* h, int ns) {
+    struct GPUtronicControl* c = gputronic_get_control(h);
     gputronic_set_open_loop_sms(h, ns < 0 ? -1 : 0);
     if (c) c->throttle_sleep_ns = (ns < 0) ? c->base_sleep_ns : ns;
 }
-static int legacy_get_sleep(GPUTronicHandle* h) {
-    struct GPUTronicControl* c = gputronic_get_control(h);
+static int legacy_get_sleep(GPUtronicHandle* h) {
+    struct GPUtronicControl* c = gputronic_get_control(h);
     return c ? c->throttle_sleep_ns : 0;
 }
 
@@ -68,7 +68,7 @@ static inline double now_us(void) {
  * to half the SMs (measured Z ≈ 1.82 on this 5080, past the setpoint).
  * At least GPUTRONIC_SM_FLOOR SMs stay awake.
  * Idle blocks do not pulse. They backoff 5 µs so they do not spin on the cable. */
-__global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
+__global__ void transfer_persistent_kernel(GPUtronicControl* ctrl, int num_sm,
                                           volatile int* sleep_sms,
                                           volatile int* n_work,
                                           unsigned int* smid_out) {
@@ -181,14 +181,14 @@ __global__ void transfer_persistent_kernel(GPUTronicControl* ctrl, int num_sm,
         atomicAdd((unsigned long long*)&ctrl->total_work_pulses, 0ULL);
 }
 
-static int launch_transfer_plant(GPUTronicHandle* h) {
-    GPUTronicControl* h_ctrl = gputronic_get_control(h);
+static int launch_transfer_plant(GPUtronicHandle* h) {
+    GPUtronicControl* h_ctrl = gputronic_get_control(h);
     if (!h_ctrl) {
         fprintf(stderr, "[TRANSFER] no control block\n");
         return -1;
     }
 
-    GPUTronicControl* d_ctrl = NULL;
+    GPUtronicControl* d_ctrl = NULL;
     cudaError_t err = cudaHostGetDevicePointer((void**)&d_ctrl, h_ctrl, 0);
     if (err != cudaSuccess || !d_ctrl) {
         fprintf(stderr, "[TRANSFER] cudaHostGetDevicePointer failed: %s\n",
@@ -217,9 +217,9 @@ static int launch_transfer_plant(GPUTronicHandle* h) {
     return 0;
 }
 
-static GPUTronicHandle* transfer_boot(GPUTronicConfig* cfg) {
+static GPUtronicHandle* transfer_boot(GPUtronicConfig* cfg) {
     cfg->launch_selftest_kernel = 0;
-    GPUTronicHandle* h = gputronic_create(cfg);
+    GPUtronicHandle* h = gputronic_create(cfg);
     if (!h) return NULL;
     if (launch_transfer_plant(h) != 0) {
         gputronic_destroy(h);
@@ -237,11 +237,11 @@ static double gflops_from_rate(double pulse_rate) {
 }
 
 /* Measure true tile rate over a wall window (not lagging EMA). */
-static void measure_window(GPUTronicHandle* h, int settle_us, int window_us,
+static void measure_window(GPUtronicHandle* h, int settle_us, int window_us,
                            double* rate_out, double* gflops_out, double* z_out,
                            unsigned long long* dp_out) {
     if (settle_us > 0) usleep((useconds_t)settle_us);
-    GPUTronicControl* c = gputronic_get_control(h);
+    GPUtronicControl* c = gputronic_get_control(h);
     unsigned long long p0 = c->total_work_pulses;
     double t0 = now_us();
     double z_acc = 0.0;
@@ -265,12 +265,12 @@ static void measure_window(GPUTronicHandle* h, int settle_us, int window_us,
 /* ---- Command-line modes ---- */
 
 static int mode_dyno(void) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = "results/gputronic_transfer_dyno.csv";
     cfg.max_sleep_ns = 2000000;
 
-    GPUTronicHandle* h = transfer_boot(&cfg);
+    GPUtronicHandle* h = transfer_boot(&cfg);
     if (!h) return 1;
 
     gputronic_set_open_loop_sms(h, 0);
@@ -278,7 +278,7 @@ static int mode_dyno(void) {
 
     int num_sm = h ? 84 : 84;
     {
-        GPUTronicControl* c0 = gputronic_get_control(h);
+        GPUtronicControl* c0 = gputronic_get_control(h);
         if (c0 && c0->num_sm > 0) num_sm = c0->num_sm;
     }
     const int sleeps[] = {num_sm, num_sm * 3 / 4, num_sm * 2 / 3, num_sm / 2, num_sm / 3, num_sm / 4, 16, 8};
@@ -355,7 +355,7 @@ static int mode_dyno(void) {
 
     FILE* rf = fopen("results/gputronic_transfer_dyno_report.txt", "w");
     if (rf) {
-        fprintf(rf, "GPUTronic Transfer Dyno Report\n");
+        fprintf(rf, "GPUtronic Transfer Dyno Report\n");
         fprintf(rf, "R2=%.4f slope=%.6f intercept=%.1f rate_cut=%d flop_cut=%d coupled=%d PASS=%d\n",
                 r2, b, a, rate_cut, flop_cut, coupled, pass);
         fprintf(rf, "flops_per_pulse=%llu tiles_per_pulse=%d\n",
@@ -371,14 +371,14 @@ static int mode_dyno(void) {
 }
 
 static int mode_closedloop(int seconds) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = "results/gputronic_transfer_closedloop.csv";
     cfg.max_sleep_ns = 500000;
     cfg.launch_selftest_kernel = 0;
     /* Gold sets n_ff and sms_per_u from its calibration table. */
 
-    GPUTronicHandle* h = transfer_boot(&cfg);
+    GPUtronicHandle* h = transfer_boot(&cfg);
     if (!h) return 1;
 
     printf("\n=== TRANSFER CLOSED-LOOP ===\n");
@@ -418,7 +418,7 @@ static int mode_closedloop(int seconds) {
         usleep(1000000);
         gputronic_print_status(h, s + 1);
         if (s >= 3) {
-            GPUTronicControl* c = gputronic_get_control(h);
+            GPUtronicControl* c = gputronic_get_control(h);
             unsigned long long p0 = c->total_work_pulses;
             double t0 = now_us();
             usleep(200000);
@@ -436,7 +436,7 @@ static int mode_closedloop(int seconds) {
     float z = gputronic_get_z(h);
     float rate_ema = gputronic_get_rate(h);
     int sleep_ns = legacy_get_sleep(h);
-    GPUTronicControl* c = gputronic_get_control(h);
+    GPUtronicControl* c = gputronic_get_control(h);
     unsigned long long pulses = c ? c->total_work_pulses : 0ULL;
     float z_mean = (z_n > 0) ? (float)(z_acc / z_n) : z;
     double cl_rate = (z_n > 0) ? (cl_rate_acc / z_n) : 0.0;
@@ -488,12 +488,12 @@ static int mode_closedloop(int seconds) {
 }
 
 static int mode_run(int seconds) {
-    GPUTronicConfig cfg;
+    GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = "results/gputronic_transfer_run.csv";
     cfg.launch_selftest_kernel = 0;
 
-    GPUTronicHandle* h = transfer_boot(&cfg);
+    GPUtronicHandle* h = transfer_boot(&cfg);
     if (!h) return 1;
 
     printf("Transfer closed-loop %ds | useful work = GEMM tiles (%.0f FLOP/pulse)\n",
@@ -515,10 +515,10 @@ static int mode_run(int seconds) {
 static int mode_mask(void) {
     volatile int* h_k = NULL;
     volatile int* d_k = NULL;
-    GPUTronicConfig cfg;
-    GPUTronicHandle* h;
-    GPUTronicControl* hc;
-    GPUTronicControl* dc = NULL;
+    GPUtronicConfig cfg;
+    GPUtronicHandle* h;
+    GPUtronicControl* hc;
+    GPUtronicControl* dc = NULL;
     int num_sm, di, ki;
     const int dur_ns[] = {200000, 500000};
     const int n_dur = 2;
@@ -657,10 +657,10 @@ static int mode_mask(void) {
 static int mode_work(void) {
     volatile int* h_n = NULL;
     volatile int* d_n = NULL;
-    GPUTronicConfig cfg;
-    GPUTronicHandle* h;
-    GPUTronicControl* hc;
-    GPUTronicControl* dc = NULL;
+    GPUtronicConfig cfg;
+    GPUtronicHandle* h;
+    GPUtronicControl* hc;
+    GPUtronicControl* dc = NULL;
     int num_sm, i;
     const int nsweep[] = {84, 80, 76, 72, 64, 60, 58, 57, 56, 55, 54, 52, 48, 42, 28, 14, 8, 4};
     const int npts = (int)(sizeof(nsweep) / sizeof(nsweep[0]));
@@ -850,7 +850,7 @@ static int mode_work(void) {
 }
 
 static void usage(const char* argv0) {
-    printf("GPUTronic Transfer Plant (Gold 1.0 cooperative GEMM tiles)\n\n");
+    printf("GPUtronic Transfer Plant (Gold 1.0 cooperative GEMM tiles)\n\n");
     printf("Usage:\n");
     printf("  %s check           # dyno + closed-loop transfer gate\n", argv0);
     printf("  %s dyno            # sleep → tile/s + GFLOP/s\n", argv0);

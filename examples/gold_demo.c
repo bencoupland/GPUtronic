@@ -1,4 +1,4 @@
-/* GPUTronic Gold — watchable closed-loop embed demo
+/* GPUtronic Gold — watchable closed-loop embed demo
  *
  * Self-test plant only (Gold persistent kernel). Not a FLOP benchmark.
  * Protocol: ~8 s free-run (open-loop sleep=0, includes calibration [F-06]),
@@ -18,8 +18,8 @@
  * throttle_sleep_ns. Gold 1.0 removed gputronic_set_open_loop_sleep /
  * gputronic_get_sleep_ns; the control thread no longer writes this field, so
  * the value set here persists. ns < 0 = closed loop with base sleep. */
-static void legacy_set_sleep(GPUTronicHandle* h, int ns) {
-    struct GPUTronicControl* c = gputronic_get_control(h);
+static void legacy_set_sleep(GPUtronicHandle* h, int ns) {
+    struct GPUtronicControl* c = gputronic_get_control(h);
     gputronic_set_open_loop_sms(h, ns < 0 ? -1 : 0);
     if (c) c->throttle_sleep_ns = (ns < 0) ? c->base_sleep_ns : ns;
 }
@@ -135,7 +135,7 @@ static void write_report(FILE* fp, int zc_ok, double z_fr, double rate_fr, doubl
     double drop = 0.0;
     if (rate_fr > 1.0) drop = 1.0 - rate_cl / rate_fr;
     fprintf(fp, "============================================================\n");
-    fprintf(fp, "GPUTronic Gold 1.0 — watch report (self-test plant)\n");
+    fprintf(fp, "GPUtronic Gold 1.0 — watch report (self-test plant)\n");
     fprintf(fp, "============================================================\n");
     fprintf(fp, "Cable:  zero-copy mapped  %s\n", zc_ok ? "YES" : "NO");
     fprintf(fp, "Loop:   %s  (control-path rows)\n", LOOP_CSV);
@@ -165,11 +165,11 @@ static void write_report(FILE* fp, int zc_ok, double z_fr, double rate_fr, doubl
 }
 
 int main(void) {
-    GPUTronicConfig cfg;
-    GPUTronicHandle* gov;
+    GPUtronicConfig cfg;
+    GPUtronicHandle* gov;
     FILE* live;
     FILE* report;
-    struct GPUTronicControl* ctrl;
+    struct GPUtronicControl* ctrl;
     struct Sample samples[200];
     int n = 0;
     int phase = PHASE_FREE;

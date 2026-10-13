@@ -11,19 +11,19 @@ change those settings to match the preset below. A co-run is a demo, and it is l
 than the changes in section A of `NEXT.md`.
 
 ## What this can and cannot show
-GPUTronic controls **only its own kernel's SM count** (`active_sms`). It does not throttle, schedule or
+GPUtronic controls **only its own kernel's SM count** (`active_sms`). It does not throttle, schedule or
 see the game. The experiment is therefore a co-run: Gold runs beside the game on the same RTX 5080, and
 we measure whether holding Gold at Z = 1.5 hurts the game's frame times less than an uncontrolled,
 full-width Gold, while Gold still delivers useful throughput.
 
 ## Conditions (each 5 runs, first discarded)
-| ID | Game | GPUTronic |
+| ID | Game | GPUtronic |
 |---|---|---|
 | A | benchmark | none (baseline) |
 | B | benchmark | open-loop, every SM (`gputronic_set_open_loop_sms(h, 0)`). `run` at Z 1.0 is not this |
 | C | benchmark | `gputronic_gold run <sec> 1.5` (closed loop) |
 | D | none | `gputronic_gold run <sec> 1.5` (Gold alone). Ceiling is that run's `rate_ref`, not this row |
-Tensor sensor off (`GPUTRONIC_TENSOR_SENSOR=0`, per 2026-10-12 results). Start GPUTronic first and let
+Tensor sensor off (`GPUTRONIC_TENSOR_SENSOR=0`, per 2026-10-12 results). Start GPUtronic first and let
 calibration finish (~3–4.5 s) before launching the game; run it long enough to cover the game run.
 
 ## Fixed game settings
@@ -49,18 +49,18 @@ Launch options example:
 ## Logs per run
 - MangoHud frame-time log (per frame, with its own timestamps).
 - Game `summary.json`.
-- GPUTronic CSV (`results/gputronic_gold_run.csv`: `time_s`, Z, SM count, rate) and stdout.
+- GPUtronic CSV (`results/gputronic_gold_run.csv`: `time_s`, Z, SM count, rate) and stdout.
 - `nvidia-smi --query-gpu=timestamp,clocks.sm,power.draw,temperature.gpu,pcie.link.gen.current --format=csv -lms 100` and `nvidia-smi dmon -s t`.
 
 ## Time alignment
-GPUTronic `time_s` is relative to its own start. Before each run, record `date +%s.%N` immediately
-before starting GPUTronic and before launching the game; convert every log to wall-clock seconds
+GPUtronic `time_s` is relative to its own start. Before each run, record `date +%s.%N` immediately
+before starting GPUtronic and before launching the game; convert every log to wall-clock seconds
 (CLOCK_REALTIME). nvidia-smi timestamps are wall-clock. MangoHud log start time is taken from its
-file header or file mtime (check which). Accept ±10 ms alignment error; GPUTronic's rate window is 8 ms.
+file header or file mtime (check which). Accept ±10 ms alignment error; GPUtronic's rate window is 8 ms.
 
 ## Metrics
 Per run: average FPS, 1% low, 0.1% low, frame-time variance and 99th-percentile frame time (from
-MangoHud), plus GPUTronic mean Z, SM count, delivered rate as % of condition D, and mean clocks/power.
+MangoHud), plus GPUtronic mean Z, SM count, delivered rate as % of condition D, and mean clocks/power.
 
 ## What would show closed-loop benefit (proposed thresholds, to tune after the first pass)
 - C's 1% low within **5%** of A, while C delivers at least **50%** of D's free-run rate.

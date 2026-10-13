@@ -70,7 +70,7 @@ A step 82 → 42 → 82, same cached plant, tally on:
 
 The exit up-step is measured. On the first binary that spawn reported `ready=0` and the tally never saw SM ≥ 42 resume. The follow-up full 82-block exit map left out only physical SMs 82 and 83, `live_count=82`. A 4-SM exit ended at `live_count=4`, with 82 and 83 still in the left-out list. Relaunch of 82 after a smaller grid reported `same=82 moved=0` and left out 82 and 83. A 4-block relaunch landed on physical SMs 0–3.
 
-The desktop probe is a 960×540 GTK window, title "GPUTronic present probe". Exit: 719 frames, median 16.65 ms, and the windows that cover the two steps had no interval over 20 ms. One later interval reached 33.0 ms. Relaunch: median 16.66 ms, p99 16.96 ms, max 18.0 ms, no interval over 20 ms.
+The desktop probe is a 960×540 GTK window, title "GPUtronic present probe". Exit: 719 frames, median 16.65 ms, and the windows that cover the two steps had no interval over 20 ms. One later interval reached 33.0 ms. Relaunch: median 16.66 ms, p99 16.96 ms, max 18.0 ms, no interval over 20 ms.
 
 ## 3. Sensor range at high throughput
 

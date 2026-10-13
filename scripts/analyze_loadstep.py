@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze a GPUTronic Gold load test (T6 loadstep, T7 bursts, loadfile).
+"""Analyze a GPUtronic Gold load test (T6 loadstep, T7 bursts, loadfile).
 
 Input: the 10 ms bin CSV written by `gputronic_gold loadstep|bursts|loadfile`
 (columns wall_s,t_ms,scale,z_raw,z_hat,active_sms,integral,clamp,rate_ema,sensor).
