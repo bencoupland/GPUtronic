@@ -20,7 +20,7 @@ The 5080 also runs the desktop. Keep two SMs free at all times for the operating
 
 ## How the testing works
 
-The tests run on the host against the real control-word page. That page is GPUtronic's own pinned and mapped block, `struct GPUTronicControl`, read and written across PCIe. There is no GPU emulation layer, and nothing is simulated.
+The tests run on the host against the real control-word page. That page is GPUtronic's own pinned and mapped block, `struct GPUtronicControl`, read and written across PCIe. There is no GPU emulation layer, and nothing is simulated.
 
 ## Piece 1: put the test-load word in the cache
 

@@ -18,7 +18,7 @@ Written 12 October 2026. Follows `docs/analysis/fourth-pass-2026-10-13.md` on `t
 
 ## Who owns the mapped words (read this first)
 
-The control words are GPUtronic's own. They are fields of `struct GPUTronicControl` in `include/gputronic.h`, written by this project, not by NVIDIA's driver:
+The control words are GPUtronic's own. They are fields of `struct GPUtronicControl` in `include/gputronic.h`, written by this project, not by NVIDIA's driver:
 - **Commands**, which the host writes and the device reads: `control_flags`, `active_sms` (the throttle cable), and `work_scale_milli` (test load, read only when the LOAD flag is set).
 - **Sensors**, which the device writes and the host reads: `total_work_pulses` (atomicAdd every pass), `tensor_work_pulses`, and the separate T11 per-SM tally array.
 - **Telemetry**, which only the host writes and reads: Z, `rate_ema`, the integral, and so on. The kernel never reads these.
