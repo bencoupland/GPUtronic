@@ -57,6 +57,36 @@ __device__ __forceinline__ void gold_work(float* acc, int sm, int iter) {
     *acc = val;
 }
 
+/* Test only. GPUTRONIC_PEAK_REPS and GPUTRONIC_PEAK_CHAINS. The result is
+ * stored because ptxas deletes the nest otherwise. One slot per thread.
+ * The unset kernel does not call this. Calling it from the same kernel
+ * makes ptxas keep the default loop's FMAs. */
+__device__ volatile float gold_peak_keep[84 * 1024];
+
+__device__ void gold_work_peak(float* local, int sm, int reps, int chains) {
+    int rN = reps > 1 ? reps : 1;
+    int cN = chains > 1 ? chains : 1;
+    if (rN > 256) rN = 256;
+    if (cN > 16) cN = 16;
+    float acc[16];
+    for (int c = 0; c < 16; c++) acc[c] = *local + 0.001f * (float)c;
+    for (int r = 0; r < rN; r++) {
+        for (int b = 0; b < GOLD_BATCH; b++) {
+            for (int i = 0; i < GOLD_WORK_ITERS; i++) {
+                int iter = i + b * GOLD_WORK_ITERS;
+                for (int c = 0; c < cN; c++)
+                    gold_work(&acc[c], sm, iter + r * 64 + c * 17);
+            }
+        }
+    }
+    float sum = acc[0];
+    for (int c = 1; c < cN; c++) sum += acc[c];
+    *local = sum;
+    int slot = sm * 1024 + (int)threadIdx.x;
+    if ((unsigned)slot < 84u * 1024u)
+        gold_peak_keep[slot] = sum;
+}
+
 /* Tensor-core sensor work [F-16]: one 16x16x16 FP16 -> FP32 wmma per step,
  * accumulating into the same C fragment so the chain cannot be removed.
  * wmma needs sm_70+; older targets compile a stub that does no work. */
@@ -112,7 +142,13 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  * GPUTRONIC_CTRL_CACHE_US (default 1000, floor 50) and the block uses that
  * shared copy. Unset, every pass reads the mapped words, and work_scale_milli
  * is still read only while the load flag is set. The pulse batch stays at 1 ms.
- * Tensor-on blocks do not take this cache: a barrier there is not uniform. */
+ * Tensor-on blocks do not take this cache: a barrier there is not uniform.
+ * GPUTRONIC_ICLAMP_SMS sets the integral clamp in SMs for one run. Unset
+ * keeps the scaled law. GPUTRONIC_IDLE_EXIT=1 makes an idle block return.
+ * The host launches fresh blocks when the count rises. GPUTRONIC_RELAUNCH=1
+ * retires the grid and launches the commanded count, after a hold so a
+ * one-tick flicker does not relaunch. GPUTRONIC_PEAK_REPS, GPUTRONIC_PEAK_CHAINS,
+ * and GPUTRONIC_THREADS raise work per pass. All of these stay off when unset. */
 #define GOLD_OPS_CUDA_WARP_PASS (2ULL * GOLD_BATCH * GOLD_WORK_ITERS * 8ULL * 32ULL)
 #define GOLD_OPS_TENSOR_WARP_PASS (2ULL * 16 * 16 * 16 * GOLD_TENSOR_STEPS)
 #define GOLD_ACCUM_WORDS 5
@@ -181,6 +217,9 @@ __device__ __forceinline__ int gold_sm_selected(unsigned int phys,
     return (int)((pass_mask >> pass) & 1u);
 }
 
+/* Peak is a compile-time switch. The unset kernel must not contain the
+ * peak nest, or ptxas keeps the default FMAs and the pulse rate falls. */
+template<int Peak>
 __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        GPUTronicControl* ctrl,
                                        int num_sm,
@@ -196,8 +235,13 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        int pulse_local,
                                        int ctrl_cache,
                                        unsigned long long ctrl_cache_ns,
-                                       unsigned int* smid_out) {
-    const int sm = blockIdx.x;
+                                       unsigned int* smid_out,
+                                       int idle_exit,
+                                       unsigned int* slot_gen,
+                                       int block_base,
+                                       int peak_reps,
+                                       int peak_chains) {
+    const int sm = blockIdx.x + block_base;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
     const int is_tensor_warp = (tid >> 5) >= cuda_warps;
@@ -208,6 +252,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     unsigned long long pulse_last = 0ULL;
     unsigned int load_credit = 0;   /* T6/T7 synthetic load, see work_scale_milli */
     unsigned long long work_done = 0; /* T9: completed batches, this warp */
+    unsigned int my_gen = 0;          /* idle-exit ownership of this logical SM */
 
     __shared__ unsigned long long s_ops[2];   /* T11: CUDA ops, tensor ops. Block-wide. */
     __shared__ unsigned int s_phys;
@@ -238,6 +283,13 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     __syncthreads();
     const int accum_on = (accum != NULL) && (accum_sm < 0 || accum_sm == sm);
     unsigned long long accum_last = 0ULL, accum_seq = 0ULL;
+    int peak_on = (peak_reps > 1 || peak_chains > 1);
+    int peak_r = peak_reps > 1 ? peak_reps : 1;
+    int peak_c = peak_chains > 1 ? peak_chains : 1;
+    if (peak_r > 256) peak_r = 256;
+    if (peak_c > 16) peak_c = 16;
+    unsigned long long pass_ops = GOLD_OPS_CUDA_WARP_PASS;
+    if (peak_on) pass_ops *= (unsigned long long)peak_r * (unsigned long long)peak_c;
     if (tid == 0) {
         /* One write before the loop so an idle block, which never publishes,
          * still leaves its physical SM in the slot. seq stays 0 until a publish. */
@@ -246,6 +298,9 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             slot[3] = phys_sm;
             __threadfence_system();
         }
+        /* Host stored the generation before launch. Exit clears it only if
+         * this block still owns the slot. Off unless GPUTRONIC_IDLE_EXIT=1. */
+        if (idle_exit && slot_gen) my_gen = ((volatile unsigned int*)slot_gen)[sm];
     }
 
     while (true) {
@@ -271,6 +326,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             flags = ctrl->control_flags;
         }
         if (flags & GPUTRONIC_FLAG_STOP) break;
+        if (flags & GPUTRONIC_FLAG_RETIRE) break;
         if (flags & GPUTRONIC_FLAG_PAUSE) {
             (void)(5000);   /* was __nanosleep: removed, NEXT.md A4 */
             continue;
@@ -292,6 +348,15 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
         int idle = selected ? !gold_sm_selected(s_phys, pass_mask, sm_mask_lo, sm_mask_hi)
                             : (sm >= active);
         if (idle) {
+            if (idle_exit) {
+                /* The block ends. The SM is free for the desktop or a later
+                 * launch. Off by default. GPUTRONIC_IDLE_EXIT=1. */
+                if (tid == 0 && slot_gen && my_gen != 0u) {
+                    atomicCAS((unsigned int*)slot_gen + sm, my_gen, 0u);
+                    __threadfence_system();
+                }
+                return;
+            }
             if (idle_quiet) {
                 /* Local wait. The mapped words are read once per trip, at the
                  * top of the loop, so STOP and a new active_sms still land.
@@ -316,12 +381,15 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             continue;
         }
 
-        for (int b = 0; b < GOLD_BATCH; b++) {
-            for (int i = 0; i < GOLD_WORK_ITERS; i++)
-                gold_work(&local, sm, i + b * GOLD_WORK_ITERS);
+        if (Peak) {
+            gold_work_peak(&local, sm, peak_r, peak_c);
+        } else {
+            for (int b = 0; b < GOLD_BATCH; b++) {
+                for (int i = 0; i < GOLD_WORK_ITERS; i++)
+                    gold_work(&local, sm, i + b * GOLD_WORK_ITERS);
+            }
         }
-
-        /* Prevent compiler from DCE-ing the work */
+        /* Same anti-DCE the default loop has always had. */
         if (local > 1.0e30f) local = 0.0f;
 
         /* T9 work counter: off (NULL) by default. Plain device memory, one slot
@@ -335,7 +403,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
          * block is CUDA warps alone. That is the normal run: the tensor sensor
          * is off. The barrier lets the leader add both warps into one snapshot. */
         if (accum_on && !is_tensor_warp) {
-            if (lane == 0) atomicAdd(&s_ops[0], GOLD_OPS_CUDA_WARP_PASS);
+            if (lane == 0) atomicAdd(&s_ops[0], pass_ops);
             const int cuda_only = (blockDim.x == cuda_warps * 32);
             if (cuda_only) __syncthreads();
             if (tid == 0) {
@@ -419,14 +487,37 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    int pulse_local,
                                    int ctrl_cache,
                                    unsigned long long ctrl_cache_ns,
-                                   unsigned int* smid_out) {
-    /* CUDA-core warps stay as configured; the tensor sensor adds one warp. */
+                                   unsigned int* smid_out,
+                                   int idle_exit,
+                                   unsigned int* slot_gen,
+                                   int nblocks,
+                                   int block_base,
+                                   int peak_reps,
+                                   int peak_chains,
+                                   int use_peak,
+                                   cudaStream_t stream) {
+    /* CUDA-core warps stay as configured; the tensor sensor adds one warp.
+     * nblocks is this launch. num_sm is the logical ceiling (the OS-reserve
+     * launch count). block_base is the first logical SM in this launch. */
     int cuda_warps = (threads_per_block + 31) / 32;
     int threads = cuda_warps * 32 + (tensor_sensor ? 32 : 0);
-    gold_persistent_kernel<<<num_sm, threads>>>(sm_counters, d_ctrl, num_sm, cuda_warps, work_count,
-                                                 accum, accum_sm, accum_bin_ns, idle_quiet,
+    if (nblocks < 1) nblocks = 1;
+    /* use_peak is the last int before the stream. Reps=1 and chains=1 are
+     * still the live nest when the test switch is set. The unset launch
+     * stays on the kernel whose FMA nest the compiler removes. */
+    int peak = use_peak ? 1 : 0;
+    if (peak)
+        gold_persistent_kernel<1><<<nblocks, threads, 0, stream>>>(sm_counters, d_ctrl, num_sm, cuda_warps,
+                                                 work_count, accum, accum_sm, accum_bin_ns, idle_quiet,
                                                  pass_mask, sm_mask_lo, sm_mask_hi,
-                                                 pulse_local, ctrl_cache, ctrl_cache_ns, smid_out);
+                                                 pulse_local, ctrl_cache, ctrl_cache_ns, smid_out,
+                                                 idle_exit, slot_gen, block_base, peak_reps, peak_chains);
+    else
+        gold_persistent_kernel<0><<<nblocks, threads, 0, stream>>>(sm_counters, d_ctrl, num_sm, cuda_warps,
+                                                 work_count, accum, accum_sm, accum_bin_ns, idle_quiet,
+                                                 pass_mask, sm_mask_lo, sm_mask_hi,
+                                                 pulse_local, ctrl_cache, ctrl_cache_ns, smid_out,
+                                                 idle_exit, slot_gen, block_base, peak_reps, peak_chains);
 }
 
 /* ---- Host handle and control thread ---- */
@@ -441,6 +532,7 @@ struct GPUTronicHandle {
     int device_sms;             /* multiProcessorCount, before the OS reserve */
     unsigned int* h_smid;       /* mapped %smid of each launched block */
     unsigned int* d_smid;
+    unsigned int* smid_boot;    /* host copy of the first launch's map */
     unsigned long long* d_work; /* T9 work counter, num_sm*32 slots; NULL = off (default) */
     unsigned long long* h_accum; /* T11 mapped slots, GOLD_ACCUM_WORDS x u64 per block; NULL = off */
     unsigned long long* d_accum;
@@ -527,6 +619,31 @@ struct GPUTronicHandle {
      * The pulse batch stays 1 ms. */
     int ctrl_cache;
     unsigned long long ctrl_cache_ns;
+    /* Test only. See gold_apply_test_env. Zero unless that run sets them. */
+    int idle_quiet;
+    int idle_exit;
+    int relaunch;
+    long relaunch_hold_us;
+    double launched_at_us;
+    int launched_n;
+    int smid_expect;
+    unsigned int gen_tick;
+    unsigned int* h_slot;
+    unsigned int* d_slot;
+    cudaStream_t side_stream;
+    int side_on;
+    /* One stream per idle-exit refill. A second launch on the same stream
+     * waits until the first refill kernel returns, and that kernel stays
+     * resident, so the refill never starts. */
+    cudaStream_t wave_stream[64];
+    int n_waves;
+    cudaStream_t kstream;
+    int kstream_on;
+    int peak_reps;
+    int peak_chains;
+    int peak_live; /* 1 when a peak test switch is set, including reps=1 */
+    unsigned int spawn_count;
+    unsigned int relaunch_count;
 };
 
 static volatile int g_signal_stop = 0;
@@ -581,6 +698,17 @@ void gputronic_config_gold(GPUTronicConfig* cfg) {
     }
     ev = getenv("GPUTRONIC_RESERVE_SMS");
     if (ev && *ev) cfg->reserve_sms = atoi(ev) < 0 ? 0 : atoi(ev);
+    /* Test only. Unset keeps 64 threads. Capped at 1024 so the pulse
+     * batch still fits in s_warp_pulses[32]. */
+    ev = getenv("GPUTRONIC_THREADS");
+    if (ev && *ev) {
+        int t = atoi(ev);
+        if (t < 32) t = 32;
+        if (t > 1024) t = 1024;
+        t &= ~31;
+        if (t < 32) t = 32;
+        cfg->threads_per_block = t;
+    }
     cfg->csv_path = "results/gputronic_gold.csv";
 }
 
@@ -667,9 +795,26 @@ static void gold_fit_table(GPUTronicHandle* h, const char* label, double rate_re
 /* Integral clamp in use: the config value if > 0, otherwise scaled so that
  * Ki * clamp * sms_per_u = GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC * num_sm SMs. Falls back
  * to 1.0 if Ki or sms_per_u is not positive. Recomputed when sms_per_u changes. */
+/* GPUTRONIC_ICLAMP_SMS is a test switch. It sets the clamp in SMs for one
+ * run: Ki * clamp * sms_per_u = that many SMs. Unset keeps the scaled law,
+ * or the fixed config value when integral_clamp > 0. */
+static int gold_iclamp_sms_env(float* sms_out) {
+    const char* ev = getenv("GPUTRONIC_ICLAMP_SMS");
+    if (!ev || !*ev) return 0;
+    float sms = (float)atof(ev);
+    if (sms <= 0.0f) return 0;
+    if (sms_out) *sms_out = sms;
+    return 1;
+}
+
 static void gold_set_iclamp(GPUTronicHandle* h) {
-    if (h->cfg.integral_clamp > 0.0f) { h->iclamp = h->cfg.integral_clamp; return; }
+    float sms = 0.0f;
     float denom = h->cfg.ki * h->sms_per_u;
+    if (gold_iclamp_sms_env(&sms)) {
+        h->iclamp = (denom > 1e-6f) ? sms / denom : 1.0f;
+        return;
+    }
+    if (h->cfg.integral_clamp > 0.0f) { h->iclamp = h->cfg.integral_clamp; return; }
     h->iclamp = (denom > 1e-6f && h->cfg.num_sm > 0) ? GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC * (float)h->cfg.num_sm / denom : 1.0f;
 }
 
@@ -691,8 +836,149 @@ static void gold_build_table(GPUTronicHandle* h) {
     h->sms_per_u = h->spu_s[h->sel];
     printf("[CAL] controller starts on the %s sensor\n", h->sel ? "tensor" : "cuda");
     gold_set_iclamp(h);
+    const char* how = "scaled";
+    float sms_req = 0.0f;
+    if (gold_iclamp_sms_env(&sms_req)) how = "iclamp_sms";
+    else if (h->cfg.integral_clamp > 0.0f) how = "config";
     printf("[CAL] integral clamp=%.3f (%s, max integral correction %.2f SMs of %d)\n", h->iclamp,
-           h->cfg.integral_clamp > 0.0f ? "config" : "scaled", h->cfg.ki * h->iclamp * h->sms_per_u, h->cfg.num_sm);
+           how, h->cfg.ki * h->iclamp * h->sms_per_u, h->cfg.num_sm);
+}
+
+static void gold_launch_this(GPUTronicHandle* h, int nblocks, int block_base, cudaStream_t stream) {
+    gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
+                       h->cfg.enable_tensor_sensor, h->d_work,
+                       h->d_accum, h->accum_sm, h->accum_bin_ns, h->idle_quiet,
+                       h->select_pass_mask, h->select_sm_lo, h->select_sm_hi,
+                       h->pulse_local, h->ctrl_cache, h->ctrl_cache_ns, h->d_smid,
+                       h->idle_exit, h->d_slot, nblocks, block_base,
+                       h->peak_reps > 0 ? h->peak_reps : 1,
+                       h->peak_chains > 0 ? h->peak_chains : 1,
+                       h->peak_live,
+                       stream);
+}
+
+/* Short map of one launch. Waits at most 2 ms for %smid, then prints the ends. */
+static void gold_note_smids(GPUTronicHandle* h, int nblocks, int block_base) {
+    if (!h->h_smid || nblocks <= 0) return;
+    int ready = 0;
+    for (int spin = 0; spin < 20 && ready < nblocks; spin++) {
+        ready = 0;
+        for (int i = 0; i < nblocks; i++) {
+            int idx = block_base + i;
+            if (idx >= 0 && idx < h->cfg.num_sm && h->h_smid[idx] != 0xFFFFFFFFu) ready++;
+        }
+        if (ready >= nblocks) break;
+        usleep(100);
+    }
+    int same = 0, moved = 0;
+    printf("[SMID] launch base=%d n=%d ready=%d", block_base, nblocks, ready);
+    int show = nblocks < 8 ? nblocks : 4;
+    for (int i = 0; i < nblocks; i++) {
+        int idx = block_base + i;
+        unsigned int id = (idx >= 0 && idx < h->cfg.num_sm) ? h->h_smid[idx] : 0xFFFFFFFFu;
+        if (i < show || i >= nblocks - 2)
+            printf(" %d:%u", idx, id);
+        else if (i == show)
+            printf(" ...");
+        if (h->smid_boot && idx >= 0 && idx < h->cfg.num_sm && id != 0xFFFFFFFFu) {
+            if (id == h->smid_boot[idx]) same++;
+            else moved++;
+        }
+    }
+    if (h->smid_boot) printf(" same=%d moved=%d", same, moved);
+    printf("\n");
+    fflush(stdout);
+}
+
+/* Idle-exit only. A logical SM whose slot is 0 is not running. Claim it and
+ * launch a block. Contiguous holes go out as one grid. */
+static void gold_spawn_holes(GPUTronicHandle* h, int want) {
+    if (!h->idle_exit || !h->h_slot || !h->side_on) return;
+    if (h->h_ctrl->control_flags & GPUTRONIC_FLAG_STOP) return;
+    if (want < GPUTRONIC_SM_FLOOR) want = GPUTRONIC_SM_FLOOR;
+    if (want > h->cfg.num_sm) want = h->cfg.num_sm;
+    int s = 0;
+    while (s < want) {
+        if (h->h_slot[s] != 0u) { s++; continue; }
+        int lo = s;
+        while (s < want && h->h_slot[s] == 0u) s++;
+        int n = s - lo;
+        for (int i = lo; i < lo + n; i++) {
+            unsigned int g = ++h->gen_tick;
+            if (g == 0u) g = ++h->gen_tick;
+            h->h_slot[i] = g;
+            if (h->h_smid) h->h_smid[i] = 0xFFFFFFFFu;
+        }
+        __sync_synchronize();
+        double t0 = now_us();
+        cudaStream_t wave;
+        cudaError_t err = cudaSuccess;
+        const char* how = "ok";
+        if (h->n_waves >= 64) {
+            err = cudaErrorUnknown;
+            how = "wave cap";
+        } else if ((err = cudaStreamCreateWithFlags(&wave, cudaStreamNonBlocking)) != cudaSuccess) {
+            how = cudaGetErrorString(err);
+        } else {
+            h->wave_stream[h->n_waves++] = wave;
+            gold_launch_this(h, n, lo, wave);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) how = cudaGetErrorString(err);
+        }
+        h->spawn_count++;
+        printf("[SPAWN] base=%d n=%d us=%.0f count=%u %s\n",
+               lo, n, now_us() - t0, h->spawn_count, how);
+        fflush(stdout);
+        if (err != cudaSuccess) {
+            for (int i = lo; i < lo + n; i++) h->h_slot[i] = 0u;
+            return;
+        }
+        gold_note_smids(h, n, lo);
+    }
+}
+
+/* Test switches. Unset, this returns without a launch. Relaunch retires the
+ * whole grid. Idle-exit only fills holes below the command. */
+static void gold_service_width(GPUTronicHandle* h, int n_cmd) {
+    if (!h || !h->h_ctrl) return;
+    if (h->h_ctrl->control_flags & GPUTRONIC_FLAG_STOP) return;
+    if (n_cmd < GPUTRONIC_SM_FLOOR) n_cmd = GPUTRONIC_SM_FLOOR;
+    if (n_cmd > h->cfg.num_sm) n_cmd = h->cfg.num_sm;
+    if (h->relaunch) {
+        if (!h->kstream_on || n_cmd == h->launched_n) return;
+        double now = now_us();
+        if (h->launched_at_us > 0.0 && now - h->launched_at_us < (double)h->relaunch_hold_us)
+            return;
+        int from = h->launched_n;
+        double t0 = now_us();
+        h->h_ctrl->control_flags |= GPUTRONIC_FLAG_RETIRE;
+        __sync_synchronize();
+        cudaError_t err = cudaStreamSynchronize(h->kstream);
+        double t1 = now_us();
+        h->h_ctrl->control_flags &= ~GPUTRONIC_FLAG_RETIRE;
+        __sync_synchronize();
+        if (err != cudaSuccess) {
+            printf("[RELAUNCH] sync failed: %s\n", cudaGetErrorString(err));
+            fflush(stdout);
+            return;
+        }
+        if (h->h_smid) {
+            for (int i = 0; i < h->cfg.num_sm; i++) h->h_smid[i] = 0xFFFFFFFFu;
+        }
+        gold_launch_this(h, n_cmd, 0, h->kstream);
+        err = cudaGetLastError();
+        h->launched_n = n_cmd;
+        h->launched_at_us = now_us();
+        h->smid_expect = n_cmd;
+        h->relaunch_count++;
+        printf("[RELAUNCH] %d -> %d sync_us=%.0f launch_us=%.0f count=%u %s\n",
+               from, n_cmd, t1 - t0, h->launched_at_us - t1, h->relaunch_count,
+               err == cudaSuccess ? "ok" : cudaGetErrorString(err));
+        fflush(stdout);
+        if (err == cudaSuccess) gold_note_smids(h, n_cmd, 0);
+        return;
+    }
+    if (h->idle_exit) gold_spawn_holes(h, n_cmd);
 }
 
 static void gold_reset_rate_state(GPUTronicHandle* h) {
@@ -998,6 +1284,7 @@ static void* control_thread(void* arg) {
         h->held_sms = n_cmd;
         h->h_ctrl->active_sms = n_cmd;
         __sync_synchronize();
+        gold_service_width(h, n_cmd);
 
         h->h_ctrl->target_z = h->cfg.target_z;
         h->h_ctrl->z_raw = z_raw;
@@ -1086,12 +1373,13 @@ void gputronic_log_smids(GPUTronicHandle* h) {
         return;
     }
     int n = h->cfg.num_sm;
+    int nwait = (h->smid_expect > 0 && h->smid_expect < n) ? h->smid_expect : n;
     int dev = h->device_sms > 0 ? h->device_sms : n;
     if (dev > 256) dev = 256;
     volatile unsigned int* map = h->h_smid;
     for (int spin = 0; spin < 500; spin++) {
         int ready = 1;
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < nwait; i++) {
             if (map[i] == 0xFFFFFFFFu) { ready = 0; break; }
         }
         if (ready) break;
@@ -1360,13 +1648,80 @@ int gputronic_start(GPUTronicHandle* h) {
             }
         }
         if (!h->h_accum) { h->d_accum = NULL; h->accum_sm = -1; h->accum_bin_ns = 1000000ULL; }
-        int idle_quiet = 0;
+        h->idle_quiet = 0;
         {
             const char* iq = getenv("GPUTRONIC_IDLE_QUIET");
-            if (iq && strcmp(iq, "1") == 0) idle_quiet = 1;
+            if (iq && strcmp(iq, "1") == 0) h->idle_quiet = 1;
         }
-        if (idle_quiet)
+        if (h->idle_quiet)
             printf("[IDLE] quiet on: idle blocks sample the mapped words once per 1 ms\n");
+        {
+            const char* ex = getenv("GPUTRONIC_IDLE_EXIT");
+            const char* rl = getenv("GPUTRONIC_RELAUNCH");
+            h->idle_exit = (ex && strcmp(ex, "1") == 0) ? 1 : 0;
+            h->relaunch = (rl && strcmp(rl, "1") == 0) ? 1 : 0;
+            if (h->idle_exit && h->relaunch) {
+                printf("[IDLE] both IDLE_EXIT and RELAUNCH are set; using neither\n");
+                h->idle_exit = 0;
+                h->relaunch = 0;
+            }
+        }
+        if (h->relaunch) {
+            long hold = 5000;
+            const char* hs = getenv("GPUTRONIC_RELAUNCH_HOLD_US");
+            if (hs && *hs) hold = atol(hs);
+            if (hold < 500) hold = 500;
+            if (hold > 1000000) hold = 1000000;
+            h->relaunch_hold_us = hold;
+            printf("[IDLE] relaunch on: new grid at the commanded count, hold %ld us\n", hold);
+        }
+        if (h->idle_exit) {
+            printf("[IDLE] exit on: an idle block returns; the host launches replacements\n");
+            if (cudaHostAlloc((void**)&h->h_slot,
+                              (size_t)h->cfg.num_sm * sizeof(unsigned int),
+                              cudaHostAllocMapped) == cudaSuccess &&
+                cudaHostGetDevicePointer((void**)&h->d_slot, h->h_slot, 0) == cudaSuccess) {
+                h->gen_tick = 1u;
+                for (int i = 0; i < h->cfg.num_sm; i++) h->h_slot[i] = 1u;
+            } else {
+                if (h->h_slot) cudaFreeHost(h->h_slot);
+                h->h_slot = NULL;
+                h->d_slot = NULL;
+                h->idle_exit = 0;
+                printf("[IDLE] slot map failed; exit switch is off for this run\n");
+            }
+        }
+        h->peak_reps = 1;
+        h->peak_chains = 1;
+        h->peak_live = 0;
+        {
+            const char* pr = getenv("GPUTRONIC_PEAK_REPS");
+            const char* pc = getenv("GPUTRONIC_PEAK_CHAINS");
+            if (pr && *pr) { h->peak_reps = atoi(pr); h->peak_live = 1; }
+            if (pc && *pc) { h->peak_chains = atoi(pc); h->peak_live = 1; }
+            if (h->peak_reps < 1) h->peak_reps = 1;
+            if (h->peak_chains < 1) h->peak_chains = 1;
+            if (h->peak_reps > 256) h->peak_reps = 256;
+            if (h->peak_chains > 16) h->peak_chains = 16;
+        }
+        if (h->peak_live || h->cfg.threads_per_block != GPUTRONIC_DEFAULT_THREADS_PER_BLOCK)
+            printf("[PEAK] reps=%d chains=%d threads=%d\n",
+                   h->peak_reps, h->peak_chains, h->cfg.threads_per_block);
+        if (h->idle_exit || h->relaunch) {
+            if (cudaStreamCreateWithFlags(&h->side_stream, cudaStreamNonBlocking) == cudaSuccess)
+                h->side_on = 1;
+        }
+        if (h->relaunch) {
+            if (cudaStreamCreateWithFlags(&h->kstream, cudaStreamNonBlocking) == cudaSuccess)
+                h->kstream_on = 1;
+            else
+                printf("[IDLE] relaunch stream failed; this run keeps the resident grid\n");
+            if (!h->kstream_on) h->relaunch = 0;
+        }
+        if (h->idle_exit && !h->side_on) {
+            printf("[IDLE] side stream failed; exit switch is off for this run\n");
+            h->idle_exit = 0;
+        }
         gold_parse_select(h);
         {
             const char* pl = getenv("GPUTRONIC_PULSE_LOCAL");
@@ -1392,11 +1747,11 @@ int gputronic_start(GPUTronicHandle* h) {
             h->ctrl_cache_ns = (unsigned long long)v * 1000ULL;
             printf("[CTRL] cached control words, including work_scale_milli: leader reads once per %ld us\n", v);
         }
-        gold_launch_kernel(h->d_sm, h->d_ctrl, h->cfg.num_sm, h->cfg.threads_per_block,
-                           h->cfg.enable_tensor_sensor, h->d_work,
-                           h->d_accum, h->accum_sm, h->accum_bin_ns, idle_quiet,
-                           h->select_pass_mask, h->select_sm_lo, h->select_sm_hi,
-                           h->pulse_local, h->ctrl_cache, h->ctrl_cache_ns, h->d_smid);
+        cudaStream_t launch_stream = h->kstream_on ? h->kstream : 0;
+        gold_launch_this(h, h->cfg.num_sm, 0, launch_stream);
+        h->launched_n = h->cfg.num_sm;
+        h->launched_at_us = now_us();
+        h->smid_expect = h->cfg.num_sm;
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             fprintf(stderr, "[GPUTronic] kernel launch failed: %s\n", cudaGetErrorString(err));
@@ -1408,6 +1763,11 @@ int gputronic_start(GPUTronicHandle* h) {
         printf("[OK] Persistent self-test kernel launched (%d blocks x %d threads)\n",
                h->cfg.num_sm, h->cfg.threads_per_block);
         gputronic_log_smids(h);
+        if (h->h_smid && h->cfg.num_sm > 0) {
+            h->smid_boot = (unsigned int*)malloc((size_t)h->cfg.num_sm * sizeof(unsigned int));
+            if (h->smid_boot)
+                memcpy(h->smid_boot, h->h_smid, (size_t)h->cfg.num_sm * sizeof(unsigned int));
+        }
     }
 
     if (pthread_create(&h->thr, NULL, control_thread, h) != 0) {
@@ -1428,6 +1788,31 @@ void gputronic_stop(GPUTronicHandle* h) {
     if (h->h_ctrl) h->h_ctrl->control_flags |= GPUTRONIC_FLAG_STOP;
     pthread_join(h->thr, NULL);
     cudaDeviceSynchronize();
+    if (h->idle_exit || h->relaunch) {
+        printf("[IDLE] spawns=%u relaunches=%u\n", h->spawn_count, h->relaunch_count);
+        if (h->idle_exit && h->h_slot && h->h_smid) {
+            unsigned char seen[256];
+            memset(seen, 0, sizeof seen);
+            int live = 0;
+            int dev = h->device_sms > 0 && h->device_sms < 256 ? h->device_sms : 84;
+            printf("[SMID] live");
+            for (int i = 0; i < h->cfg.num_sm; i++) {
+                if (h->h_slot[i] == 0u) continue;
+                unsigned int id = h->h_smid[i];
+                printf(" %d:%u", i, id);
+                live++;
+                if (id < 256) seen[id] = 1;
+            }
+            printf("\n[SMID] live_count=%d left out:", live);
+            int left = 0;
+            for (int id = 0; id < dev; id++) {
+                if (!seen[id]) { printf(" %d", id); left++; }
+            }
+            if (left == 0) printf(" none");
+            printf("\n");
+        }
+        gputronic_log_smids(h);
+    }
 
     if (h->csv) {
         fflush(h->csv);
@@ -1453,6 +1838,11 @@ void gputronic_stop(GPUTronicHandle* h) {
 void gputronic_destroy(GPUTronicHandle* h) {
     if (!h) return;
     if (h->started) gputronic_stop(h);
+    if (h->smid_boot) free(h->smid_boot);
+    for (int i = 0; i < h->n_waves && i < 64; i++) cudaStreamDestroy(h->wave_stream[i]);
+    if (h->side_on) cudaStreamDestroy(h->side_stream);
+    if (h->kstream_on) cudaStreamDestroy(h->kstream);
+    if (h->h_slot) cudaFreeHost(h->h_slot);
     if (h->d_sm) cudaFree(h->d_sm);
     if (h->h_smid) cudaFreeHost(h->h_smid);
     if (h->d_work) cudaFree(h->d_work);
@@ -2106,6 +2496,11 @@ static void usage(const char* argv0) {
     printf("    GPUTRONIC_PULSE_LOCAL=1\n");
     printf("    GPUTRONIC_CTRL_CACHE=1\n");
     printf("    GPUTRONIC_CTRL_CACHE_US=1000   # cache period, only with CTRL_CACHE=1\n");
+    printf("    GPUTRONIC_ICLAMP_SMS=6         # clamp in SMs; unset keeps the scaled law\n");
+    printf("    GPUTRONIC_IDLE_EXIT=1          # idle block returns; host launches the rest\n");
+    printf("    GPUTRONIC_RELAUNCH=1           # new grid at the commanded count\n");
+    printf("    GPUTRONIC_RELAUNCH_HOLD_US=5000\n");
+    printf("    GPUTRONIC_PEAK_REPS / GPUTRONIC_PEAK_CHAINS / GPUTRONIC_THREADS\n");
     printf("    GPUTRONIC_STEP_AT_MS / GPUTRONIC_STEP_SMS   # test only, during noise or loadstep\n");
     printf("  %s ratio [hold_s] [n1,n2,...]                 # T9: pulse-to-work ratio (default 5, N,3N/4,N/2,N/4)\n", argv0);
     printf("  %s fullwidth [sec]                            # T8: open loop, all SMs, no controller\n", argv0);

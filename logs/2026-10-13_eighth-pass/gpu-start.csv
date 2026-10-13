@@ -1,0 +1,2 @@
+name, temperature.gpu, power.draw [W], clocks.current.sm [MHz], utilization.gpu [%], display_active, display_mode, driver_version
+NVIDIA GeForce RTX 5080, 44, 37.94 W, 1095 MHz, 10 %, Enabled, [Requested functionality has been deprecated], 595.99.02

@@ -1,0 +1,59 @@
+[ZC ] type=host host_ptr=OK dev_ptr=OK round_trip=OK (host 0x7c72cc600200, device 0x7c72cc600200, same address (UVA))
+[SNS] tensor sensor off
+═══════════════════════════════════════════════════════════
+[GPUTronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (launching 82, 2 reserved for the OS) | thr/block=64
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[LOOP] dt=10 us (100 kHz) active_sms=82 floor=2
+
+[CSV] results/gputronic_gold_fullwidth.csv
+[T11] per-SM accumulator on: all SMs, bin 500 us
+[IDLE] exit on: an idle block returns; the host launches replacements
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[OK] Persistent self-test kernel launched (82 blocks x 64 threads)
+[SMID] launched 82 blocks on a 84-SM device
+[SMID] block:smid 0:0 1:1 2:14 3:15 4:28 5:29 6:42 7:43 8:56 9:57 10:70 11:71 12:2 13:3 14:16 15:17 16:30 17:31 18:44 19:45 20:58 21:59 22:72 23:73 24:4 25:5 26:18 27:19 28:32 29:33 30:46 31:47 32:60 33:61 34:74 35:75 36:6 37:7 38:20 39:21 40:34 41:35 42:48 43:49 44:62 45:63 46:76 47:77 48:8 49:9 50:22 51:23 52:36 53:37 54:50 55:51 56:64 57:65 58:78 59:79 60:10 61:11 62:24 63:25 64:38 65:39 66:52 67:53 68:66 69:67 70:80 71:81 72:12 73:13 74:26 75:27 76:40 77:41 78:54 79:55 80:68 81:69
+[SMID] left out: 82 83
+[SMID] recorded 82 of 82
+[CTRL] Gold | target=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 kalman=1 two-sided | cal 1.8s + 4-point table
+[CAL] rate_ref=254187792.0 pulses/s (sustained 1.10s window)
+[CAL] cuda table n= 61 rate=192356617.9 Z=1.321
+[CAL] cuda table n= 41 rate=129938300.5 Z=1.956
+[CAL] cuda table n= 20 rate=64188451.4 Z=3.960
+[CAL] cuda table n=  2 rate=6600350.6 Z=38.511
+[CAL] cuda target Z=1.50 → n_ff=55.4 dZ/dn=0.0317 sms_per_u=31.5
+[CAL] controller starts on the cuda sensor
+[CAL] integral clamp=1.301 (scaled, max integral correction 3.28 SMs of 82)
+[SPAWN] base=2 n=45 us=129 count=1 ok
+[SMID] launch base=2 n=45 ready=45 2:14 3:15 4:28 5:29 ... 45:40 46:41 same=6 moved=39
+[STEP] will set active_sms 42 at 2000.000 ms
+[STEP] will set active_sms 82 at 5000.000 ms
+[SPAWN] base=47 n=35 us=21 count=2 ok
+[LOAD] calibrated; schedule t=0 at wall 1791855906.997438348 (CLOCK_REALTIME), 0 points, 8 s
+[SMID] launch base=47 n=35 ready=0 47:4294967295 48:4294967295 49:4294967295 50:4294967295 ... 80:4294967295 81:4294967295 same=0 moved=0
+[TEL] t=   1s | Z_raw=1.654 Z_hat=1.654 dZ=0.335 | Zc=1.654 Zt=0.000 sel=cuda | rate=153724768 rate_t=0 | n= 82 | hz~16726 | pulses=723838236
+[STEP] t_ms=2000.005 active_sms -> 42
+[TEL] t=   2s | Z_raw=1.734 Z_hat=1.763 dZ=0.210 | Zc=1.734 Zt=0.000 sel=cuda | rate=146614400 rate_t=0 | n= 42 | hz~17966 | pulses=873082546
+[TEL] t=   3s | Z_raw=1.883 Z_hat=1.883 dZ=0.103 | Zc=1.883 Zt=0.000 sel=cuda | rate=134960096 rate_t=0 | n= 42 | hz~18469 | pulses=1006478488
+[TEL] t=   4s | Z_raw=1.838 Z_hat=1.845 dZ=-0.016 | Zc=1.838 Zt=0.000 sel=cuda | rate=138319328 rate_t=0 | n= 42 | hz~25717 | pulses=1140337756
+[STEP] t_ms=5000.021 active_sms -> 82
+[SPAWN] base=42 n=5 us=168 count=3 ok
+[TEL] t=   5s | Z_raw=1.970 Z_hat=1.970 dZ=0.080 | Zc=1.970 Zt=0.000 sel=cuda | rate=129009832 rate_t=0 | n= 82 | hz~17511 | pulses=1273973710
+[SMID] launch base=42 n=5 ready=0 42:4294967295 43:4294967295 44:4294967295 45:4294967295 46:4294967295 same=0 moved=0
+[TEL] t=   6s | Z_raw=1.911 Z_hat=1.911 dZ=-0.002 | Zc=1.911 Zt=0.000 sel=cuda | rate=132983584 rate_t=0 | n= 82 | hz~23422 | pulses=1408212204
+[TEL] t=   7s | Z_raw=1.862 Z_hat=1.862 dZ=0.299 | Zc=1.862 Zt=0.000 sel=cuda | rate=136540256 rate_t=0 | n= 82 | hz~22214 | pulses=1541971276
+[IDLE] spawns=3 relaunches=0
+[SMID] live 0:0 1:1 2:14 3:15 4:28 5:29 6:42 7:43 8:2 9:3 10:16 11:17 12:30 13:31 14:44 15:45 16:4 17:5 18:18 19:19 20:32 21:33 22:46 23:6 24:7 25:20 26:21 27:34 28:35 29:8 30:9 31:22 32:23 33:36 34:37 35:10 36:11 37:24 38:25 39:38 40:39 41:12 42:0 43:1 44:2 45:3 46:4 47:0 48:1 49:14 50:15 51:28 52:29 53:2 54:3 55:16 56:17 57:30 58:31 59:4 60:5 61:18 62:19 63:32 64:33 65:6 66:7 67:20 68:21 69:34 70:8 71:9 72:22 73:23 74:10 75:11 76:24 77:25 78:12 79:13 80:26 81:27
+[SMID] live_count=82 left out: 40 41 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83
+[SMID] launched 82 blocks on a 84-SM device
+[SMID] block:smid 0:0 1:1 2:14 3:15 4:28 5:29 6:42 7:43 8:2 9:3 10:16 11:17 12:30 13:31 14:44 15:45 16:4 17:5 18:18 19:19 20:32 21:33 22:46 23:6 24:7 25:20 26:21 27:34 28:35 29:8 30:9 31:22 32:23 33:36 34:37 35:10 36:11 37:24 38:25 39:38 40:39 41:12 42:0 43:1 44:2 45:3 46:4 47:0 48:1 49:14 50:15 51:28 52:29 53:2 54:3 55:16 56:17 57:30 58:31 59:4 60:5 61:18 62:19 63:32 64:33 65:6 66:7 67:20 68:21 69:34 70:8 71:9 72:22 73:23 74:10 75:11 76:24 77:25 78:12 79:13 80:26 81:27
+[SMID] left out: 40 41 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83
+[SMID] recorded 82 of 82
+
+[STATS] loop_iters=174974 pi_ticks=14 deadband_held=0 integral_updates=14 integral_on_rail=0 sm_moves=1 p_only_moves=0
+
+[STATS] samples=128221 mean_Z=1.8532 std_Z=0.1016 active_sms=42..82 rows_csv=174974
+[GPUTronic Gold] Stopped cleanly.
+[LOAD] wrote results/gputronic_gold_noise.csv

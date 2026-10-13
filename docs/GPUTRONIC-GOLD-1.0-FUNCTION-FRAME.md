@@ -78,6 +78,20 @@ leader reads the mapped control words, including `work_scale_milli`, once per
 that copy. The pulse batch stays at one millisecond. Unset, every pass reads
 the command words, and `work_scale_milli` is still read only while the load
 flag is set. Tensor-on blocks do not take this cache.
+`GPUTRONIC_ICLAMP_SMS` is a test switch, off by default. Set, it is the integral
+clamp in SMs for that run (`Ki * clamp * sms_per_u`). Unset, the clamp is the
+scaled law, or the fixed config value when one is set.
+`GPUTRONIC_IDLE_EXIT=1` is a test switch, off by default. An idle block returns
+instead of polling. The host launches a new block when the count later includes
+that SM. Each refill is its own stream, so an earlier refill does not block the next. `GPUTRONIC_RELAUNCH=1` is the other test switch. The host retires the
+grid and launches the commanded count, and it waits `GPUTRONIC_RELAUNCH_HOLD_US`
+(default 5000, floor 500, cap 1000000) so a one-tick flicker does not relaunch. Setting both
+turns both off. `GPUTRONIC_PEAK_REPS` (max 256), `GPUTRONIC_PEAK_CHAINS` (max 16), and
+`GPUTRONIC_THREADS` (warp-aligned, 32 to 1024) are test switches, off by default. They repeat the FMA batch,
+add independent FMA chains, or raise the thread count. Setting either peak
+switch selects a second kernel, including when the counts are 1, and that
+kernel stores the nest so the compiler keeps it. Unset, the launch is the
+other kernel: the 16 × 8 `gold_work` loop at 64 threads.
 
 ### Using Gold from another kernel [F-03]
 Another kernel can add to `total_work_pulses` with `atomicAdd` and run only `active_sms` blocks.
@@ -184,7 +198,7 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Target Z | 1.5 | `GPUTRONIC_GOLD_TARGET_Z` |
 | Kp, Ki, Kd | 0.55, 0.08, 0 | `GPUTRONIC_GOLD_KP/KI/KD`, `gputronic_set_gains`, `gputronic_set_kd` |
 | Deadband | 0.08 | `GPUTRONIC_GOLD_DEADBAND`, `gputronic_set_deadband`, env `GPUTRONIC_DEADBAND` |
-| Integral clamp | scaled after calibration: 0.04 × num_sm / (Ki × sms_per_u) | `integral_clamp` (> 0 = fixed override), `GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC` |
+| Integral clamp | scaled after calibration: 0.04 × num_sm / (Ki × sms_per_u) | `integral_clamp` (> 0 = fixed override), `GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC`. Test only: `GPUTRONIC_ICLAMP_SMS` sets the same budget in SMs for one run |
 | Z limits | 0.3 – 10 | `GPUTRONIC_GOLD_Z_FLOOR/CEILING` |
 | Calibration | warm-up 0.7 s, reference 0.7–1.8 s, then 4 × 300 ms table | `control_thread`, `GPUTRONIC_GOLD_PROBE_MS` |
 | Control tick | 10 µs | `GPUTRONIC_DEFAULT_CONTROL_DT_US` |
@@ -202,6 +216,10 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Working-set filter | off | `GPUTRONIC_ACTIVE_PASSES` or `GPUTRONIC_ACTIVE_SMS`, then bit 4 |
 | Local pulse count | off | `GPUTRONIC_PULSE_LOCAL=1`. One mapped atomic per block per 1 ms |
 | Cached control words | off | `GPUTRONIC_CTRL_CACHE=1`. Period `GPUTRONIC_CTRL_CACHE_US`, default 1 ms. The refresh includes `work_scale_milli` |
+| Clamp in SMs | off | `GPUTRONIC_ICLAMP_SMS`. Unset keeps the scaled law |
+| Idle block returns | off | `GPUTRONIC_IDLE_EXIT=1`. Host launches replacements |
+| Relaunch the grid | off | `GPUTRONIC_RELAUNCH=1`. Hold `GPUTRONIC_RELAUNCH_HOLD_US`, default 5 ms, floor 0.5 ms, cap 1 s |
+| Peak work | off | `GPUTRONIC_PEAK_REPS` (max 256), `GPUTRONIC_PEAK_CHAINS` (max 16), `GPUTRONIC_THREADS` (32 to 1024) |
 
 ## 5. API changes in PR #1
 
@@ -216,7 +234,10 @@ fields `enable_tensor_sensor`, `sensor_hysteresis`; four getters listed under F-
 pointer, the optional T11 accumulator pointer, SM id, and bin length, the idle-quiet
 flag, the working-set masks, the test flags for a local pulse count and cached
 control words, and that cache period. A normal start passes nulls for both
-optional counters and leaves the test flags off.
+optional counters and leaves the test flags off. The eighth-pass switches add
+the idle-exit flag, the slot generation pointer, the launch length and base,
+the peak repeat and chain counts, whether that peak kernel is used, and the
+stream. A normal start passes zeros and the default stream.
 
 ## 6. Reading order
 

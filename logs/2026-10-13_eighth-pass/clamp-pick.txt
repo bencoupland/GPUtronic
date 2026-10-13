@@ -1,0 +1,10 @@
+t6-scaled holds=0 in_band=0.056 rail=0.786 Z n=19000 mean=1.6289 std=0.0420 min=1.5376 max=1.8327 SMs n=19000 mean=62.10 std=0.73 min=60.00 max=65.00 left_ms=25.3 back_ms=28384.2
+  [CAL] integral clamp=1.384 (scaled, max integral correction 3.28 SMs of 82)
+t6-c6 holds=0 in_band=0.281 rail=0.145 Z n=19000 mean=1.6122 std=0.0485 min=1.5068 max=1.7949 SMs n=19000 mean=62.51 std=1.07 min=60.00 max=66.00 left_ms=18.2 back_ms=14790.1
+  [CAL] integral clamp=2.534 (iclamp_sms, max integral correction 6.00 SMs of 82)
+t6-c9 holds=0 in_band=0.351 rail=0.000 Z n=19000 mean=1.6013 std=0.0455 min=1.4805 max=1.7979 SMs n=19000 mean=62.38 std=1.10 min=60.00 max=66.00 left_ms=12.1 back_ms=12270.1
+  [CAL] integral clamp=3.458 (iclamp_sms, max integral correction 9.00 SMs of 82)
+t6-c12 holds=0 in_band=0.292 rail=0.000 Z n=18995 mean=1.6084 std=0.0480 min=1.4915 max=1.7847 SMs n=18995 mean=62.91 std=1.17 min=60.00 max=66.00 left_ms=10.1 back_ms=18356.2
+  [CAL] integral clamp=4.938 (iclamp_sms, max integral correction 12.00 SMs of 82)
+none of 6, 9, 12 held the band
+PICK none

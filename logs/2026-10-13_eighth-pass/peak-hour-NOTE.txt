@@ -1,0 +1,4 @@
+This peak-hour.txt is about one minute of the live 512-thread grid.
+The hour was stopped on request once the 60 s confirmation had finished.
+It is not an hour result. The finished hour in before-fix/ is the earlier
+kernel, whose repeat loops were not live.

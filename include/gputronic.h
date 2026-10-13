@@ -117,6 +117,9 @@ struct GPUTronicControl {
 /* Gold test only. Off unless the host sets it after calibration.
  * GPUTRONIC_ACTIVE_PASSES or GPUTRONIC_ACTIVE_SMS then replaces the block-index gate. */
 #define GPUTRONIC_FLAG_SELECT 0x10u
+/* Gold test only. GPUTRONIC_RELAUNCH=1. Blocks leave the grid so the host
+ * can launch again at the new count. Unset, the bit stays clear. */
+#define GPUTRONIC_FLAG_RETIRE 0x20u
 
 typedef struct GPUTronicHandle GPUTronicHandle;
 

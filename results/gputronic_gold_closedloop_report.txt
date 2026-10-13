@@ -1,1 +1,1 @@
-pulses=9678510 z=1.4110 z_mean=1.4399 rate=415232.2 active_sms=54 tach=1 track=1 fr_rate=589836.3 cl_rate=406750.9 useful_drop=1 PASS=1
+pulses=9807243 z=1.4166 z_mean=1.4837 rate=426305.4 active_sms=52 tach=1 track=1 fr_rate=603316.1 cl_rate=409924.7 useful_drop=1 PASS=1

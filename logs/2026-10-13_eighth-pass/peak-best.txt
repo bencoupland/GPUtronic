@@ -1,0 +1,1 @@
+PEAK best reps=1 chains=16 threads=512 flops=2459706589184
