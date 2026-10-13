@@ -10,19 +10,23 @@ A GPU driver will slow the chip if it gets hot. It will not tell you whether the
 
 Other machines we control have a measured rate, an estimate of what we cannot see directly, and a command that moves the rate. A GPU can have those too. What was missing was a counter of finished work, a way to say “this is full speed,” and a command that actually changes that speed.
 
+A unit of that work is a pulse. The kernel adds one when a piece of work finishes: a tile, a batch of arithmetic, whatever the author of the kernel chose to count. The rate is how many of those finish per second.
+
 GPUTronic is that interface, checked on three test kernels. The control in this tree is how many SMs do the work (`active_sms`). An earlier version used sleep duration instead. That source is in `archive/gold-1.0.0-nanosleep/`. The function frame matches this tree.
 
-The function-by-function writeup is [`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md). This README is the short tour. The same function frame is copied at the end of this file.
+The function-by-function writeup is [`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md). This README is the tour of the ideas. The same function frame is copied at the end of this file.
 
 ## The claim
 
 The rate of finished work can be a feedback signal.
 
-Count that work. Compare it with the speed you measured when nothing was holding the GPU back. Change how many SMs are allowed to run, and leave clocks and temperature to the driver. Then a normal PI controller can hold a requested rate. This does not control a program you did not build. It does not beat an unthrottled run. Full speed is every SM on.
+Count that work. Compare it with the speed measured when every launched block was working. Change how many of those blocks are allowed to run, and leave clocks and temperature to the driver. A normal PI controller can then hold a requested fraction of that speed.
+
+Full speed, for this controller, is every block in the launch doing the work. The launch leaves two SMs with no block, so the desktop still has a place to run. The command never goes below two working SMs. The loop only moves between those ends. It applies to a kernel that counts its own work and honours that count. The same kernel with every launched SM already working is as fast as this command can go.
 
 ## Three axes, one loop
 
-The names are borrowed from motor control because the split is the same: measure the thing you care about, estimate what you cannot read, and do not fight the limit that already owns temperature.
+The names are borrowed from motor control because the split is the same: measure the thing you care about, estimate what you cannot read, and leave the limit that already owns temperature alone.
 
 | Name | What it is | Who handles it |
 |------|------------|----------------|
@@ -30,15 +34,33 @@ The names are borrowed from motor control because the split is the same: measure
 | **Z** | \(Z = r_{\mathrm{ref}} / r\) | GPUTronic. Full speed is about 1. |
 | **D** | Temperature and power | The NVIDIA driver. Not in this loop. |
 
-Q is not “GPU utilization.” Utilization can read 100% while useful work is stalled. Q is a count of finished work units, added with `atomicAdd` into one total, `total_work_pulses`. Do not let the last SM overwrite that total with its own count. That bug made Z stick at a floor or a ceiling.
+Q is the pulse rate. The kernel adds each finished unit into one total, `total_work_pulses`, with `atomicAdd`. The rate is that total over about 8 ms. A single 10 µs tick is shorter than the work, so a rate taken from one tick is mostly empty samples. Utilization is a different reading. The chip can look fully busy while the counted work is stalled. The last SM must not store its own count over the total. That bug made Z stick at a floor or a ceiling.
 
-Z is not ohms and not a phase margin. \(Z = 1.5\) means the GPU is doing about two-thirds of the speed it had when nothing was holding it back. Turning SMs off lowers that speed and raises Z. There is no extra minus sign in the controller. Full speed is every SM running. The point of the loop is to land near the speed you asked for when conditions are not ideal.
+Z is the reference rate divided by the rate now. The reference is measured once, at the start, with every launched block working, over a sustained window rather than a short peak. Z near 1 means the current rate still matches that reference. Z of 1.5 means the current rate is about two-thirds of it. The request is that ratio, a fraction of the calibration rate. A fixed pulse count would only have fitted the clock at the moment of calibration. Z is also not ohms, and not a phase margin.
 
-Temperature and power stay with the NVIDIA driver. A 25 ms temperature poll does not belong in the 10 µs control thread. If the driver slows the chip, the work rate falls, Z rises, and this loop eases off. That is the intended split.
+Turning SMs off lowers the rate and raises Z. Turning them back on does the opposite. There is no extra minus sign. While Z is under the request, the GPU is still faster than asked, and the controller turns SMs off. While Z is over the request, it turns them back on, up to the full launch. If Z is within 0.08 of the request, the count stays put and the integral does not move. The point of the loop is to land near the fraction you asked for.
+
+That reference is taken at the start and then held. A later change in clock does not measure a new full speed. A slower clock lowers the pulse rate and raises Z against the original reference. The loop's only response is a higher SM count. It has no clock command. When every launched SM is already working, the rate is whatever the driver is allowing.
+
+Temperature and power stay with the NVIDIA driver. A 25 ms temperature poll does not belong in the control thread. The thread writes the SM count.
 
 A 2-state Kalman filter estimates Z and how fast Z is changing. The controller does not use the rate-of-change yet. It is logged.
 
-The control value is `active_sms` in a shared control block. That many SMs run the tiles and increment the counter. The others skip the work. The launch leaves two SMs with no block, so the desktop still has a place to run. The command never goes below two working SMs, so the kernel is never empty. On this RTX 5080 the CPU and the GPU see the same memory. The kernel reads the count every pass. There is no 20–50 µs copy. If the mapping fails, startup aborts. A slow link between the two would be a different system. Sleep duration was the first attempt. On this 5080 it does little below about 200 µs, jumps near 500 µs, and then longer sleeps do not slow the chip further. Sleeping some SMs while others kept working did nothing. That is why the count replaced it.
+## Why the command is an SM count
+
+The control value is `active_sms` in one shared control block. That many SMs run the work and add pulses. The others skip the work and read the count again. On this RTX 5080 the CPU and the GPU see the same memory. The kernel reads the count every pass. There is no 20–50 µs copy. If the mapping fails, startup aborts. A slow link between the two would be a different system.
+
+Sleep duration was the first command. On this 5080 it does little below about 200 µs, jumps near 500 µs, and then longer sleeps do not slow the chip further. Sleeping some SMs while others kept working left the rate about where it was. A duration the hardware barely obeys cannot place the rate on purpose. A count of who may issue the work can, because the skipped SMs do not add pulses.
+
+## How to read a throughput number
+
+The pulse rate is the measurement. When the author of the kernel defines how much floating-point work sits inside one pulse, FLOP/s is that rate times the work in one pulse. The two numbers are the same fact in two units. If they move apart, the counter has stopped measuring that work.
+
+The SM count decides who may issue. When each working SM does about the same amount, the pulse rate moves with the count. Fewer SMs finish fewer pulses. Raising the count brings the rate back, up to the full launch. The line can bend. A kernel can level off while spare SMs remain, and the SMs that are working need not each finish the same amount. What the check looks for is the direction.
+
+The clock is the other factor, and this loop does not set it. The same count issues more work per second at a higher clock. A modelled peak is the SM count, times how much math one SM can retire per clock, times the clock. That product is a ceiling to set a measurement against. The measurement is the pulse rate. If the driver changes the clock for temperature or power, the pulse rate changes with it and Z moves. The only command this loop writes is still the SM count.
+
+The GEMM figures further down are a few GFLOP/s because those tiles exist so the work can be counted. A heavier arithmetic body can be switched on when a run wants the same relationship at a much higher issued rate. A normal check leaves that switch off. One such run is written up in [`docs/analysis/full-pipe-2026-10-13.md`](docs/analysis/full-pipe-2026-10-13.md). With the switch on, the pulse rate tracked the SM count, board power fell as the count fell, and the closed loop held mean Z at 1.497. The gains were left alone.
 
 ## Why 1.0 is tagged Gold
 
@@ -56,13 +78,15 @@ Three mistakes that look like a working controller until you measure the work:
 
 The controller works in both directions around a starting SM count measured at calibration: below target it turns SMs off, above target it turns them back on. If Z is within 0.08 of the target, the SM count stays put and the integral does not move. Temperature stays with the driver. The 8 µs scale in the list above is a reason the sleep-duration control was dropped. Adjusting Kp does not fix a control that cannot move the speed smoothly.
 
-On this 5080, 2026-10-12, with the tensor sensor off and that 0.08 band, Gold, transfer, and episode `check` all passed. Gold's free-run was about 540k–585k pulses/s. A 30 s closed-loop run held mean Z at 1.47, and about 85% of the last 20 s was 47 or 48 SMs. Kp is 0.55 and Ki is 0.08. The sleep tables under this heading are the old actuator. They are not this controller.
+On this 5080, 2026-10-12, with the tensor sensor off and that 0.08 band, Gold, transfer, and episode `check` all passed. One 30 s closed-loop run held mean Z at 1.47, and about 85% of the last 20 s was 47 or 48 SMs. That run was on the build before the launch reserved two SMs. On the build in this tree the three checks passed again, with the test switches off: mean Z 1.484 on Gold, 1.448 on transfer, and 1.484 on episode. Kp is 0.55 and Ki is 0.08. The sleep tables in the next section are the old actuator. They are not this controller.
 
 ## What it does on this machine
 
-Hardware of record: RTX 5080 (GB203, 84 SMs), CUDA 12.8.
+Hardware of record: RTX 5080 (GB203, 84 SMs), CUDA 12.8. A passing check means the counter works and the rate moves the right way when the SM count changes. Mean Z a bit under 1.5 means the loop settled near the request. The gains stay at Kp 0.55 and Ki 0.08. More of the day's numbers are in `STATUS.md`.
 
-The sleep tables below are from the older sleep-duration control, kept because they show the jump. Current numbers are in `STATUS.md`. On 2026-09-23 all three checks passed with the SM count as the control. Closed-loop average Z was about 1.36–1.38. Turning the request back to full speed returned the rate to the unthrottled run.
+On 2026-09-23 the three checks passed on the SM-count control. Closed-loop average Z was about 1.36–1.38. Turning the request back to full speed returned the rate to the unthrottled run.
+
+The tables below are the older sleep-duration command, kept because they show the jump. They are not the controller in this tree.
 
 **Self-test plant** — GPUTronic’s own persistent kernel. Dyno, open-loop sleep sweep, rate from wall \(\Delta p / \Delta t\):
 
@@ -126,7 +150,7 @@ Transfer is the test where the kernel stays resident. Episode (`src/gputronic_ep
 | Persistent loop | ~300 µs here | mapped atomic, then the SM check |
 | Control *path* | 10 µs | thread wake, not the observer |
 | Rate window | ~8 ms | what Z is actually formed from |
-| Calibration | 0.7 s warmup + 1.1 s sustain | \(r_{\mathrm{ref}}\) |
+| Calibration | ~1.8 s reference, then four 300 ms steps | \(r_{\mathrm{ref}}\), then the SM table |
 | NVML / thermal | ~25 ms | not in this loop |
 
 The control thread can wake every 10 µs. That does not mean the rate estimate is that fast. The rate is a count of pulses over about 8 ms. The 10 µs wake is only so the CPU is not late writing the SM count.
