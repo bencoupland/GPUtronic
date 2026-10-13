@@ -1,0 +1,4 @@
+Full-pipe plant, 12 October 2026. Test switch only: 32 independent chains, 512 rounds, 512 threads, pulse batch and control-word cache on.
+n82 through n4 are open-loop noise holds of 8 seconds at that SM count. closed is one 25-second run at the default gains, target Z 1.5, no load step.
+The .txt file is the gold telemetry. The .dmon file is nvidia-smi dmon at 1 second. Power in the write-up is the flat stretch after calibration.
+Issued FLOP/s is the pulse rate times 32 lanes times 32 chains times 512 rounds times 2.
