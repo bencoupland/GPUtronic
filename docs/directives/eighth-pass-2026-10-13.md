@@ -12,7 +12,7 @@ Start from the seventh-pass code and results. The directive was commit `c441785`
 
 ## Standing rules
 
-- Testing runs on the host against the real pinned, mapped control page, `struct GPUTronicControl`. There is no emulation layer.
+- Testing runs on the host against the real pinned, mapped control page, `struct GPUtronicControl`. There is no emulation layer.
 - Two SMs stay reserved for the operating system. Launch 82 blocks, with a floor of 2 active SMs. Log the smids that were left out.
 - Do not measure 84 against 82 or 80 SMs. With desktop load in the background, that difference is not useful data.
 - Run plain `nvidia-smi` at the start and the end, and record the display state and the processes on the GPU.
