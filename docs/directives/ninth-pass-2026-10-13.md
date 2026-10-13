@@ -1,6 +1,15 @@
 # Ninth pass: the README as a landing page, plus a controller-engaged dyno run
 
-Items 1 to 5 and 8 are text only. Item 6 is the one GPU run in this pass, item 7 is cleanup on the box, and item 9 is a text change on Ben's X profile. There are no code changes. Start from `main` at `b8b66e7`. Post the change to a new branch, `test-results/2026-10-13_ninth-pass`. Do not merge anything, and do not force-push.
+Items 1 to 5 and 8 are text only. Item 6 is the one GPU run in this pass, item 7 is cleanup on the box, and item 9 is a text change on Ben's X profile. There are no code changes. Start from `main` at `b08a791`. Post the change to a new branch, `test-results/2026-10-13_ninth-pass`. Do not merge anything, and do not force-push.
+
+## Start here
+
+Run the pass in this order:
+
+1. First, the cheap text-only wins: items 1 to 5 and item 8 (the README hook, the 5080 result up top, the status line, the spelling fixes, the X thread link, and the Pascal governor lineage line).
+2. Then item 6, the dyno run with the controller engaged. This is the long hardware job.
+3. Then item 7, the cleanup of the damaged `/workspace/GPUtronic` folder.
+4. Do not attempt item 9, the X profile blurb, while Ben is asleep. It needs Ben's X account sign-in, so it waits for him to do it by hand. Note it in the report as left for Ben.
 
 ## Where things stand
 
@@ -11,7 +20,7 @@ Items 1 to 5 and 8 are text only. Item 6 is the one GPU run in this pass, item 7
 - The README shows the full-pipe result, but there is no fresh run with the controller engaged to sit next to the open-loop baseline. Item 6 adds one, and its numbers go in a short Results section.
 - The old clone at `/workspace/GPUtronic` on the box lost its Git metadata. The working copy is `/workspace/GPUtronic-fresh`.
 - The README doesn't say where the project came from. It started with the Pascal governor, released in January 2026.
-- Ben's X profile ([@benracoupland](https://x.com/benracoupland)) says nothing about GPUtronic. Someone who clicks through from the thread doesn't land on the same story as the thread and the README.
+- Ben's X profile ([@benracoupland](https://x.com/benracoupland)) says nothing about GPUtronic. Someone who clicks through from the thread doesn't land on the same story as the thread and the README. That is item 9, and Ben does it himself after this pass.
 
 ## Standing rules
 
@@ -76,8 +85,9 @@ Add a short "About this project" blurb to Ben's X profile ([@benracoupland](http
 - Run `git grep -i gputronic` outside `archive/`, `logs/` and `results/`, and confirm every hit uses the GPUtronic spelling (or the unchanged `GPUTRONIC_*` environment variables).
 - Confirm `/workspace/GPUtronic` is gone from `/workspace`.
 - Confirm the Pascal governor lineage line is in the README.
-- Confirm the X profile blurb is live on @benracoupland, links to the repo, and has no numbers.
+- Confirm the work went in the Start here order: items 1 to 5 and 8, then 6, then 7.
+- Item 9 is not checked in this pass. Confirm the report lists it as left for Ben, with nothing changed on @benracoupland.
 
 ## The report
 
-Put it at `docs/analysis/ninth-pass-2026-10-13.md`. It should be short: the new top of the README as it now reads, the list of files touched by the rename, the Results section as written with the path to its logs, where the damaged clone went, the X profile blurb as written and whether it is live, and the result of the checks.
+Put it at `docs/analysis/ninth-pass-2026-10-13.md`. It should be short: the new top of the README as it now reads, the list of files touched by the rename, the Results section as written with the path to its logs, where the damaged clone went, a note that item 9 (the X profile blurb) is left for Ben, and the result of the checks.
