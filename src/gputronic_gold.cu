@@ -87,6 +87,42 @@ __device__ void gold_work_peak(float* local, int sm, int reps, int chains) {
         gold_peak_keep[slot] = sum;
 }
 
+/* Test only. GPUTRONIC_PEAK_ACC is 4, 8, 16, or 32 independent chains.
+ * GPUTRONIC_PEAK_ROUNDS repeats that block (default 32, cap 4096). One pulse
+ * is still one finished block. The volatile FMA stays in SASS; a plain
+ * C loop of acc=acc*a+b can be closed over by ptxas. This is not called
+ * from the unset kernel. */
+template<int ACC>
+__device__ void gold_work_indep(float* local, int sm, int rounds) {
+    float acc[ACC];
+    float a = 1.0000001f + 0.0000001f * (float)(sm & 3);
+    float b = 0.9999999f;
+#pragma unroll
+    for (int i = 0; i < ACC; i++)
+        acc[i] = *local + 0.01f * (float)(i + 1);
+    int rN = rounds > 0 ? rounds : 1;
+    if (rN > 4096) rN = 4096;
+    /* One iteration must stay one block of ACC FMAs, so the pulse quantum
+     * is ACC * rounds and not an unrolled fragment. */
+#pragma unroll 1
+    for (int r = 0; r < rN; r++) {
+#pragma unroll
+        for (int i = 0; i < ACC; i++) {
+            float d;
+            asm volatile("fma.rn.ftz.f32 %0, %1, %2, %3;"
+                         : "=f"(d) : "f"(a), "f"(b), "f"(acc[i]));
+            acc[i] = d;
+        }
+    }
+    float sum = acc[0];
+#pragma unroll
+    for (int i = 1; i < ACC; i++) sum += acc[i];
+    *local = sum;
+    int slot = sm * 1024 + (int)threadIdx.x;
+    if ((unsigned)slot < 84u * 1024u)
+        gold_peak_keep[slot] = sum;
+}
+
 /* Tensor-core sensor work [F-16]: one 16x16x16 FP16 -> FP32 wmma per step,
  * accumulating into the same C fragment so the chain cannot be removed.
  * wmma needs sm_70+; older targets compile a stub that does no work. */
@@ -218,8 +254,10 @@ __device__ __forceinline__ int gold_sm_selected(unsigned int phys,
 }
 
 /* Peak is a compile-time switch. The unset kernel must not contain the
- * peak nest, or ptxas keeps the default FMAs and the pulse rate falls. */
-template<int Peak>
+ * peak nest, or ptxas keeps the default FMAs and the pulse rate falls.
+ * Acc is 0 on that kernel and on the dependent peak nest. A positive Acc
+ * is the independent-FMA test kernel. */
+template<int Peak, int Acc>
 __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        GPUTronicControl* ctrl,
                                        int num_sm,
@@ -240,7 +278,8 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        unsigned int* slot_gen,
                                        int block_base,
                                        int peak_reps,
-                                       int peak_chains) {
+                                       int peak_chains,
+                                       int peak_rounds) {
     const int sm = blockIdx.x + block_base;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
@@ -289,7 +328,14 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     if (peak_r > 256) peak_r = 256;
     if (peak_c > 16) peak_c = 16;
     unsigned long long pass_ops = GOLD_OPS_CUDA_WARP_PASS;
-    if (peak_on) pass_ops *= (unsigned long long)peak_r * (unsigned long long)peak_c;
+    int indep_rounds = peak_rounds > 0 ? peak_rounds : 1;
+    if (indep_rounds > 4096) indep_rounds = 4096;
+    if constexpr (Peak != 0 && Acc > 0) {
+        /* One FMA is 2 FLOP, one warp is 32 lanes, Acc chains, indep_rounds deep. */
+        pass_ops = (unsigned long long)Acc * (unsigned long long)indep_rounds * 2ULL * 32ULL;
+    } else if (peak_on) {
+        pass_ops *= (unsigned long long)peak_r * (unsigned long long)peak_c;
+    }
     if (tid == 0) {
         /* One write before the loop so an idle block, which never publishes,
          * still leaves its physical SM in the slot. seq stays 0 until a publish. */
@@ -381,7 +427,9 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             continue;
         }
 
-        if (Peak) {
+        if constexpr (Peak != 0 && Acc > 0) {
+            gold_work_indep<Acc>(&local, sm, indep_rounds);
+        } else if constexpr (Peak != 0) {
             gold_work_peak(&local, sm, peak_r, peak_c);
         } else {
             for (int b = 0; b < GOLD_BATCH; b++) {
@@ -494,6 +542,8 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    int block_base,
                                    int peak_reps,
                                    int peak_chains,
+                                   int peak_acc,
+                                   int peak_rounds,
                                    int use_peak,
                                    cudaStream_t stream) {
     /* CUDA-core warps stay as configured; the tensor sensor adds one warp.
@@ -502,22 +552,29 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
     int cuda_warps = (threads_per_block + 31) / 32;
     int threads = cuda_warps * 32 + (tensor_sensor ? 32 : 0);
     if (nblocks < 1) nblocks = 1;
-    /* use_peak is the last int before the stream. Reps=1 and chains=1 are
-     * still the live nest when the test switch is set. The unset launch
-     * stays on the kernel whose FMA nest the compiler removes. */
+    /* use_peak selects a peak kernel. Acc 4/8/16/32 is the independent nest.
+     * Acc 0 is the dependent nest. The unset launch stays on the kernel
+     * whose FMA nest the compiler removes. */
     int peak = use_peak ? 1 : 0;
-    if (peak)
-        gold_persistent_kernel<1><<<nblocks, threads, 0, stream>>>(sm_counters, d_ctrl, num_sm, cuda_warps,
-                                                 work_count, accum, accum_sm, accum_bin_ns, idle_quiet,
-                                                 pass_mask, sm_mask_lo, sm_mask_hi,
-                                                 pulse_local, ctrl_cache, ctrl_cache_ns, smid_out,
-                                                 idle_exit, slot_gen, block_base, peak_reps, peak_chains);
+    int acc = peak ? peak_acc : 0;
+#define GOLD_LAUNCH(PEAK, ACC) \
+    gold_persistent_kernel<PEAK, ACC><<<nblocks, threads, 0, stream>>>( \
+        sm_counters, d_ctrl, num_sm, cuda_warps, work_count, accum, accum_sm, accum_bin_ns, \
+        idle_quiet, pass_mask, sm_mask_lo, sm_mask_hi, pulse_local, ctrl_cache, ctrl_cache_ns, \
+        smid_out, idle_exit, slot_gen, block_base, peak_reps, peak_chains, peak_rounds)
+    if (!peak)
+        GOLD_LAUNCH(0, 0);
+    else if (acc == 4)
+        GOLD_LAUNCH(1, 4);
+    else if (acc == 8)
+        GOLD_LAUNCH(1, 8);
+    else if (acc == 16)
+        GOLD_LAUNCH(1, 16);
+    else if (acc == 32)
+        GOLD_LAUNCH(1, 32);
     else
-        gold_persistent_kernel<0><<<nblocks, threads, 0, stream>>>(sm_counters, d_ctrl, num_sm, cuda_warps,
-                                                 work_count, accum, accum_sm, accum_bin_ns, idle_quiet,
-                                                 pass_mask, sm_mask_lo, sm_mask_hi,
-                                                 pulse_local, ctrl_cache, ctrl_cache_ns, smid_out,
-                                                 idle_exit, slot_gen, block_base, peak_reps, peak_chains);
+        GOLD_LAUNCH(1, 0);
+#undef GOLD_LAUNCH
 }
 
 /* ---- Host handle and control thread ---- */
@@ -641,6 +698,8 @@ struct GPUTronicHandle {
     int kstream_on;
     int peak_reps;
     int peak_chains;
+    int peak_acc;    /* 4/8/16/32 independent FMAs per thread per round; 0 = off */
+    int peak_rounds; /* repeats of that independent block */
     int peak_live; /* 1 when a peak test switch is set, including reps=1 */
     unsigned int spawn_count;
     unsigned int relaunch_count;
@@ -853,6 +912,8 @@ static void gold_launch_this(GPUTronicHandle* h, int nblocks, int block_base, cu
                        h->idle_exit, h->d_slot, nblocks, block_base,
                        h->peak_reps > 0 ? h->peak_reps : 1,
                        h->peak_chains > 0 ? h->peak_chains : 1,
+                       h->peak_acc,
+                       h->peak_rounds > 0 ? h->peak_rounds : 1,
                        h->peak_live,
                        stream);
 }
@@ -1693,18 +1754,41 @@ int gputronic_start(GPUTronicHandle* h) {
         }
         h->peak_reps = 1;
         h->peak_chains = 1;
+        h->peak_acc = 0;
+        h->peak_rounds = 32;
         h->peak_live = 0;
         {
             const char* pr = getenv("GPUTRONIC_PEAK_REPS");
             const char* pc = getenv("GPUTRONIC_PEAK_CHAINS");
+            const char* pa = getenv("GPUTRONIC_PEAK_ACC");
+            const char* po = getenv("GPUTRONIC_PEAK_ROUNDS");
             if (pr && *pr) { h->peak_reps = atoi(pr); h->peak_live = 1; }
             if (pc && *pc) { h->peak_chains = atoi(pc); h->peak_live = 1; }
             if (h->peak_reps < 1) h->peak_reps = 1;
             if (h->peak_chains < 1) h->peak_chains = 1;
             if (h->peak_reps > 256) h->peak_reps = 256;
             if (h->peak_chains > 16) h->peak_chains = 16;
+            if (pa && *pa) {
+                int a = atoi(pa);
+                if (a == 4 || a == 8 || a == 16 || a == 32) {
+                    h->peak_acc = a;
+                    h->peak_live = 1;
+                } else {
+                    printf("[PEAK] acc %d is not 4, 8, 16, or 32; independent nest is off\n", a);
+                }
+            }
+            if (po && *po) {
+                h->peak_rounds = atoi(po);
+                if (h->peak_acc <= 0)
+                    printf("[PEAK] rounds apply only with PEAK_ACC; this run uses the other nest\n");
+            }
+            if (h->peak_rounds < 1) h->peak_rounds = 1;
+            if (h->peak_rounds > 4096) h->peak_rounds = 4096;
         }
-        if (h->peak_live || h->cfg.threads_per_block != GPUTRONIC_DEFAULT_THREADS_PER_BLOCK)
+        if (h->peak_acc > 0)
+            printf("[PEAK] indep acc=%d rounds=%d threads=%d\n",
+                   h->peak_acc, h->peak_rounds, h->cfg.threads_per_block);
+        else if (h->peak_live || h->cfg.threads_per_block != GPUTRONIC_DEFAULT_THREADS_PER_BLOCK)
             printf("[PEAK] reps=%d chains=%d threads=%d\n",
                    h->peak_reps, h->peak_chains, h->cfg.threads_per_block);
         if (h->idle_exit || h->relaunch) {
@@ -2501,6 +2585,7 @@ static void usage(const char* argv0) {
     printf("    GPUTRONIC_RELAUNCH=1           # new grid at the commanded count\n");
     printf("    GPUTRONIC_RELAUNCH_HOLD_US=5000\n");
     printf("    GPUTRONIC_PEAK_REPS / GPUTRONIC_PEAK_CHAINS / GPUTRONIC_THREADS\n");
+    printf("    GPUTRONIC_PEAK_ACC (4|8|16|32) / GPUTRONIC_PEAK_ROUNDS (default 32)\n");
     printf("    GPUTRONIC_STEP_AT_MS / GPUTRONIC_STEP_SMS   # test only, during noise or loadstep\n");
     printf("  %s ratio [hold_s] [n1,n2,...]                 # T9: pulse-to-work ratio (default 5, N,3N/4,N/2,N/4)\n", argv0);
     printf("  %s fullwidth [sec]                            # T8: open loop, all SMs, no controller\n", argv0);

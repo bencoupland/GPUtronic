@@ -90,7 +90,10 @@ turns both off. `GPUTRONIC_PEAK_REPS` (max 256), `GPUTRONIC_PEAK_CHAINS` (max 16
 `GPUTRONIC_THREADS` (warp-aligned, 32 to 1024) are test switches, off by default. They repeat the FMA batch,
 add independent FMA chains, or raise the thread count. Setting either peak
 switch selects a second kernel, including when the counts are 1, and that
-kernel stores the nest so the compiler keeps it. Unset, the launch is the
+kernel stores the nest so the compiler keeps it. `GPUTRONIC_PEAK_ACC` (4, 8, 16, or 32)
+selects a different second kernel: that many independent FMAs per thread, repeated
+`GPUTRONIC_PEAK_ROUNDS` times (default 32, cap 4096). One pulse is one finished block.
+When both are set, the independent kernel is the one that runs. Unset, the launch is the
 other kernel: the 16 × 8 `gold_work` loop at 64 threads.
 
 ### Using Gold from another kernel [F-03]
@@ -219,7 +222,7 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Clamp in SMs | off | `GPUTRONIC_ICLAMP_SMS`. Unset keeps the scaled law |
 | Idle block returns | off | `GPUTRONIC_IDLE_EXIT=1`. Host launches replacements |
 | Relaunch the grid | off | `GPUTRONIC_RELAUNCH=1`. Hold `GPUTRONIC_RELAUNCH_HOLD_US`, default 5 ms, floor 0.5 ms, cap 1 s |
-| Peak work | off | `GPUTRONIC_PEAK_REPS` (max 256), `GPUTRONIC_PEAK_CHAINS` (max 16), `GPUTRONIC_THREADS` (32 to 1024) |
+| Peak work | off | `GPUTRONIC_PEAK_REPS` (max 256), `GPUTRONIC_PEAK_CHAINS` (max 16), `GPUTRONIC_THREADS` (32 to 1024), `GPUTRONIC_PEAK_ACC` (4, 8, 16, or 32) with `GPUTRONIC_PEAK_ROUNDS` (default 32, cap 4096) |
 
 ## 5. API changes in PR #1
 
@@ -236,8 +239,9 @@ flag, the working-set masks, the test flags for a local pulse count and cached
 control words, and that cache period. A normal start passes nulls for both
 optional counters and leaves the test flags off. The eighth-pass switches add
 the idle-exit flag, the slot generation pointer, the launch length and base,
-the peak repeat and chain counts, whether that peak kernel is used, and the
-stream. A normal start passes zeros and the default stream.
+the peak repeat and chain counts, the independent-chain count and its round
+count, whether that peak kernel is used, and the stream. A normal start passes
+zeros and the default stream.
 
 ## 6. Reading order
 

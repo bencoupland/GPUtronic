@@ -2,6 +2,8 @@
 
 The scaled integral clamp stays. On the cached plant it prints 3.28 SMs of the 82-block launch, and widening the test clamp to 6, 9, or 12 SMs did not hold Z inside the 0.08 band under a 1.2 load, so nothing in the default was changed. Ending an idle block, and retiring the whole grid, both drop board power when only a few SMs are working: at 4 SMs the spinning plant drew 84 W, a relaunch drew 66 W, and an exit that actually returned drew 71 W. At 82 SMs all three sit near 85 W. Whether the real actuator should end the idle block or retire the grid is still open, and so is whether any wider clamp is worth a load longer than the 25 s step measured here.
 
+The same night, a third kernel issued a fixed block of independent FMAs. It stays off unless the run sets it. The best 8 s hold was 32 chains, 512 rounds, and 512 threads: 47.0×10^12 FLOP/s, 210 W, 61 °C, clock held at 2835 MHz. That is 79% of the modelled peak of the 82 SMs at that clock. The rated peak of all 84 SMs is 56.3×10^12. This kernel did not draw the 360 W board limit. Section 4 has the sweep.
+
 All of the numbers below were measured on this RTX 5080 on 12 October 2026, driver 595.99.02, CUDA 12.8, `sm_120`, unless a line says modelled. Kp stayed 0.55, Ki stayed 0.08, and the deadband stayed 0.08. The launch is 82 persistent blocks. Physical SMs 82 and 83 got no test block on every full launch, including the relaunch back to 82. The command floor is 2. The version string stayed 1.0.0-gold. `GPUTRONIC_PULSE_LOCAL` and `GPUTRONIC_CTRL_CACHE` stay off unless a run sets them. The new switches stay off the same way.
 
 Two binaries. The first suite is the kernel whose FMA nest the compiler deleted, and whose second idle-exit refill shared one stream and did not start. Those logs are in `logs/2026-10-13_eighth-pass/before-fix/`. Spin, relaunch, the clamp steps, and the first checks are from that binary and stayed in `logs/2026-10-13_eighth-pass/`. The follow-up binary gives each refill its own stream, and it compiles the peak nest as a second kernel so the unset loop stays the one the compiler already ships. Exit power, the exit step, the present window, the live peak search, and the second checks are that binary.
@@ -93,11 +95,39 @@ A second repeat did not raise the script product, so the search stopped there. T
 
 Modelled, not measured: 84 SMs × 128 CUDA cores × 2 FLOP/FMA × 2835 MHz is 6.10×10^13 FLOP/s, and 82 SMs is 5.95×10^13. The script product at the 60 s rate is 2.54×10^12, and that product assumes 1024 FMAs per chain per pulse. The kernel image has 192 FFMA instructions, so the product overstates the issued work. Either reading is a small fraction of the 82-SM peak. Board power was 238 W with the clock held and the die at 68 °C, so the limit this search hit is the nest, not the sensor and not a clock or power cap. The counters are `unsigned long long`. They wrap. They do not saturate. At 2.43 million pulses/s a 64-bit pulse counter wraps in about 2.4×10^5 years. At the brochure per-SM peak, 6.70×10^11 FLOP/s, a 64-bit ops counter wraps in about 0.9 years. Neither a 60 s hold nor an hour can wrap either counter at a rate this card can issue.
 
-The live hour was not run. The 60 s hold was the thermal result asked for, and it stayed under 70 °C. A one-minute fragment of the same grid was started by the copy of the script that had already been read, and it was stopped. `peak-hour.txt` in the main log directory is that fragment. The finished hour remains the empty-kernel file under `before-fix/`.
+The live hour was not run. The 60 s hold was the thermal result asked for, and it stayed under 70 °C. A one-minute fragment of the same grid was started by the copy of the script that had already been read, and it was stopped. `peak-hour.txt` in the main log directory is that fragment. The finished hour remains the empty-kernel file under `before-fix/`. Later passes keep the 60 s hold and the 83 °C stop. An hour is more than this work needs: the thermal shape was already flat inside the minute, and the stock driver can throttle if a later load actually runs hot.
+
+## 4. Independent FMA quantum
+
+Section 3 hit the dependent nest. Repeating that nest cut the pulse rate and left the pipes mostly idle, so a later binary added another kernel. `GPUTRONIC_PEAK_ACC` chooses 4, 8, 16, or 32 independent FMAs per thread. `GPUTRONIC_PEAK_ROUNDS` repeats that block (default 32, cap 4096). One pulse is still one finished block, added with `atomicAdd`. The unset launch does not call this kernel. On this binary the unset image still has 0 FFMA instructions, and a cached 8 s hold at 64 threads was 371 million pulses/s at 85 W. The new kernel does not spill registers. At 32 chains it uses 60 registers.
+
+The inner loop in SASS is one integer add, that many `FFMA` instructions, and a compare. The trip count is the round count: the kernel loads it, clamps it to 1..4096, and counts until zero. Issued FLOP/s below is measured pulse rate × 32 lanes × chains × rounds × 2. It is not the script product from section 3. Modelled, not measured: 82 × 128 × 2 × 2835 MHz is 5.95×10^13 FLOP/s. The brochure peak, 84 SMs at 2617 MHz, is 5.63×10^13. The same 84 SMs at 2835 MHz would be 6.10×10^13.
+
+Every point is open loop, cached plant, tally off, `noise 82` for 8 s after calibration, on the same card and driver as the rest of this note. The pulse rate is the mean of the last four telemetry lines. Power, temperature, and clock are the flat part of `nvidia-smi dmon` after the calibration steps. Those steps dip the power while SM busy stays at 100%, because the idle blocks still spin. No point raised the power-violation or thermal-violation flag. Logs are in `logs/2026-10-13_eighth-pass/peak-quantum/`.
+
+| Chains | Rounds | Threads | Million pulses/s | Watts | °C | MHz | 10^12 FLOP/s | Share of the 82-SM peak |
+|---|---|---|---|---|---|---|---|---|
+| 4 | 32 | 512 | 1043 | 173 | 58 | 2880 | 8.5 | 14% |
+| 8 | 32 | 512 | 898 | 181 | 58 | 2880 | 14.7 | 25% |
+| 16 | 32 | 512 | 770 | 189 | 59 | 2877 | 25.2 | 42% |
+| 32 | 32 | 512 | 523 | 194 | 60 | 2864 | 34.3 | 58% |
+| 16 | 128 | 512 | 267 | 201 | 59 | 2860 | 35.0 | 59% |
+| 16 | 512 | 512 | 75.2 | 211 | 61 | 2850 | 39.4 | 66% |
+| 16 | 2048 | 512 | 20.6 | 220 | 62 | 2837 | 43.1 | 72% |
+| 32 | 128 | 512 | 166 | 204 | 61 | 2850 | 43.5 | 73% |
+| 32 | 512 | 512 | 44.8 | 210 | 61 | 2835 | 47.0 | 79% |
+| 32 | 2048 | 512 | 11.1 | 209 | 62 | 2837 | 46.6 | 78% |
+| 16 | 512 | 256 | 74.7 | 210 | 63 | 2835 | 39.1 | 66% |
+| 16 | 512 | 1024 | 77.0 | 216 | 63 | 2835 | 40.4 | 68% |
+
+The 32 × 512 × 512 point is the one to keep. An 8 ms window there holds about 358,000 pulses, so the counter still resolves the 0.08 band on Z. Doubling the rounds again did not raise the FLOP rate. It only made each pulse coarser. Thread count, tried at 256 and 1024 on the 16-chain kernel, did not beat 512 threads. A rerun of the section 3 nest (1 repeat, 16 chains, 512 threads) leveled at 230 W and 2.3 million pulses/s on this same sweep. That sits next to the earlier 60 s hold of that nest, which averaged about 238 W. The new kernel's 47.0×10^12 FLOP/s is the rate with a counted loop. The section 3 nest does not have that count: ptxas kept 192 FFMA instructions there, and its script product is not issued work. It drew more power, 230 W, at a few million pulses/s.
+
+The 360 W board limit is still above this body. Every full-width hold leveled between 173 W and 230 W, with the clock near 2835–2880 MHz and the die near 60 °C. More rounds of this FMA block will not map the rest of the power range. A kernel that also drives the tensor cores, or that moves a lot of memory, would be a different question.
 
 ## Left open
 
-The default clamp, the gains, the deadband, and the idle behaviour are unchanged. The test switches stay off unless a run sets them. Two questions are still Ben's:
+The default clamp, the gains, the deadband, and the idle behaviour are unchanged. The independent-FMA kernel is a test switch. It is not the plant the checks measure, and this pass did not put it under the PI loop. The test switches stay off unless a run sets them.
 
-1. Should the integral clamp be widened for real, and to what? This 25 s load did not justify a wider default.
+1. Should the integral clamp be widened for real, and to what? This 25 s load did not justify a wider default. A longer load could reopen it. Kp and Ki stay where they are.
 2. How should an SM actually be idled: by ending the block, by retiring the grid, or by something else? Both of the measured mechanisms cut power at low counts, and both put the command into effect in well under 2 ms. The desktop stayed on the 16.7 ms refresh through the steps.
+3. If the next plant is the full pipe, the question to name before any GPU time is how Z behaves on the 32 × 512 kernel, with the count still the actuator. The 8 s open-loop hold is the throughput result. It is not a closed-loop result.

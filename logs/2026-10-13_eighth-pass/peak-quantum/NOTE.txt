@@ -1,0 +1,5 @@
+Open-loop holds of the independent-FMA kernel, 12 October 2026, after the eighth-pass follow-up.
+Each point is cached (GPUTRONIC_PULSE_LOCAL and GPUTRONIC_CTRL_CACHE), tally off, noise 82 for 8 seconds after calibration.
+Names are chains-rounds-threads. unset is the default kernel. dep is the earlier dependent nest at 1 repeat, 16 chains, 512 threads.
+The .txt file is the gold telemetry. The .dmon file is nvidia-smi dmon at 1 second. Power in the write-up is the flat stretch after the calibration steps, not the mean of the whole file. Those steps dip the power while SM busy stays at 100 percent.
+Issued FLOP/s in the note is the pulse rate times 32 lanes times chains times rounds times 2. The SASS loop for that kernel is one FFMA per chain per round.
