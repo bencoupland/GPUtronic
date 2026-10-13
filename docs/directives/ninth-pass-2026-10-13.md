@@ -1,6 +1,6 @@
 # Ninth pass: the README as a landing page, plus a controller-engaged dyno run
 
-Items 1 to 5 and 8 are text only. Item 6 is the one GPU run in this pass, item 7 is cleanup on the box, and item 9 is a text change on Ben's X profile. There are no code changes. Start from `main` at `b8b66e7`. Post the change to a new branch, `test-results/2026-10-13_ninth-pass`. Do not merge anything, and do not force-push.
+Items 1 to 5 and 8 are text only. Item 6 is the one GPU run in this pass, item 7 is cleanup on the box, and item 9 is a text change on Ben's X profile. There are no code changes. Start from `main` at `b08a791`. Post the change to a new branch, `test-results/2026-10-13_ninth-pass`. Do not merge anything, and do not force-push.
 
 ## Start here
 
