@@ -1,0 +1,2 @@
+name, driver_version, temperature.gpu, power.draw [W], clocks.current.sm [MHz], clocks.max.sm [MHz], power.limit [W]
+NVIDIA GeForce RTX 5080, 595.99.02, 44, 32.52 W, 847 MHz, 3090 MHz, 360.00 W

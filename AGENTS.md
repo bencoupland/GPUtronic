@@ -4,7 +4,7 @@
 GPUtronic is closed-loop control of a GPU's useful-work rate. A persistent kernel counts finished work,
 a host thread computes `Z = rate_ref / rate`, and a PI controller sets how many SMs do the work
 (`active_sms`). Temperature and power stay with the NVIDIA driver. Details:
-`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`.
+`docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md`.
 
 ## Build
 CUDA 12.8, RTX 5080 (`sm_120`) by default:

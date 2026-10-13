@@ -2,7 +2,7 @@
 
 | File / dir | Notes |
 |------------|--------|
-| `GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md` | Function list. Control section updated 2026-09-23 for the SM count. |
+| `GPUtronic-GOLD-1.0-FUNCTION-FRAME.md` | Function list. Control section updated 2026-09-23 for the SM count. |
 | `GOLD-1.0.0-release-post.md` | Launch note |
 | `GOLD-1.0.0-x-thread.md` | X thread draft |
 | `GPUtronic-essay.md` | Project philosophy essay |
