@@ -60,7 +60,7 @@ On the box, move `/workspace/GPUtronic` to `/workspace/_quarantine/GPUtronic-dam
 
 ## 8. Add the Pascal governor lineage line
 
-Add one line to the README naming the Pascal governor, the simple voltage-mode GPU control released in January 2026, as the project that started GPUtronic. It gives the current closed-loop work a story arc. Keep it to one line.
+Add one line to the README naming the Pascal governor, the simple GPU governor released in January 2026, as the project that started GPUtronic. It gives the current closed-loop work a story arc. Keep it to one line.
 
 ## Checks
 
