@@ -1147,10 +1147,19 @@ GPUTronicHandle* gputronic_create(const GPUTronicConfig* cfg_in) {
     cudaGetDeviceProperties(&prop, 0);
     h->device_sms = prop.multiProcessorCount;
     if (h->cfg.num_sm <= 0) h->cfg.num_sm = h->device_sms;
-    /* Caller asked for the whole device. Leave two SMs with no block. */
-    if (h->device_sms > GPUTRONIC_OS_RESERVE_SMS + GPUTRONIC_SM_FLOOR
+    /* Default leaves two SMs with no block. GPUTRONIC_OS_RESERVE overrides
+     * that for one run. Unset keeps the default. */
+    int reserve = GPUTRONIC_OS_RESERVE_SMS;
+    const char* reserve_env = getenv("GPUTRONIC_OS_RESERVE");
+    if (reserve_env && *reserve_env) reserve = atoi(reserve_env);
+    if (reserve < 0) reserve = 0;
+    if (h->device_sms > GPUTRONIC_SM_FLOOR && reserve > h->device_sms - GPUTRONIC_SM_FLOOR)
+        reserve = h->device_sms - GPUTRONIC_SM_FLOOR;
+    if (h->device_sms > reserve + GPUTRONIC_SM_FLOOR
         && h->cfg.num_sm == h->device_sms)
-        h->cfg.num_sm = h->device_sms - GPUTRONIC_OS_RESERVE_SMS;
+        h->cfg.num_sm = h->device_sms - reserve;
+    if (reserve_env && *reserve_env)
+        printf("[GPU] GPUTRONIC_OS_RESERVE=%d for this run\n", reserve);
     h->h_smid = NULL;
     h->d_smid = NULL;
     if (h->cfg.num_sm > 0 &&
@@ -1292,20 +1301,24 @@ static void gold_parse_select(GPUTronicHandle* h) {
 int gputronic_start(GPUTronicHandle* h) {
     if (!h || h->started) return -1;
 
-    /* CSV */
+    /* CSV. GPUTRONIC_NO_CSV=1 skips the 10 us file for one run. */
+    const char* no_csv = getenv("GPUTRONIC_NO_CSV");
     const char* path = h->cfg.csv_path ? h->cfg.csv_path : "results/gputronic_gold.csv";
-    {
+    if (no_csv && strcmp(no_csv, "1") == 0) {
+        h->csv = NULL;
+        printf("[CSV] off for this run\n");
+    } else {
         /* best-effort results dir */
         int mk = system("mkdir -p results");
         (void)mk;
-    }
-    h->csv = fopen(path, "w");
-    if (h->csv) {
-        fprintf(h->csv, "time_s,z_raw,z_hat,dzdt,rate_ema,active_sms,error,integral,ctrl_hz,rate_ref,"
-                         "z_cuda,z_tensor,rate_tensor_ema,rate_ref_tensor,ctrl_sensor\n");
-        printf("[CSV] %s\n", path);
-    } else {
-        fprintf(stderr, "[WARN] could not open CSV %s\n", path);
+        h->csv = fopen(path, "w");
+        if (h->csv) {
+            fprintf(h->csv, "time_s,z_raw,z_hat,dzdt,rate_ema,active_sms,error,integral,ctrl_hz,rate_ref,"
+                             "z_cuda,z_tensor,rate_tensor_ema,rate_ref_tensor,ctrl_sensor\n");
+            printf("[CSV] %s\n", path);
+        } else {
+            fprintf(stderr, "[WARN] could not open CSV %s\n", path);
+        }
     }
 
     h->t0_us = now_us();
@@ -1912,7 +1925,8 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
     clock_gettime(CLOCK_REALTIME, &rt);
     printf("[LOAD] calibrated; schedule t=0 at wall %ld.%09ld (CLOCK_REALTIME), %d points, %d s\n",
            (long)rt.tv_sec, rt.tv_nsec, np, duration_s);
-    FILE* f = fopen(csv_bin, "w");
+    const char* no_trace = getenv("GPUTRONIC_NO_CSV");
+    FILE* f = (no_trace && strcmp(no_trace, "1") == 0) ? NULL : fopen(csv_bin, "w");
     if (f) fprintf(f, "wall_s,t_ms,scale,z_raw,z_hat,active_sms,integral,clamp,rate_ema,sensor,"
                       "win_pulses,p_term,loop_iters,loop_hz,pi_ticks,deadband_held,integral_updates,"
                       "rail_ticks,sm_moves,p_only_moves\n");

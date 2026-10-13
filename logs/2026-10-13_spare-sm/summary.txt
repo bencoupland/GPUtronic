@@ -1,0 +1,60 @@
+Spare-SM present intervals, RTX 5080, 12 October 2026, 17:02–17:04.
+First 500 ms dropped. Over 33.4 ms is a missed vblank. The compiled reserve stays 2.
+
+== reserve 0 launch 84 ==
+[GPU] GPUTRONIC_OS_RESERVE=0 for this run
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (launching 84, 0 reserved for the OS) | thr/block=64
+[LOOP] dt=10 us (100 kHz) active_sms=84 floor=2
+[SMID] left out: none
+[SMID] recorded 84 of 84
+window  n=691 median=16.63 p99=18.22 max=20.40 min=15.47 over20ms=1 over33ms=0
+browser n=691 median=17.06 p99=17.14 max=17.16 min=16.06 over20ms=0 over33ms=0
+browser window 917x527 screen 3200x1800 dpr=1.2 hidden=False
+window frames over 18 ms: 12. The one over 20 ms is t=5663.1 dt=20.40.
+
+== reserve 1 launch 83 ==
+[GPU] GPUTRONIC_OS_RESERVE=1 for this run
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (launching 83, 1 reserved for the OS) | thr/block=64
+[LOOP] dt=10 us (100 kHz) active_sms=83 floor=2
+[SMID] left out: 83
+[SMID] recorded 83 of 83
+window  n=691 median=16.65 p99=18.06 max=19.17 min=16.13 over20ms=0 over33ms=0
+browser n=691 median=17.08 p99=17.14 max=17.18 min=16.08 over20ms=0 over33ms=0
+browser window 917x527 screen 3200x1800 dpr=1.2 hidden=False
+window frames over 18 ms: 10. Max is t=8509.7 dt=19.17.
+
+== reserve 2 launch 82 ==
+[GPU] GPUTRONIC_OS_RESERVE=2 for this run
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (launching 82, 2 reserved for the OS) | thr/block=64
+[LOOP] dt=10 us (100 kHz) active_sms=82 floor=2
+[SMID] left out: 82 83
+[SMID] recorded 82 of 82
+window  n=691 median=16.67 p99=16.72 max=18.12 min=16.54 over20ms=0 over33ms=0
+browser n=691 median=17.06 p99=17.12 max=17.14 min=16.08 over20ms=0 over33ms=0
+browser window 917x527 screen 3200x1800 dpr=1.2 hidden=False
+window frames over 18 ms: 1. t=689.0 dt=18.12.
+
+== reserve 4 launch 80 ==
+[GPU] GPUTRONIC_OS_RESERVE=4 for this run
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (launching 80, 4 reserved for the OS) | thr/block=64
+[LOOP] dt=10 us (100 kHz) active_sms=80 floor=2
+[SMID] left out: 80 81 82 83
+[SMID] recorded 80 of 80
+window  n=690 median=16.67 p99=16.71 max=33.35 min=16.57 over20ms=1 over33ms=0
+browser n=691 median=17.06 p99=17.14 max=17.18 min=16.08 over20ms=0 over33ms=0
+browser window 917x527 screen 3200x1800 dpr=1.2 hidden=False
+window frames over 18 ms: 1. t=8180.5 dt=33.35, one doubled interval, just under the 33.4 ms cut.
+
+== idle, no Gold grid ==
+window  n=211 median=16.65 p99=18.23 max=18.61 over20ms=0 refresh_interval_us=16668
+browser n=331 median=17.06 p99=17.12 max=17.12 over20ms=0 window 1600x999 screen 3200x1800 dpr=1.2 hidden=False
+
+== dmon, first 3 samples dropped, n=28 ==
+r0 temp 46-48 C power mean 71.18 W sm 100% pclk 2895 pviol 0 tviol 0
+r1 temp 48-50 C power mean 71.29 W sm 100% pclk 2895 pviol 0 tviol 0
+r2 temp 50-51 C power mean 70.96 W sm 100% pclk 2895 pviol 0 tviol 0
+r4 temp 51-52 C power mean 71.61 W sm 100% pclk 2895 pviol 0 tviol 0
+
+nvidia-smi start 44 C, 36 W, Disp.A On, Xorg 1984, Cinnamon 2615. Firefox not listed.
+nvidia-smi end 51 C, 63 W, Disp.A On, Xorg 1984, Cinnamon 2615. Firefox not listed.
+SUITE DONE fails=0.

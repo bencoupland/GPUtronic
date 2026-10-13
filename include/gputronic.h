@@ -63,8 +63,9 @@ extern "C" {
 
 /* Two SMs stay free for the desktop. gputronic_create launches
  * device_sms - GPUTRONIC_OS_RESERVE_SMS blocks when the caller did not
- * ask for a smaller grid. The command never goes below GPUTRONIC_SM_FLOOR.
- * A quiet-idle sweep may still start at 4. */
+ * ask for a smaller grid. GPUTRONIC_OS_RESERVE overrides the spare for
+ * one run; unset keeps this default. The command never goes below
+ * GPUTRONIC_SM_FLOOR. A quiet-idle sweep may still start at 4. */
 #define GPUTRONIC_OS_RESERVE_SMS 2
 #define GPUTRONIC_SM_FLOOR 2
 

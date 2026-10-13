@@ -191,7 +191,8 @@ Cooperative GEMM tiles (`src/gputronic_transfer.cu`) and launch-per-episode GEMM
 | Rate window | 8 ms, average 0.7 / 0.3 | `control_thread` |
 | Threads per block | 64 | `GPUTRONIC_DEFAULT_THREADS_PER_BLOCK` |
 | SM floor | 2 | kernel and control thread. A quiet-idle sweep may still start at 4 |
-| OS reserve | 2 | launch count is the device SM count minus 2. No test block on those SMs |
+| OS reserve | 2 | launch count is the device SM count minus 2. `GPUTRONIC_OS_RESERVE` overrides the spare for one run. No test block on those SMs |
+| Fast trace | on | `GPUTRONIC_NO_CSV=1` skips the 10 µs file and the binned trace for one run |
 | Tensor sensor | off unless `GPUTRONIC_TENSOR_SENSOR=1`. One extra warp, 64 wmma steps per pulse | `enable_tensor_sensor`, `GOLD_TENSOR_STEPS` |
 | Sensor rule | follow the higher Z (max) | `sensor_rule` (0 = max, 1 = min), env `GPUTRONIC_SENSOR_RULE` |
 | Reserve | 0 extra SMs | `reserve_sms`, env `GPUTRONIC_RESERVE_SMS` |

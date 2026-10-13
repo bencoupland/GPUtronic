@@ -1,0 +1,1 @@
+frames=721 wrote=logs/2026-10-13_spare-sm/present-r0.csv

@@ -1,0 +1,26 @@
+SPARE SM START 2026-10-12T17:02:02-07:00 temp=44
+DP-0 connected primary 3840x2160+0+0 (normal left inverted right x axis y axis) 621mm x 341mm
+[GPUTronic] Building Gold 1.0.0...
+/usr/local/cuda-12.8/bin/nvcc -arch=sm_120 -O3 -Iinclude -Xcompiler "-Wall -Wextra" -lineinfo --use_fast_math -o build/gputronic_gold src/gputronic_gold.cu -lm -lpthread
+[GPUTronic] Built: build/gputronic_gold
+temp 44 C
+=== r0 launch 84 temp=44 2026-10-12T17:02:05-07:00 ===
+present probe
+browser window
+temp 47 C
+temp 47 C
+=== r1 launch 83 temp=47 2026-10-12T17:02:38-07:00 ===
+present probe
+browser window
+temp 49 C
+temp 49 C
+=== r2 launch 82 temp=49 2026-10-12T17:03:10-07:00 ===
+present probe
+browser window
+temp 51 C
+temp 50 C
+=== r4 launch 80 temp=50 2026-10-12T17:03:43-07:00 ===
+present probe
+browser window
+temp 52 C
+SUITE DONE fails=0 2026-10-12T17:04:15-07:00 temp=51

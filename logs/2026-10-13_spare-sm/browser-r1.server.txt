@@ -1,0 +1,2 @@
+listening 8877
+frames=722 hidden=False window=917x527 screen=3200x1800 wrote=logs/2026-10-13_spare-sm/browser-r1.csv
