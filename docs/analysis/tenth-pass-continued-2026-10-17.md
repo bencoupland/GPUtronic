@@ -2,7 +2,7 @@
 
 This continues the tenth pass. The parent is `test-results/2026-10-17_tenth-pass` at `4224435`. The guest switch was already in that tree. Logs are `logs/2026-10-17_tenth-pass-continued/`. Kp 0.55, Ki 0.08, deadband 0.08, the 82-block launch, and the floor of 2 were not changed. The compiled integral clamp was not changed.
 
-Item 2 was pushed before these load steps. The source was not changed for them.
+Item 2 was pushed before these load steps. The source was not changed for them. Section 4 is the conclusion of the guest runs: the scheme is one grid and one total. The guest was the probe that showed the hole.
 
 ## 1. Ninth-pass results on main
 
@@ -46,7 +46,7 @@ No run was stopped for temperature. Plain `nvidia-smi` before the clean checks w
 
 The listed tries are ruled out. A shared hardware queue at the default connection count is ruled out by `CUDA_DEVICE_MAX_CONNECTIONS=32`. Stream order and the highest stream priority are ruled out by the two `h2` runs. The refill spawns are ruled out by the quiet stretch in `h2-stream-first`. A hidden mapped counter is ruled out because the entry stamp and the first pulse are one pass apart and the host sees both at the stop. Launching Gold itself on a non-blocking stream, which was not one of the listed tries, did not change it either.
 
-The controller's view is still incomplete while a second kernel is resident. The guest's 448 pulses show up only as Gold stops.
+The controller's view is still incomplete while a second kernel is resident. The guest's 448 pulses show up only as Gold stops. Z stayed in the band on the same runs. The loop's account and the card had come apart. Section 4 says what follows from that.
 
 `GPUTRONIC_GUEST_STREAM_FIRST`, `GPUTRONIC_GUEST_PRIORITY`, and `GPUTRONIC_GOLD_NONBLOCK` are test switches. Unset, the guest stream is still created after Gold's launch, at the default priority, and Gold's kernel stays on the default stream.
 
@@ -156,6 +156,16 @@ Over the whole hold, the share of 1 ms bins inside the band is 62.9%, 62.7%, 66.
 Read against the tenth-pass load on this same plant: at 6 SMs the loaded holds still finish on the clamp, and the first 1.2 hold's last 30 s is inside the band less often than at 3.28 SMs (35.3% against 55.0%). At 9 and at 12 the integral stays off the clamp, the 1.2 last-30 s share rises to about 81–83%, and the count ends near 65 rather than 61. The returns to 1.0 get worse as the clamp widens. The last-30 s in-band share falls from 96–98% at the compiled clamp, to 91–93% at 6 SMs, 85–87% at 9, and 84–86% at 12. The undershoot goes from about 1.36 to about 1.31. The plots are `clamp-6-zhat.svg`, `clamp-9-zhat.svg`, and `clamp-12-zhat.svg`. `plot_clamp.py` drew them from the 1 ms files, one point about every 100 ms.
 
 Plain `nvidia-smi` at the end of the three runs was 51 °C and 59.77 W (`nvidia-smi-clamp-end.txt`).
+
+## 4. One grid, one total
+
+The guest is a probe. It is not a second plant in the scheme. The loop reads one total, `total_work_pulses`, and every block of the Gold grid adds to it with `atomicAdd` and honors `active_sms`. The guest does not add to that total. That is why its one-second rate can be 0 while Z stays inside the band: the loop was holding the instrumented kernel, and the other launch was neither running nor in the account.
+
+The blocks that did run started only as the Gold grid exited, on SM ids that grid had been holding. Idle-exit was on, the command was about 54 of the 82 launched blocks, and the guest was 28 blocks, the size of the remainder. They still did not enter. A free stream, a higher stream priority, a larger connection limit, and moving Gold itself onto a non-blocking stream did not open those SMs. Leaving blocks idle inside this launch does not hand the machine to another kernel.
+
+The work this scheme governs is the work inside the one grid. The two unlaunched SMs, 82 and 83, stay outside that total. They are the spare for the desktop. The guest kernel returns without counting if it lands on either of them, and the blocks that finally ran did not land there. A launch beside the grid is outside the scheme. This pass showed that such a launch also does not get the SMs while the grid is resident.
+
+Nothing in the source changes for this conclusion. The guest switch stays off unless a run sets it. The compiled clamp, the gains, the 82-block launch, and the floor of 2 are unchanged.
 
 ## Checks
 
