@@ -34,11 +34,11 @@ If not, open a pull request from `test-results/2026-10-13_ninth-pass` into `main
 
 Note: the tenth-pass commit added the guest row to `docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`, the old spelling. Once the merge has landed, the continued branch carries that row in the renamed file, and the old-spelling file doesn't come back.
 
-## 2. Get the freed SMs to the guest
+## 2. Make the controller's view of the GPU complete
 
-**Goal.** In a phase C run, with Gold holding Z in band, the guest makes real progress on the SMs Gold isn't using, and its rate shows on every one-second line.
+**Goal.** This is a correctness fix, not a performance one. The guest is there so that no uncounted work runs alongside the throttle. Every kernel sharing the card counts its own work, so the controller's view of what the GPU is doing is complete. Idle-exit exists for the same reason: it isn't there to hand capacity to another kernel, but to make sure the controller sees everything happening on the card. In phase C the guest's work went uncounted while Gold ran. Its counter read 0, and its 448 pulses only showed up after Gold stopped, so the controller's view and the report's were both incomplete. Done means that in a phase C run, with Gold holding Z in band, the guest's work is counted as it happens and appears on every one-second line, so nothing on the card goes unseen.
 
-**First, find out where the guest waited.** Add to the guest kernel, behind the existing guest switch, one mapped word per block: the `globaltimer` and `%smid` when the block first enters, and the time of its first published pulse. Print them at the end of the run beside the `[GUEST] launched at` time and the time Gold was told to stop. That separates three cases:
+**First, find out where the guest's work went unseen.** Add to the guest kernel, behind the existing guest switch, one mapped word per block: the `globaltimer` and `%smid` when the block first enters, and the time of its first published pulse. Print them at the end of the run beside the `[GUEST] launched at` time and the time Gold was told to stop. That separates three cases:
 
 - the blocks entered only after Gold stopped (the guest waited in a queue the whole time);
 - the blocks entered early but couldn't publish (a visibility problem with the mapped pulse word);
@@ -51,11 +51,11 @@ Note: the tenth-pass commit added the guest row to `docs/GPUTRONIC-GOLD-1.0-FUNC
 3. *The refill spawns.* Idle-exit's `[SPAWN]` launches refill holes when the count rises. Check whether a pending spawn, or a refill at a base the guest could use, takes the SM before the guest's blocks are dispatched. The 54 to 57 move in phase C is the place to look.
 4. *Visibility.* If case two above is what the timestamps show, check the guest's mapped counter path (`atomicAdd` on mapped host memory, `__threadfence_system`) against the one Gold uses, which does show up every second.
 
-Fix the first cause the timestamps point to, as a test switch or as an environment setting the run documents. Fix only that. Don't change Gold's controller to make room.
+Fix the first cause the timestamps point to, as a test switch or as an environment setting the run documents. Fix only that. Don't change Gold's controller. The aim is a complete view, not more room for the guest.
 
-**The run.** Phase C again, same as the tenth pass (`run 40`, guest 28 blocks at 8000 ms, idle-exit on, `GPUTRONIC_NO_CSV=1`), with the fix. Then the same with the guest at 54 blocks, and with a fixed guest at 40 blocks while Gold holds a target that settles near the floor, if `run [sec] [Z]` gets there. That covers the "under any load" rule. For each run report: mean Z, min, max and band share after the guest starts; the SM counts; the guest rate as a fraction of phase B's 9,040,655 pulses/s (or a fresh phase B at the new block count); the block entry and first-pulse times; the `[SPAWN]` lines; power and temperature.
+**The run.** Phase C again, same as the tenth pass (`run 40`, guest 28 blocks at 8000 ms, idle-exit on, `GPUTRONIC_NO_CSV=1`), with the fix. Then the same with the guest at 54 blocks, and with a fixed guest at 40 blocks while Gold holds a target that settles near the floor, if `run [sec] [Z]` gets there. That covers the "under any load" rule: at every count, the controller's view has to stay complete. For each run report: mean Z, min, max and band share after the guest starts; the SM counts; the guest rate as a fraction of phase B's 9,040,655 pulses/s (or a fresh phase B at the new block count); the block entry and first-pulse times; the `[SPAWN]` lines; power and temperature.
 
-If no fix works, that is the result. Report which hypotheses were ruled out and how.
+If no fix works, that is the result. Report which hypotheses were ruled out and how, and say plainly that the controller's view is still incomplete while a second kernel is resident.
 
 ## 3. Unstick the integral under the 1.2 load
 
