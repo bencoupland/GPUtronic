@@ -180,7 +180,10 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  * is still read only while the load flag is set. The pulse batch stays at 1 ms.
  * Tensor-on blocks do not take this cache: a barrier there is not uniform.
  * GPUTRONIC_ICLAMP_SMS sets the integral clamp in SMs for one run. Unset
- * keeps the scaled law. GPUTRONIC_IDLE_EXIT=1 makes an idle block return.
+ * keeps the scaled law. GPUTRONIC_IDLE_WORK=1 is a test, off by default.
+ * Blocks past active_sms then run the same body and atomicAdd into
+ * total_work_pulses. Unset, those blocks do not. GPUTRONIC_IDLE_EXIT=1
+ * makes an idle block return.
  * The host launches fresh blocks when the count rises. GPUTRONIC_RELAUNCH=1
  * retires the grid and launches the commanded count, after a hold so a
  * one-tick flicker does not relaunch. GPUTRONIC_PEAK_REPS, GPUTRONIC_PEAK_CHAINS,
@@ -349,6 +352,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        unsigned long long ctrl_cache_ns,
                                        unsigned int* smid_out,
                                        int idle_exit,
+                                       int idle_work,
                                        unsigned int* slot_gen,
                                        int block_base,
                                        int peak_reps,
@@ -467,7 +471,10 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                        (pass_mask || sm_mask_lo || sm_mask_hi);
         int idle = selected ? !gold_sm_selected(s_phys, pass_mask, sm_mask_lo, sm_mask_hi)
                             : (sm >= active);
-        if (idle) {
+        /* GPUTRONIC_IDLE_WORK=1 is a test, off by default. An idle block then
+         * runs the same body below and the same atomicAdd into
+         * total_work_pulses. The SM command cannot turn that work off. */
+        if (idle && !idle_work) {
             if (idle_exit) {
                 /* The block ends. The SM is free for the desktop or a later
                  * launch. Off by default. GPUTRONIC_IDLE_EXIT=1. */
@@ -611,6 +618,7 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    unsigned long long ctrl_cache_ns,
                                    unsigned int* smid_out,
                                    int idle_exit,
+                                   int idle_work,
                                    unsigned int* slot_gen,
                                    int nblocks,
                                    int block_base,
@@ -635,7 +643,7 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
     gold_persistent_kernel<PEAK, ACC><<<nblocks, threads, 0, stream>>>( \
         sm_counters, d_ctrl, num_sm, cuda_warps, work_count, accum, accum_sm, accum_bin_ns, \
         idle_quiet, pass_mask, sm_mask_lo, sm_mask_hi, pulse_local, ctrl_cache, ctrl_cache_ns, \
-        smid_out, idle_exit, slot_gen, block_base, peak_reps, peak_chains, peak_rounds)
+        smid_out, idle_exit, idle_work, slot_gen, block_base, peak_reps, peak_chains, peak_rounds)
     if (!peak)
         GOLD_LAUNCH(0, 0);
     else if (acc == 4)
@@ -753,6 +761,7 @@ struct GPUtronicHandle {
     /* Test only. See gold_apply_test_env. Zero unless that run sets them. */
     int idle_quiet;
     int idle_exit;
+    int idle_work;
     int relaunch;
     long relaunch_hold_us;
     double launched_at_us;
@@ -1008,7 +1017,7 @@ static void gold_launch_this(GPUtronicHandle* h, int nblocks, int block_base, cu
                        h->d_accum, h->accum_sm, h->accum_bin_ns, h->idle_quiet,
                        h->select_pass_mask, h->select_sm_lo, h->select_sm_hi,
                        h->pulse_local, h->ctrl_cache, h->ctrl_cache_ns, h->d_smid,
-                       h->idle_exit, h->d_slot, nblocks, block_base,
+                       h->idle_exit, h->idle_work, h->d_slot, nblocks, block_base,
                        h->peak_reps > 0 ? h->peak_reps : 1,
                        h->peak_chains > 0 ? h->peak_chains : 1,
                        h->peak_acc,
@@ -1824,6 +1833,20 @@ int gputronic_start(GPUtronicHandle* h) {
                 printf("[IDLE] both IDLE_EXIT and RELAUNCH are set; using neither\n");
                 h->idle_exit = 0;
                 h->relaunch = 0;
+            }
+        }
+        h->idle_work = 0;
+        {
+            const char* iw = getenv("GPUTRONIC_IDLE_WORK");
+            if (iw && strcmp(iw, "1") == 0) h->idle_work = 1;
+        }
+        if (h->idle_work) {
+            printf("[IDLE] work on: blocks above active_sms do the work and add to total_work_pulses\n");
+            if (h->idle_exit || h->relaunch || h->idle_quiet) {
+                printf("[IDLE] IDLE_WORK is set; exit, relaunch, and quiet are off for this run\n");
+                h->idle_exit = 0;
+                h->relaunch = 0;
+                h->idle_quiet = 0;
             }
         }
         if (h->relaunch) {
@@ -2773,6 +2796,19 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
     GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = full_width ? "results/gputronic_gold_fullwidth.csv" : "results/gputronic_gold_load.csv";
+    /* Test only. loadfile has no Z argument. Unset keeps 1.5. `run` takes Z
+     * on the command line and does not read this. */
+    {
+        const char* tz = getenv("GPUTRONIC_TARGET_Z");
+        if (tz && *tz) {
+            float v = (float)atof(tz);
+            if (v > 0.0f && v < 20.0f) {
+                cfg.target_z = v;
+                printf("[TARGET] GPUTRONIC_TARGET_Z=%.3f (unset keeps %.1f)\n",
+                       v, (double)GPUTRONIC_GOLD_TARGET_Z);
+            }
+        }
+    }
     GPUtronicHandle* h = gputronic_create(&cfg);
     if (!h) return 1;
     if (gputronic_start(h) != 0) { gputronic_destroy(h); return 1; }
@@ -3007,6 +3043,8 @@ static void usage(const char* argv0) {
     printf("    GPUTRONIC_CTRL_CACHE=1\n");
     printf("    GPUTRONIC_CTRL_CACHE_US=1000   # cache period, only with CTRL_CACHE=1\n");
     printf("    GPUTRONIC_ICLAMP_SMS=6         # clamp in SMs; unset keeps the scaled law\n");
+    printf("    GPUTRONIC_IDLE_WORK=1          # idle blocks do the work and add to the one total\n");
+    printf("    GPUTRONIC_TARGET_Z=<z>         # loadfile/loadstep only; unset keeps 1.5\n");
     printf("    GPUTRONIC_IDLE_EXIT=1          # idle block returns; host launches the rest\n");
     printf("    GPUTRONIC_RELAUNCH=1           # new grid at the commanded count\n");
     printf("    GPUTRONIC_RELAUNCH_HOLD_US=5000\n");

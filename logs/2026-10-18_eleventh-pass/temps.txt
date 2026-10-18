@@ -1,0 +1,10 @@
+before z1-hold 48C 2026-10-18T01:20:22-07:00
+start z1-hold 48C waits=0 2026-10-18T01:20:22-07:00
+before z15-hold 51C 2026-10-18T01:20:50-07:00
+start z15-hold 51C waits=0 2026-10-18T01:20:50-07:00
+before z1-load 49C 2026-10-18T01:21:17-07:00
+start z1-load 49C waits=0 2026-10-18T01:21:17-07:00
+before clamp15 52C 2026-10-18T01:28:22-07:00
+start clamp15 52C waits=0 2026-10-18T01:28:22-07:00
+before idle-work 51C 2026-10-18T01:35:28-07:00
+start idle-work 51C waits=0 2026-10-18T01:35:28-07:00

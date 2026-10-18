@@ -349,6 +349,7 @@ Values in force when a run sets nothing. A test switch left unset is off, and th
 | Cached control words | off | `GPUTRONIC_CTRL_CACHE=1`. Period `GPUTRONIC_CTRL_CACHE_US`, default 1 ms, floor 50 µs. The refresh includes `work_scale_milli` |
 | Quiet idle | off | `GPUTRONIC_IDLE_QUIET=1`. Idle blocks wait 1 ms between reads |
 | Idle block returns | off | `GPUTRONIC_IDLE_EXIT=1`. The host launches a replacement on its own stream |
+| Idle blocks still count | off | `GPUTRONIC_IDLE_WORK=1`. Blocks past `active_sms` run the same body and `atomicAdd` into `total_work_pulses`. Unset, those blocks do not. Setting this with idle-exit, relaunch, or quiet idle turns those three off |
 | Relaunch the grid | off | `GPUTRONIC_RELAUNCH=1`. Hold `GPUTRONIC_RELAUNCH_HOLD_US`, default 5 ms, floor 0.5 ms, cap 1 s. Setting this and idle-exit together turns both off |
 | Dependent peak body | off | `GPUTRONIC_PEAK_REPS` (max 256), `GPUTRONIC_PEAK_CHAINS` (max 16), `GPUTRONIC_THREADS` (32 to 1024). Selects a second kernel |
 | Independent peak body | off | `GPUTRONIC_PEAK_ACC` (4, 8, 16, or 32) and `GPUTRONIC_PEAK_ROUNDS` (default 32, cap 4096). When both peak bodies are set, this one runs |
