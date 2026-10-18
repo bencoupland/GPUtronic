@@ -1,0 +1,180 @@
+[ZC ] type=host host_ptr=OK dev_ptr=OK round_trip=OK (host 0x7c4890600200, device 0x7c4890600200, same address (UVA))
+[SNS] tensor sensor off
+═══════════════════════════════════════════════════════════
+[GPUtronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (launching 82, 2 reserved for the OS) | thr/block=512
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[LOOP] dt=10 us (100 kHz) active_sms=82 floor=2
+
+[GUEST] concurrentKernels=1
+[GUEST] blocks=28 acc=32 rounds=512 threads=512 skip_sm=82,83
+[GUEST] stream created before the Gold launch
+[CSV] off for this run
+[IDLE] exit on: an idle block returns; the host launches replacements
+[PEAK] indep acc=32 rounds=512 threads=512
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[OK] Persistent self-test kernel launched (82 blocks x 512 threads)
+[SMID] launched 82 blocks on a 84-SM device
+[SMID] block:smid 0:0 1:1 2:14 3:15 4:28 5:29 6:42 7:43 8:56 9:57 10:70 11:71 12:2 13:3 14:16 15:17 16:30 17:31 18:44 19:45 20:58 21:59 22:72 23:73 24:4 25:5 26:18 27:19 28:32 29:33 30:46 31:47 32:60 33:61 34:74 35:75 36:6 37:7 38:20 39:21 40:34 41:35 42:48 43:49 44:62 45:63 46:76 47:77 48:8 49:9 50:22 51:23 52:36 53:37 54:50 55:51 56:64 57:65 58:78 59:79 60:10 61:11 62:24 63:25 64:38 65:39 66:52 67:53 68:66 69:67 70:80 71:81 72:12 73:13 74:26 75:27 76:40 77:41 78:54 79:55 80:68 81:69
+[SMID] left out: 82 83
+[SMID] recorded 82 of 82
+[CTRL] Gold | target=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 kalman=1 two-sided | cal 1.8s + 4-point table
+[TEL] t=   1s | Z_raw=1.000 Z_hat=1.000 dZ=0.000 | Zc=0.000 Zt=0.000 sel=cuda | rate=44017444 rate_t=0 | n= 82 | hz~17463 | pulses=43813792
+[CAL] rate_ref=44372552.0 pulses/s (sustained 1.10s window)
+[TEL] t=   2s | Z_raw=1.000 Z_hat=1.000 dZ=0.000 | Zc=0.000 Zt=0.000 sel=cuda | rate=33913560 rate_t=0 | n= 61 | hz~18300 | pulses=86477696
+[CAL] cuda table n= 61 rate=33786421.0 Z=1.313
+[CAL] cuda table n= 41 rate=22039722.2 Z=2.013
+[CAL] cuda table n= 20 rate=11070498.8 Z=4.008
+[CAL] cuda table n=  2 rate=1108965.9 Z=40.013
+[CAL] cuda target Z=1.50 → n_ff=55.7 dZ/dn=0.0350 sms_per_u=28.6
+[CAL] controller starts on the cuda sensor
+[CAL] integral clamp=1.435 (scaled, max integral correction 3.28 SMs of 82)
+[TEL] t=   3s | Z_raw=1.000 Z_hat=1.000 dZ=0.000 | Zc=0.000 Zt=0.000 sel=cuda | rate=1112664 rate_t=0 | n= 48 | hz~17372 | pulses=100112656
+[SPAWN] base=2 n=46 us=216 count=1 ok
+[SMID] launch base=2 n=46 ready=46 2:14 3:15 4:28 5:29 ... 46:40 47:41 same=6 moved=40
+[SPAWN] base=48 n=3 us=46 count=2 ok
+[SMID] launch base=48 n=3 ready=3 48:48 49:49 50:50 same=0 moved=3
+[SPAWN] base=51 n=2 us=41 count=3 ok
+[SMID] launch base=51 n=2 ready=2 51:51 52:52 same=0 moved=2
+[SPAWN] base=53 n=4 us=426 count=4 ok
+[SMID] launch base=53 n=4 ready=4 53:56 54:53 55:54 56:55 same=0 moved=4
+[SPAWN] base=57 n=1 us=37 count=5 ok
+[SMID] launch base=57 n=1 ready=1 57:57 same=0 moved=1
+[SPAWN] base=58 n=1 us=30 count=6 ok
+[SMID] launch base=58 n=1 ready=1 58:58 same=0 moved=1
+[SPAWN] base=59 n=1 us=35 count=7 ok
+[SMID] launch base=59 n=1 ready=1 59:59 same=0 moved=1
+[SPAWN] base=60 n=1 us=311 count=8 ok
+[SMID] launch base=60 n=1 ready=1 60:60 same=0 moved=1
+[SPAWN] base=61 n=1 us=34 count=9 ok
+[SMID] launch base=61 n=1 ready=1 61:61 same=0 moved=1
+[SPAWN] base=54 n=3 us=48 count=10 ok
+[SMID] launch base=54 n=3 ready=3 54:53 55:54 56:55 same=0 moved=3
+[SPAWN] base=54 n=3 us=43 count=11 ok
+[SMID] launch base=54 n=3 ready=3 54:53 55:54 56:55 same=0 moved=3
+[TEL] t=   4s | Z_raw=1.389 Z_hat=1.389 dZ=-0.011 | Zc=1.389 Zt=0.000 sel=cuda | rate=31939856 rate_t=0 | n= 54 | hz~17061 | pulses=130073584
+[TEL] t=   5s | Z_raw=1.476 Z_hat=1.476 dZ=0.024 | Zc=1.476 Zt=0.000 sel=cuda | rate=30054484 rate_t=0 | n= 54 | hz~17230 | pulses=160181328
+[SPAWN] base=54 n=3 us=391 count=12 ok
+[SMID] launch base=54 n=3 ready=3 54:53 55:54 56:55 same=0 moved=3
+[TEL] t=   6s | Z_raw=1.502 Z_hat=1.502 dZ=0.047 | Zc=1.502 Zt=0.000 sel=cuda | rate=29551696 rate_t=0 | n= 57 | hz~17168 | pulses=190215728
+[TEL] t=   7s | Z_raw=1.420 Z_hat=1.420 dZ=-0.061 | Zc=1.420 Zt=0.000 sel=cuda | rate=31256268 rate_t=0 | n= 54 | hz~17702 | pulses=219931488
+[GUEST] launched at 8001 ms
+[GUEST] gold resident smids 0 1 14 15 28 29 42 43 2 3 16 17 30 31 44 45 4 5 18 19 32 33 46 47 6 7 20 21 34 35 8 9 22 23 36 37 10 11 24 25 38 39 12 13 26 27 40 41 48 49 50 51 52 56 count=54
+[GUEST] visible enter=0 first=0 of 28
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=   8s | Z_raw=1.439 Z_hat=1.439 dZ=-0.040 | Zc=1.439 Zt=0.000 sel=cuda | rate=30828072 rate_t=0 | n= 54 | hz~17108 | pulses=250079936 | guest=0
+[SPAWN] base=54 n=3 us=197 count=13 ok
+[SMID] launch base=54 n=3 ready=0 54:4294967295 55:4294967295 56:4294967295 same=0 moved=0
+[SPAWN] base=57 n=1 us=94 count=14 ok
+[SMID] launch base=57 n=1 ready=0 57:4294967295 same=0 moved=0
+[SPAWN] base=58 n=1 us=60 count=15 ok
+[SMID] launch base=58 n=1 ready=0 58:4294967295 same=0 moved=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=   9s | Z_raw=1.526 Z_hat=1.526 dZ=0.391 | Zc=1.526 Zt=0.000 sel=cuda | rate=29083942 rate_t=0 | n= 57 | hz~17125 | pulses=280054496 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  10s | Z_raw=1.461 Z_hat=1.461 dZ=0.111 | Zc=1.461 Zt=0.000 sel=cuda | rate=30372412 rate_t=0 | n= 54 | hz~17022 | pulses=310093872 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  11s | Z_raw=1.489 Z_hat=1.489 dZ=0.039 | Zc=1.489 Zt=0.000 sel=cuda | rate=29800410 rate_t=0 | n= 57 | hz~17476 | pulses=339616816 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  12s | Z_raw=1.503 Z_hat=1.503 dZ=0.035 | Zc=1.503 Zt=0.000 sel=cuda | rate=29531728 rate_t=0 | n= 54 | hz~17485 | pulses=369647744 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  13s | Z_raw=1.468 Z_hat=1.468 dZ=-0.027 | Zc=1.468 Zt=0.000 sel=cuda | rate=30221192 rate_t=0 | n= 57 | hz~17316 | pulses=399121456 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  14s | Z_raw=1.522 Z_hat=1.528 dZ=0.041 | Zc=1.522 Zt=0.000 sel=cuda | rate=29149182 rate_t=0 | n= 57 | hz~17264 | pulses=429113536 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  15s | Z_raw=1.523 Z_hat=1.523 dZ=0.029 | Zc=1.523 Zt=0.000 sel=cuda | rate=29129328 rate_t=0 | n= 54 | hz~17108 | pulses=458631696 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  16s | Z_raw=1.464 Z_hat=1.465 dZ=-0.017 | Zc=1.464 Zt=0.000 sel=cuda | rate=30301820 rate_t=0 | n= 54 | hz~17059 | pulses=488732592 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  17s | Z_raw=1.539 Z_hat=1.539 dZ=0.049 | Zc=1.539 Zt=0.000 sel=cuda | rate=28825108 rate_t=0 | n= 57 | hz~17003 | pulses=518600448 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  18s | Z_raw=1.503 Z_hat=1.503 dZ=0.007 | Zc=1.503 Zt=0.000 sel=cuda | rate=29526866 rate_t=0 | n= 57 | hz~16968 | pulses=548192160 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  19s | Z_raw=1.454 Z_hat=1.454 dZ=-0.036 | Zc=1.454 Zt=0.000 sel=cuda | rate=30517464 rate_t=0 | n= 54 | hz~17470 | pulses=577928320 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  20s | Z_raw=1.575 Z_hat=1.575 dZ=0.087 | Zc=1.575 Zt=0.000 sel=cuda | rate=28175420 rate_t=0 | n= 57 | hz~17363 | pulses=607840752 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  21s | Z_raw=1.471 Z_hat=1.471 dZ=-0.022 | Zc=1.471 Zt=0.000 sel=cuda | rate=30162182 rate_t=0 | n= 57 | hz~17256 | pulses=637513664 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  22s | Z_raw=1.543 Z_hat=1.543 dZ=0.050 | Zc=1.543 Zt=0.000 sel=cuda | rate=28751504 rate_t=0 | n= 57 | hz~17243 | pulses=667340080 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  23s | Z_raw=1.462 Z_hat=1.462 dZ=-0.029 | Zc=1.462 Zt=0.000 sel=cuda | rate=30351676 rate_t=0 | n= 54 | hz~17107 | pulses=696997632 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  24s | Z_raw=1.475 Z_hat=1.475 dZ=-0.022 | Zc=1.475 Zt=0.000 sel=cuda | rate=30086438 rate_t=0 | n= 54 | hz~17081 | pulses=726561008 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  25s | Z_raw=1.563 Z_hat=1.571 dZ=0.066 | Zc=1.563 Zt=0.000 sel=cuda | rate=28393312 rate_t=0 | n= 57 | hz~17347 | pulses=756085008 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  26s | Z_raw=1.488 Z_hat=1.488 dZ=-0.036 | Zc=1.488 Zt=0.000 sel=cuda | rate=29823638 rate_t=0 | n= 57 | hz~18072 | pulses=785165728 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  27s | Z_raw=1.468 Z_hat=1.468 dZ=-0.041 | Zc=1.468 Zt=0.000 sel=cuda | rate=30234738 rate_t=0 | n= 54 | hz~17399 | pulses=814997216 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  28s | Z_raw=1.473 Z_hat=1.473 dZ=-0.026 | Zc=1.473 Zt=0.000 sel=cuda | rate=30126700 rate_t=0 | n= 54 | hz~17223 | pulses=844743296 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  29s | Z_raw=1.480 Z_hat=1.480 dZ=-0.026 | Zc=1.480 Zt=0.000 sel=cuda | rate=29989028 rate_t=0 | n= 54 | hz~17280 | pulses=874184256 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  30s | Z_raw=1.470 Z_hat=1.470 dZ=-0.029 | Zc=1.470 Zt=0.000 sel=cuda | rate=30189260 rate_t=0 | n= 54 | hz~17046 | pulses=904091360 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  31s | Z_raw=1.536 Z_hat=1.536 dZ=0.032 | Zc=1.536 Zt=0.000 sel=cuda | rate=28894140 rate_t=0 | n= 57 | hz~17883 | pulses=933580352 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  32s | Z_raw=1.553 Z_hat=1.553 dZ=0.036 | Zc=1.553 Zt=0.000 sel=cuda | rate=28573994 rate_t=0 | n= 57 | hz~17742 | pulses=962721600 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  33s | Z_raw=1.466 Z_hat=1.466 dZ=-0.027 | Zc=1.466 Zt=0.000 sel=cuda | rate=30270116 rate_t=0 | n= 57 | hz~17623 | pulses=992557872 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  34s | Z_raw=1.557 Z_hat=1.561 dZ=0.070 | Zc=1.557 Zt=0.000 sel=cuda | rate=28492580 rate_t=0 | n= 57 | hz~19211 | pulses=1022419696 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  35s | Z_raw=1.504 Z_hat=1.504 dZ=0.012 | Zc=1.504 Zt=0.000 sel=cuda | rate=29499308 rate_t=0 | n= 54 | hz~17434 | pulses=1052128720 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  36s | Z_raw=1.448 Z_hat=1.447 dZ=-0.032 | Zc=1.448 Zt=0.000 sel=cuda | rate=30653796 rate_t=0 | n= 54 | hz~17343 | pulses=1082317008 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  37s | Z_raw=1.481 Z_hat=1.481 dZ=0.012 | Zc=1.481 Zt=0.000 sel=cuda | rate=29964540 rate_t=0 | n= 54 | hz~17240 | pulses=1112374512 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  38s | Z_raw=1.492 Z_hat=1.492 dZ=0.005 | Zc=1.492 Zt=0.000 sel=cuda | rate=29739216 rate_t=0 | n= 54 | hz~17211 | pulses=1141876864 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  39s | Z_raw=1.448 Z_hat=1.448 dZ=-0.030 | Zc=1.448 Zt=0.000 sel=cuda | rate=30634122 rate_t=0 | n= 54 | hz~17836 | pulses=1171933024 | guest=0
+[GUEST] visible enter=0 first=0 of 28
+[TEL] t=  40s | Z_raw=1.492 Z_hat=1.492 dZ=0.010 | Zc=1.492 Zt=0.000 sel=cuda | rate=29737896 rate_t=0 | n= 57 | hz~17263 | pulses=1201920240 | guest=0
+[GUEST] gold stop at 40006 ms
+[GUEST] mark block=0 smid=1 enter_ns=1792296460147442656 first_ns=1792296460147487520 last_ns=1792296460147487520 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=1 smid=14 enter_ns=1792296460147442656 first_ns=1792296460147487520 last_ns=1792296460147487520 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=2 smid=15 enter_ns=1792296460147442656 first_ns=1792296460147487520 last_ns=1792296460147487520 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=3 smid=28 enter_ns=1792296460147442656 first_ns=1792296460147487520 last_ns=1792296460147487520 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=4 smid=2 enter_ns=1792296460147442656 first_ns=1792296460147487776 last_ns=1792296460147487776 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=5 smid=3 enter_ns=1792296460147442656 first_ns=1792296460147487776 last_ns=1792296460147487776 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=6 smid=16 enter_ns=1792296460147442656 first_ns=1792296460147487776 last_ns=1792296460147487776 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=7 smid=17 enter_ns=1792296460147442656 first_ns=1792296460147487776 last_ns=1792296460147487776 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=8 smid=4 enter_ns=1792296460147442656 first_ns=1792296460147487904 last_ns=1792296460147487904 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=9 smid=5 enter_ns=1792296460147442656 first_ns=1792296460147487904 last_ns=1792296460147487904 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=10 smid=18 enter_ns=1792296460147442656 first_ns=1792296460147487936 last_ns=1792296460147487936 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=11 smid=19 enter_ns=1792296460147442656 first_ns=1792296460147487904 last_ns=1792296460147487904 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=12 smid=6 enter_ns=1792296460147442656 first_ns=1792296460147487296 last_ns=1792296460147487296 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=13 smid=7 enter_ns=1792296460147442656 first_ns=1792296460147487296 last_ns=1792296460147487296 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=14 smid=20 enter_ns=1792296460147442656 first_ns=1792296460147487296 last_ns=1792296460147487296 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=15 smid=21 enter_ns=1792296460147442656 first_ns=1792296460147487296 last_ns=1792296460147487296 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=16 smid=8 enter_ns=1792296460147442656 first_ns=1792296460147487552 last_ns=1792296460147487552 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=17 smid=9 enter_ns=1792296460147442656 first_ns=1792296460147487552 last_ns=1792296460147487552 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=18 smid=22 enter_ns=1792296460147442656 first_ns=1792296460147487552 last_ns=1792296460147487552 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=19 smid=23 enter_ns=1792296460147442656 first_ns=1792296460147487552 last_ns=1792296460147487552 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=20 smid=10 enter_ns=1792296460147442656 first_ns=1792296460147487456 last_ns=1792296460147487456 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=21 smid=11 enter_ns=1792296460147442656 first_ns=1792296460147487456 last_ns=1792296460147487456 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=22 smid=24 enter_ns=1792296460147442656 first_ns=1792296460147487456 last_ns=1792296460147487456 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=23 smid=25 enter_ns=1792296460147442656 first_ns=1792296460147487456 last_ns=1792296460147487456 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=24 smid=12 enter_ns=1792296460147442656 first_ns=1792296460147487456 last_ns=1792296460147487456 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=25 smid=13 enter_ns=1792296460147442656 first_ns=1792296460147487424 last_ns=1792296460147487424 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=26 smid=26 enter_ns=1792296460147442656 first_ns=1792296460147487424 last_ns=1792296460147487424 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] mark block=27 smid=27 enter_ns=1792296460147442656 first_ns=1792296460147487424 last_ns=1792296460147487424 enter_seen_ms=40007 pulse_seen_ms=40007
+[GUEST] marks entered=28 published=28 host_enter=28 host_pulse=28 of 28
+[GUEST] stopped pulses=448 live=28
+[IDLE] spawns=15 relaunches=0
+[SMID] live 0:0 1:1 2:14 3:15 4:28 5:29 6:42 7:43 8:2 9:3 10:16 11:17 12:30 13:31 14:44 15:45 16:4 17:5 18:18 19:19 20:32 21:33 22:46 23:47 24:6 25:7 26:20 27:21 28:34 29:35 30:8 31:9 32:22 33:23 34:36 35:37 36:10 37:11 38:24 39:25 40:38 41:39 42:12 43:13 44:26 45:27 46:40 47:41 48:48 49:49 50:50 51:51 52:52 53:56 54:29 55:30 56:31 57:32 58:0
+[SMID] live_count=59 left out: 53 54 55 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83
+[SMID] launched 82 blocks on a 84-SM device
+[SMID] block:smid 0:0 1:1 2:14 3:15 4:28 5:29 6:42 7:43 8:2 9:3 10:16 11:17 12:30 13:31 14:44 15:45 16:4 17:5 18:18 19:19 20:32 21:33 22:46 23:47 24:6 25:7 26:20 27:21 28:34 29:35 30:8 31:9 32:22 33:23 34:36 35:37 36:10 37:11 38:24 39:25 40:38 41:39 42:12 43:13 44:26 45:27 46:40 47:41 48:48 49:49 50:50 51:51 52:52 53:56 54:29 55:30 56:31 57:32 58:0 59:59 60:60 61:61 62:24 63:25 64:38 65:39 66:52 67:53 68:66 69:67 70:80 71:81 72:12 73:13 74:26 75:27 76:40 77:41 78:54 79:55 80:68 81:69
+[SMID] left out: 57 58 62 63 64 65 70 71 72 73 74 75 76 77 78 79 82 83
+[SMID] recorded 82 of 82
+
+[STATS] loop_iters=680666 pi_ticks=629569 deadband_held=597587 integral_updates=31976 integral_on_rail=0 sm_moves=90 p_only_moves=0
+
+[STATS] samples=629569 mean_Z=1.4916 std_Z=0.0431 active_sms=48..62 rows_csv=0
+[GPUtronic Gold] Stopped cleanly.

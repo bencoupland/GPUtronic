@@ -352,7 +352,7 @@ Values in force when a run sets nothing. A test switch left unset is off, and th
 | Relaunch the grid | off | `GPUTRONIC_RELAUNCH=1`. Hold `GPUTRONIC_RELAUNCH_HOLD_US`, default 5 ms, floor 0.5 ms, cap 1 s. Setting this and idle-exit together turns both off |
 | Dependent peak body | off | `GPUTRONIC_PEAK_REPS` (max 256), `GPUTRONIC_PEAK_CHAINS` (max 16), `GPUTRONIC_THREADS` (32 to 1024). Selects a second kernel |
 | Independent peak body | off | `GPUTRONIC_PEAK_ACC` (4, 8, 16, or 32) and `GPUTRONIC_PEAK_ROUNDS` (default 32, cap 4096). When both peak bodies are set, this one runs |
-| Guest kernel | off | `GPUTRONIC_GUEST_BLOCKS` sets the block count. `GPUTRONIC_GUEST_AT_MS` (default 8000) is when `run` launches it. Its own mapped pulse word. It does not read `active_sms`. `guest` runs that kernel with the Gold kernel not launched |
+| Guest kernel | off | `GPUTRONIC_GUEST_BLOCKS` sets the block count. `GPUTRONIC_GUEST_AT_MS` (default 8000) is when `run` launches it. Its own mapped pulse word. It does not read `active_sms`. Each block records the SM id, the GPU time it entered, and the GPU time of its first published pulse. `GPUTRONIC_GUEST_STREAM_FIRST=1` creates the guest stream before Gold's streams. `GPUTRONIC_GUEST_PRIORITY=1` asks for the highest stream priority. `GPUTRONIC_GOLD_NONBLOCK=1` launches Gold's kernel on a non-blocking stream. All three stay off when unset. `guest` runs that kernel with the Gold kernel not launched |
 
 ## 5. Calls added and removed
 

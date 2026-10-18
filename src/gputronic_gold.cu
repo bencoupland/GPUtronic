@@ -202,11 +202,15 @@ __device__ __forceinline__ unsigned long long gold_globaltimer_ns(void) {
  * one warp finishing one pass, the same quantum as the Gold kernel with the
  * pulse batch on. The count is published once a millisecond. Off unless
  * GPUTRONIC_GUEST_BLOCKS is set. keep is separate so the two grids do not
- * store into the same sink. */
+ * store into the same sink.
+ * marks is 4 words per block, indexed by blockIdx: enter_ns, smid,
+ * first_pulse_ns, last_ns. enter_ns is the GPU timer when the block begins.
+ * first_pulse_ns is the timer of its first published pulse. */
 __device__ volatile float guest_keep[84 * 1024];
 
 template<int ACC>
 __global__ void gold_guest_kernel(unsigned long long* pulses, int* stop, int* live,
+                                  unsigned long long* marks,
                                   int rounds, int skip0, int skip1) {
     const int sm = (int)blockIdx.x;
     const int tid = (int)threadIdx.x;
@@ -226,6 +230,11 @@ __global__ void gold_guest_kernel(unsigned long long* pulses, int* stop, int* li
         int skip = ((int)phys == skip0 || (int)phys == skip1);
         s_stop = skip ? 1 : 0;
         if (!skip && live) atomicAdd(live, 1);
+        if (!skip && marks && sm >= 0 && sm < 84) {
+            unsigned long long base = (unsigned long long)sm * 4ULL;
+            marks[base + 0] = gold_globaltimer_ns();
+            marks[base + 1] = (unsigned long long)phys;
+        }
         __threadfence_system();
     }
     __syncthreads();
@@ -246,6 +255,11 @@ __global__ void gold_guest_kernel(unsigned long long* pulses, int* stop, int* li
                 int wlim = warps < 32 ? warps : 32;
                 for (int w = 0; w < wlim; w++) sum += s_warp_pulses[w];
                 if (sum && pulses) atomicAdd(pulses, (unsigned long long)sum);
+                if (marks && sum && sm >= 0 && sm < 84) {
+                    unsigned long long base = (unsigned long long)sm * 4ULL;
+                    if (marks[base + 2] == 0ULL) marks[base + 2] = now;
+                    marks[base + 3] = now;
+                }
                 __threadfence_system();
                 pulse_last = now;
                 s_flush = 1;
@@ -781,6 +795,13 @@ struct GPUtronicHandle {
     unsigned long long guest_prev_pulses;
     double guest_prev_us;
     float guest_rate;
+    /* 4 mapped words per block: enter_ns, smid, first_pulse_ns, last_ns. */
+    unsigned long long* h_guest_mark;
+    unsigned long long* d_guest_mark;
+    double guest_run_t0_us;
+    double gold_stop_us;
+    double guest_enter_seen_us[84];
+    double guest_pulse_seen_us[84];
 };
 
 static volatile int g_signal_stop = 0;
@@ -1909,6 +1930,21 @@ int gputronic_start(GPUtronicHandle* h) {
             h->ctrl_cache_ns = (unsigned long long)v * 1000ULL;
             printf("[CTRL] cached control words, including work_scale_milli: leader reads once per %ld us\n", v);
         }
+        /* Test only. Unset, the persistent kernel stays on the default stream,
+         * as in the tenth-pass binary. GPUTRONIC_GOLD_NONBLOCK=1 launches it
+         * on a non-blocking stream so a second kernel is not queued behind a
+         * grid that does not return. */
+        if (!h->kstream_on) {
+            const char* nb = getenv("GPUTRONIC_GOLD_NONBLOCK");
+            if (nb && strcmp(nb, "1") == 0) {
+                if (cudaStreamCreateWithFlags(&h->kstream, cudaStreamNonBlocking) == cudaSuccess) {
+                    h->kstream_on = 1;
+                    printf("[GPU] persistent kernel on a non-blocking stream\n");
+                } else {
+                    printf("[GPU] non-blocking launch stream failed; using the default stream\n");
+                }
+            }
+        }
         cudaStream_t launch_stream = h->kstream_on ? h->kstream : 0;
         gold_launch_this(h, h->cfg.num_sm, 0, launch_stream);
         h->launched_n = h->cfg.num_sm;
@@ -1949,6 +1985,7 @@ void gputronic_stop(GPUtronicHandle* h) {
     if (!h || !h->started) return;
     h->running = 0;
     g_signal_stop = 1;
+    h->gold_stop_us = now_us();
     if (h->h_ctrl) h->h_ctrl->control_flags |= GPUTRONIC_FLAG_STOP;
     gold_guest_halt(h);
     pthread_join(h->thr, NULL);
@@ -2009,6 +2046,7 @@ void gputronic_destroy(GPUtronicHandle* h) {
     if (h->h_guest_pulses) cudaFreeHost(h->h_guest_pulses);
     if (h->h_guest_stop) cudaFreeHost(h->h_guest_stop);
     if (h->h_guest_live) cudaFreeHost(h->h_guest_live);
+    if (h->h_guest_mark) cudaFreeHost(h->h_guest_mark);
     if (h->side_on) cudaStreamDestroy(h->side_stream);
     if (h->kstream_on) cudaStreamDestroy(h->kstream);
     if (h->h_slot) cudaFreeHost(h->h_slot);
@@ -2137,16 +2175,35 @@ static int gold_guest_open(GPUtronicHandle* h, int blocks) {
         cudaHostAlloc((void**)&h->h_guest_stop, sizeof(int), cudaHostAllocMapped) != cudaSuccess ||
         cudaHostGetDevicePointer((void**)&h->d_guest_stop, h->h_guest_stop, 0) != cudaSuccess ||
         cudaHostAlloc((void**)&h->h_guest_live, sizeof(int), cudaHostAllocMapped) != cudaSuccess ||
-        cudaHostGetDevicePointer((void**)&h->d_guest_live, h->h_guest_live, 0) != cudaSuccess) {
+        cudaHostGetDevicePointer((void**)&h->d_guest_live, h->h_guest_live, 0) != cudaSuccess ||
+        cudaHostAlloc((void**)&h->h_guest_mark, 84ULL * 4ULL * sizeof(unsigned long long),
+                      cudaHostAllocMapped) != cudaSuccess ||
+        cudaHostGetDevicePointer((void**)&h->d_guest_mark, h->h_guest_mark, 0) != cudaSuccess) {
         printf("[GUEST] mapped counter failed; guest is off for this run\n");
         return -1;
     }
     *h->h_guest_pulses = 0ULL;
     *h->h_guest_stop = 0;
     *h->h_guest_live = 0;
-    if (cudaStreamCreateWithFlags(&h->guest_stream, cudaStreamNonBlocking) != cudaSuccess) {
-        printf("[GUEST] stream failed; guest is off for this run\n");
-        return -1;
+    memset(h->h_guest_mark, 0, 84ULL * 4ULL * sizeof(unsigned long long));
+    {
+        const char* gp = getenv("GPUTRONIC_GUEST_PRIORITY");
+        if (gp && strcmp(gp, "1") == 0) {
+            int least = 0, greatest = 0;
+            cudaError_t pr = cudaDeviceGetStreamPriorityRange(&least, &greatest);
+            cudaError_t cr = (pr == cudaSuccess)
+                ? cudaStreamCreateWithPriority(&h->guest_stream, cudaStreamNonBlocking, greatest)
+                : pr;
+            if (cr != cudaSuccess) {
+                printf("[GUEST] priority stream failed; guest is off for this run\n");
+                return -1;
+            }
+            printf("[GUEST] stream priority=%d (highest; range %d..%d)\n",
+                   greatest, greatest, least);
+        } else if (cudaStreamCreateWithFlags(&h->guest_stream, cudaStreamNonBlocking) != cudaSuccess) {
+            printf("[GUEST] stream failed; guest is off for this run\n");
+            return -1;
+        }
     }
     h->guest_stream_on = 1;
     h->guest_blocks = blocks;
@@ -2164,26 +2221,31 @@ static int gold_guest_launch(GPUtronicHandle* h) {
     *h->h_guest_pulses = 0ULL;
     *h->h_guest_stop = 0;
     *h->h_guest_live = 0;
+    if (h->h_guest_mark)
+        memset(h->h_guest_mark, 0, 84ULL * 4ULL * sizeof(unsigned long long));
+    memset(h->guest_enter_seen_us, 0, sizeof h->guest_enter_seen_us);
+    memset(h->guest_pulse_seen_us, 0, sizeof h->guest_pulse_seen_us);
     __sync_synchronize();
     int blocks = h->guest_blocks;
     int threads = h->cfg.threads_per_block;
     int rounds = h->guest_rounds;
     int acc = h->guest_acc;
+    unsigned long long* marks = h->d_guest_mark;
     if (acc == 4)
         gold_guest_kernel<4><<<blocks, threads, 0, h->guest_stream>>>(
-            h->d_guest_pulses, h->d_guest_stop, h->d_guest_live, rounds,
+            h->d_guest_pulses, h->d_guest_stop, h->d_guest_live, marks, rounds,
             h->guest_skip0, h->guest_skip1);
     else if (acc == 8)
         gold_guest_kernel<8><<<blocks, threads, 0, h->guest_stream>>>(
-            h->d_guest_pulses, h->d_guest_stop, h->d_guest_live, rounds,
+            h->d_guest_pulses, h->d_guest_stop, h->d_guest_live, marks, rounds,
             h->guest_skip0, h->guest_skip1);
     else if (acc == 16)
         gold_guest_kernel<16><<<blocks, threads, 0, h->guest_stream>>>(
-            h->d_guest_pulses, h->d_guest_stop, h->d_guest_live, rounds,
+            h->d_guest_pulses, h->d_guest_stop, h->d_guest_live, marks, rounds,
             h->guest_skip0, h->guest_skip1);
     else
         gold_guest_kernel<32><<<blocks, threads, 0, h->guest_stream>>>(
-            h->d_guest_pulses, h->d_guest_stop, h->d_guest_live, rounds,
+            h->d_guest_pulses, h->d_guest_stop, h->d_guest_live, marks, rounds,
             h->guest_skip0, h->guest_skip1);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
@@ -2197,6 +2259,72 @@ static int gold_guest_launch(GPUtronicHandle* h) {
     return 0;
 }
 
+/* Host view of the mapped mark words. The first time a word is non-zero is
+ * the host clock of that observation, relative to guest_run_t0_us later. */
+static void gold_guest_observe_marks(GPUtronicHandle* h, int* entered_out, int* first_out) {
+    int nenter = 0, nfirst = 0;
+    if (h && h->h_guest_mark && h->guest_launched) {
+        int n = h->guest_blocks > 84 ? 84 : h->guest_blocks;
+        double now = now_us();
+        for (int i = 0; i < n; i++) {
+            if (h->h_guest_mark[i * 4]) {
+                nenter++;
+                if (h->guest_enter_seen_us[i] == 0.0) h->guest_enter_seen_us[i] = now;
+            }
+            if (h->h_guest_mark[i * 4 + 2]) {
+                nfirst++;
+                if (h->guest_pulse_seen_us[i] == 0.0) h->guest_pulse_seen_us[i] = now;
+            }
+        }
+    }
+    if (entered_out) *entered_out = nenter;
+    if (first_out) *first_out = nfirst;
+}
+
+static void gold_guest_note_residents(const GPUtronicHandle* h) {
+    if (!h || !h->h_slot || !h->h_smid) {
+        printf("[GUEST] gold resident smids unavailable\n");
+        return;
+    }
+    printf("[GUEST] gold resident smids");
+    int n = 0;
+    for (int i = 0; i < h->cfg.num_sm; i++) {
+        if (h->h_slot[i] == 0u) continue;
+        printf(" %u", h->h_smid[i]);
+        n++;
+    }
+    printf(" count=%d\n", n);
+}
+
+static void gold_guest_print_marks(const GPUtronicHandle* h) {
+    if (!h || !h->h_guest_mark) return;
+    double t0 = h->guest_run_t0_us;
+    if (h->gold_stop_us > 0.0 && t0 > 0.0)
+        printf("[GUEST] gold stop at %.0f ms\n", (h->gold_stop_us - t0) / 1000.0);
+    else
+        printf("[GUEST] gold stop at n/a\n");
+    int n = h->guest_blocks > 84 ? 84 : h->guest_blocks;
+    int entered = 0, published = 0, host_enter = 0, host_pulse = 0;
+    for (int i = 0; i < n; i++) {
+        unsigned long long enter = h->h_guest_mark[i * 4];
+        unsigned long long smid = h->h_guest_mark[i * 4 + 1];
+        unsigned long long first = h->h_guest_mark[i * 4 + 2];
+        unsigned long long last = h->h_guest_mark[i * 4 + 3];
+        double em = (h->guest_enter_seen_us[i] > 0.0 && t0 > 0.0)
+                        ? (h->guest_enter_seen_us[i] - t0) / 1000.0 : -1.0;
+        double pm = (h->guest_pulse_seen_us[i] > 0.0 && t0 > 0.0)
+                        ? (h->guest_pulse_seen_us[i] - t0) / 1000.0 : -1.0;
+        if (enter) entered++;
+        if (first) published++;
+        if (h->guest_enter_seen_us[i] > 0.0) host_enter++;
+        if (h->guest_pulse_seen_us[i] > 0.0) host_pulse++;
+        printf("[GUEST] mark block=%d smid=%llu enter_ns=%llu first_ns=%llu last_ns=%llu enter_seen_ms=%.0f pulse_seen_ms=%.0f\n",
+               i, smid, enter, first, last, em, pm);
+    }
+    printf("[GUEST] marks entered=%d published=%d host_enter=%d host_pulse=%d of %d\n",
+           entered, published, host_enter, host_pulse, n);
+}
+
 static void gold_guest_halt(GPUtronicHandle* h) {
     if (!h || !h->guest_launched) return;
     if (h->h_guest_stop) {
@@ -2204,6 +2332,8 @@ static void gold_guest_halt(GPUtronicHandle* h) {
         __sync_synchronize();
     }
     if (h->guest_stream_on) cudaStreamSynchronize(h->guest_stream);
+    gold_guest_observe_marks(h, NULL, NULL);
+    gold_guest_print_marks(h);
     h->guest_launched = 0;
     printf("[GUEST] stopped pulses=%llu live=%d\n",
            h->h_guest_pulses ? (unsigned long long)*h->h_guest_pulses : 0ULL,
@@ -2219,6 +2349,9 @@ static void gold_guest_sample(GPUtronicHandle* h) {
         h->guest_rate = (float)((double)(p - h->guest_prev_pulses) / dt);
     h->guest_prev_pulses = p;
     h->guest_prev_us = now;
+    int nenter = 0, nfirst = 0;
+    gold_guest_observe_marks(h, &nenter, &nfirst);
+    printf("[GUEST] visible enter=%d first=%d of %d\n", nenter, nfirst, h->guest_blocks);
 }
 
 void gputronic_print_status(const GPUtronicHandle* h, int elapsed_s) {
@@ -2267,30 +2400,45 @@ static int mode_run(int duration_s, float target, float kp, float ki) {
 
     GPUtronicHandle* h = gputronic_create(&cfg);
     if (!h) return 1;
+
+    int want_guest = 0;
+    int guest_at_ms = 8000;
+    int stream_first = 0;
+    {
+        const char* gb = getenv("GPUTRONIC_GUEST_BLOCKS");
+        const char* ga = getenv("GPUTRONIC_GUEST_AT_MS");
+        const char* sf = getenv("GPUTRONIC_GUEST_STREAM_FIRST");
+        if (gb && *gb) want_guest = atoi(gb);
+        if (ga && *ga) guest_at_ms = atoi(ga);
+        if (sf && strcmp(sf, "1") == 0) stream_first = 1;
+    }
+    /* Test only. Unset, the guest stream is created after Gold's launch. */
+    if (stream_first && want_guest > 0) {
+        if (gold_guest_open(h, want_guest) != 0) want_guest = 0;
+        else printf("[GUEST] stream created before the Gold launch\n");
+    }
     if (gputronic_start(h) != 0) {
         gputronic_destroy(h);
         return 1;
     }
-
-    int want_guest = 0;
-    int guest_at_ms = 8000;
-    {
-        const char* gb = getenv("GPUTRONIC_GUEST_BLOCKS");
-        const char* ga = getenv("GPUTRONIC_GUEST_AT_MS");
-        if (gb && *gb) want_guest = atoi(gb);
-        if (ga && *ga) guest_at_ms = atoi(ga);
-    }
-    if (want_guest > 0 && gold_guest_open(h, want_guest) != 0) want_guest = 0;
+    if (want_guest > 0 && !h->guest_stream_on && gold_guest_open(h, want_guest) != 0)
+        want_guest = 0;
     double run_t0 = now_us();
+    h->guest_run_t0_us = run_t0;
 
     for (int s = 0; s < duration_s && !g_signal_stop; s++) {
         usleep(1000000);
         if (want_guest > 0 && !h->guest_launched &&
             (now_us() - run_t0) / 1000.0 >= (double)guest_at_ms) {
             double elapsed_ms = (now_us() - run_t0) / 1000.0;
-            if (gold_guest_launch(h) == 0)
+            if (gold_guest_launch(h) == 0) {
                 printf("[GUEST] launched at %.0f ms\n", elapsed_ms);
-            else
+                gold_guest_note_residents(h);
+                int nenter = 0, nfirst = 0;
+                gold_guest_observe_marks(h, &nenter, &nfirst);
+                printf("[GUEST] visible enter=%d first=%d of %d\n",
+                       nenter, nfirst, h->guest_blocks);
+            } else
                 want_guest = 0;
         }
         gold_guest_sample(h);
@@ -2316,12 +2464,14 @@ static int mode_guest(int sec, int blocks) {
     GPUtronicHandle* h = gputronic_create(&cfg);
     if (!h) return 1;
     printf("[GUEST] gold resident=0\n");
+    h->guest_run_t0_us = now_us();
     if (gold_guest_open(h, blocks) != 0 || gold_guest_launch(h) != 0) {
         printf("[GUEST] launch failed\n");
         gputronic_destroy(h);
         return 1;
     }
     printf("[GUEST] launched at 0 ms\n");
+    gold_guest_note_residents(h);
     for (int s = 0; s < sec && !g_signal_stop; s++) {
         usleep(1000000);
         gold_guest_sample(h);
@@ -2864,6 +3014,9 @@ static void usage(const char* argv0) {
     printf("    GPUTRONIC_PEAK_ACC (4|8|16|32) / GPUTRONIC_PEAK_ROUNDS (default 32)\n");
     printf("    GPUTRONIC_GUEST_BLOCKS=<n>     # second kernel, own pulse word, off if unset\n");
     printf("    GPUTRONIC_GUEST_AT_MS=8000     # launch the guest this many ms after run starts\n");
+    printf("    GPUTRONIC_GUEST_STREAM_FIRST=1 # test: create the guest stream before Gold's\n");
+    printf("    GPUTRONIC_GUEST_PRIORITY=1     # test: highest stream priority, off if unset\n");
+    printf("    GPUTRONIC_GOLD_NONBLOCK=1      # test: Gold kernel on a non-blocking stream\n");
     printf("  %s guest [sec] [blocks]                       # guest only, Gold kernel not launched\n", argv0);
     printf("    GPUTRONIC_STEP_AT_MS / GPUTRONIC_STEP_SMS   # test only, during noise or loadstep\n");
     printf("  %s ratio [hold_s] [n1,n2,...]                 # T9: pulse-to-work ratio (default 5, N,3N/4,N/2,N/4)\n", argv0);
