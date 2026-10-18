@@ -3,7 +3,7 @@
 # Draft from the first public post, when the control was sleep duration.
 # The repo now uses an SM count. See the README.
 
-> **Superseded.** This describes the original sleep-duration control. Commit `600ed66` (2026-09-23) replaced sleep actuation with SM-count actuation (`active_sms`), and PR #1 removed the remaining sleep API (`gputronic_set_open_loop_sleep`, `gputronic_get_sleep_ns`, the sleep scale settings) and made the controller two-sided. See the README and `docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md` for the current design.
+> **Superseded.** This describes the original sleep-duration control. Commit `600ed66` (2026-09-23) replaced sleep actuation with SM-count actuation (`active_sms`), and PR #1 removed the remaining sleep API (`gputronic_set_open_loop_sleep`, `gputronic_get_sleep_ns`, the sleep scale settings) and made the controller two-sided. See the README and `docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md` for the current design.
 
 # Posts were checked to stay within 280 characters.
 

@@ -1,0 +1,6 @@
+Ninth pass, 13 October 2026. The controller was on. The kernel is the full-pipe test switch: 32 independent chains, 512 rounds, 512 threads, pulse batch and control-word cache on. The fast CSV was off, so the Z trace is the one-second lines in closed.txt.
+
+Command: ./build/gputronic_gold run 25
+Switches for this run only: GPUTRONIC_PEAK_ACC=32 GPUTRONIC_PEAK_ROUNDS=512 GPUTRONIC_THREADS=512 GPUTRONIC_PULSE_LOCAL=1 GPUTRONIC_CTRL_CACHE=1 GPUTRONIC_NO_CSV=1
+
+Gains were the compiled defaults. The launch was 82 blocks and the floor was 2. closed.dmon is nvidia-smi dmon at 1 second. The program exited at 25 s. The die did not reach 83 °C.

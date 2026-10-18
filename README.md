@@ -1,10 +1,26 @@
 # GPUtronic
 
-Closed-loop control of instruction-flow throughput on a GPU.
+Cruise control for a parallel processor. The GPU counts its own finished work, and a PI loop decides how many SMs run, above the driver and below the workload.
 
 Reference: **GPUtronic 1.0 Gold**
 
-![GPUTRONIC](docs/assets/gputronic-mark.jpg)
+![GPUtronic](docs/assets/gputronic-mark.jpg)
+
+On an RTX 5080, the pulse rate tracked the SM count, and the closed loop held mean Z at 1.497 inside the 0.08 band. That run is [`docs/analysis/full-pipe-2026-10-13.md`](docs/analysis/full-pipe-2026-10-13.md).
+
+The next step is holding Z under a real competing GPU load.
+
+GPUtronic started with the Pascal governor, a simple GPU governor released in January 2026.
+
+The thread that points here starts at [What if a parallel processor could have cruise control?](https://x.com/benracoupland/status/2109921630009053318).
+
+## Results
+
+One closed-loop run of the full-pipe kernel on this RTX 5080, on 13 October 2026. The gains stayed at Kp 0.55 and Ki 0.08, the deadband at 0.08, the launch at 82 SMs, and the floor at 2. The telemetry is [`logs/2026-10-13_ninth-pass/closed.txt`](logs/2026-10-13_ninth-pass/closed.txt).
+
+From 4 s through 25 s there are 22 one-second samples. Mean Z is 1.502. All 22 are inside the 0.08 band.
+
+The open-loop baseline is the fixed-count holds in [`docs/analysis/full-pipe-2026-10-13.md`](docs/analysis/full-pipe-2026-10-13.md), logged under [`logs/2026-10-13_full-pipe/`](logs/2026-10-13_full-pipe/). At 82 SMs that baseline reads Z 1.013 (`n82.txt`). At 56 SMs it reads Z 1.459 (`n56.txt`), the fixed-count row nearest the request. This run left the count to the controller. Of the 22 samples, 18 were at 54 SMs, 3 at 55, and 1 at 57.
 
 A GPU driver will slow the chip if it gets hot. It will not tell you whether the work you asked for is the work that finished. You launch a kernel, wait, and take whatever rate comes out.
 
@@ -14,7 +30,7 @@ A unit of that work is a pulse. The kernel adds one when a piece of work finishe
 
 GPUtronic is that interface, checked on three test kernels. The control in this tree is how many SMs do the work (`active_sms`). An earlier version used sleep duration instead. That source is in `archive/gold-1.0.0-nanosleep/`. The function frame matches this tree.
 
-The function-by-function writeup is [`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md). This README is the tour of the ideas. The same function frame is copied at the end of this file.
+The function-by-function writeup is [`docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md). This README is the tour of the ideas. The same function frame is copied at the end of this file.
 
 ## The claim
 
@@ -197,7 +213,7 @@ include/gputronic.h                      public C API
 src/gputronic_gold.cu                    core + CLI
 src/gputronic_transfer.cu                Transfer kernel (persistent)
 src/gputronic_episode.cu                 Episode kernel (launch-complete)
-docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md
+docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md
 GOLD.md  STATUS.md  TRANSFER.md  EPISODE.md
 archive/v0.1-gtx1080-2026-01/            first public PoC (GTX 1080)
 ```
@@ -216,7 +232,7 @@ MIT
 
 ## Function frame
 
-The rest of this file is the function reference. The standalone copy is [`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md). When one changes, change the other.
+The rest of this file is the function reference. The standalone copy is [`docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md`](docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md). When one changes, change the other.
 
 # GPUtronic 1.0 Gold: Function Reference
 
