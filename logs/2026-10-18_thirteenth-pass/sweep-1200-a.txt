@@ -1,0 +1,80 @@
+[TARGET] GPUTRONIC_TARGET_Z=1.500 (unset keeps 1.0)
+[ZC ] type=host host_ptr=OK dev_ptr=OK round_trip=OK (host 0x7c8548600200, device 0x7c8548600200, same address (UVA))
+[SNS] tensor sensor off
+═══════════════════════════════════════════════════════════
+[GPUtronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (launching 82, 2 reserved for the OS) | thr/block=512
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[LOOP] dt=10 us (100 kHz) active_sms=82 floor=2
+
+[CSV] results/gputronic_gold_load.csv
+[PEAK] indep acc=32 rounds=512 threads=512
+[WORK] real-work load: scale sets independent-FMA rounds, every batch pulses
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[OK] Persistent self-test kernel launched (82 blocks x 512 threads)
+[SMID] launched 82 blocks on a 84-SM device
+[SMID] block:smid 0:0 1:1 2:14 3:15 4:28 5:29 6:42 7:43 8:56 9:57 10:70 11:71 12:2 13:3 14:16 15:17 16:30 17:31 18:44 19:45 20:58 21:59 22:72 23:73 24:4 25:5 26:18 27:19 28:32 29:33 30:46 31:47 32:60 33:61 34:74 35:75 36:6 37:7 38:20 39:21 40:34 41:35 42:48 43:49 44:62 45:63 46:76 47:77 48:8 49:9 50:22 51:23 52:36 53:37 54:50 55:51 56:64 57:65 58:78 59:79 60:10 61:11 62:24 63:25 64:38 65:39 66:52 67:53 68:66 69:67 70:80 71:81 72:12 73:13 74:26 75:27 76:40 77:41 78:54 79:55 80:68 81:69
+[SMID] left out: 82 83
+[SMID] recorded 82 of 82
+[CTRL] Gold | target=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 kalman=1 two-sided | cal 1.8s + 4-point table
+[CAL] rate_ref=49317504.0 pulses/s (sustained 1.10s window)
+[CAL] cuda table n= 61 rate=36740415.2 Z=1.342
+[CAL] cuda table n= 41 rate=24575913.1 Z=2.007
+[CAL] cuda table n= 20 rate=12168131.7 Z=4.053
+[CAL] cuda table n=  2 rate=1220327.3 Z=40.413
+[CAL] cuda target Z=1.50 → n_ff=56.3 dZ/dn=0.0332 sms_per_u=30.1
+[CAL] controller starts on the cuda sensor
+[CAL] integral clamp=1.362 (scaled, max integral correction 3.28 SMs of 82)
+[LOAD] calibrated; schedule t=0 at wall 1792360954.893114942 (CLOCK_REALTIME), 2 points, 45 s
+[TEL] t=   1s | Z_raw=1.486 Z_hat=1.486 dZ=0.017 | Zc=1.486 Zt=0.000 sel=cuda | rate=33182416 rate_t=0 | n= 55 | hz~16105 | pulses=142701408
+[TEL] t=   2s | Z_raw=1.482 Z_hat=1.482 dZ=0.005 | Zc=1.482 Zt=0.000 sel=cuda | rate=33274758 rate_t=0 | n= 55 | hz~15927 | pulses=175922816
+[TEL] t=   3s | Z_raw=1.490 Z_hat=1.490 dZ=0.010 | Zc=1.490 Zt=0.000 sel=cuda | rate=33098544 rate_t=0 | n= 55 | hz~15791 | pulses=209153872
+[TEL] t=   4s | Z_raw=1.482 Z_hat=1.482 dZ=-0.000 | Zc=1.482 Zt=0.000 sel=cuda | rate=33275850 rate_t=0 | n= 55 | hz~15761 | pulses=242429424
+[TEL] t=   5s | Z_raw=1.485 Z_hat=1.485 dZ=0.030 | Zc=1.485 Zt=0.000 sel=cuda | rate=33208572 rate_t=0 | n= 55 | hz~16085 | pulses=275643504
+[TEL] t=   6s | Z_raw=1.487 Z_hat=1.487 dZ=0.014 | Zc=1.487 Zt=0.000 sel=cuda | rate=33165834 rate_t=0 | n= 55 | hz~15911 | pulses=308854528
+[TEL] t=   7s | Z_raw=1.481 Z_hat=1.481 dZ=0.000 | Zc=1.481 Zt=0.000 sel=cuda | rate=33310184 rate_t=0 | n= 55 | hz~17807 | pulses=342069696
+[TEL] t=   8s | Z_raw=1.485 Z_hat=1.485 dZ=-0.001 | Zc=1.485 Zt=0.000 sel=cuda | rate=33200884 rate_t=0 | n= 55 | hz~18505 | pulses=375293792
+[TEL] t=   9s | Z_raw=1.489 Z_hat=1.489 dZ=0.005 | Zc=1.489 Zt=0.000 sel=cuda | rate=33117456 rate_t=0 | n= 55 | hz~15527 | pulses=408524528
+[TEL] t=  10s | Z_raw=1.483 Z_hat=1.483 dZ=0.057 | Zc=1.483 Zt=0.000 sel=cuda | rate=33252200 rate_t=0 | n= 55 | hz~15869 | pulses=441815232
+[TEL] t=  11s | Z_raw=1.480 Z_hat=1.480 dZ=0.021 | Zc=1.480 Zt=0.000 sel=cuda | rate=33328896 rate_t=0 | n= 55 | hz~17432 | pulses=475080656
+[TEL] t=  12s | Z_raw=1.489 Z_hat=1.489 dZ=0.013 | Zc=1.489 Zt=0.000 sel=cuda | rate=33116792 rate_t=0 | n= 55 | hz~16370 | pulses=508293312
+[TEL] t=  13s | Z_raw=1.482 Z_hat=1.482 dZ=-0.001 | Zc=1.482 Zt=0.000 sel=cuda | rate=33276840 rate_t=0 | n= 55 | hz~16942 | pulses=541499904
+[TEL] t=  14s | Z_raw=1.482 Z_hat=1.482 dZ=-0.003 | Zc=1.482 Zt=0.000 sel=cuda | rate=33287934 rate_t=0 | n= 55 | hz~15602 | pulses=574755024
+[TEL] t=  15s | Z_raw=1.484 Z_hat=1.484 dZ=-0.004 | Zc=1.484 Zt=0.000 sel=cuda | rate=33225206 rate_t=0 | n= 55 | hz~16508 | pulses=607988096
+[TEL] t=  16s | Z_raw=1.682 Z_hat=1.682 dZ=0.073 | Zc=1.682 Zt=0.000 sel=cuda | rate=29327264 rate_t=0 | n= 60 | hz~18114 | pulses=637589776
+[TEL] t=  17s | Z_raw=1.651 Z_hat=1.651 dZ=0.013 | Zc=1.651 Zt=0.000 sel=cuda | rate=29875196 rate_t=0 | n= 60 | hz~15766 | pulses=667356192
+[TEL] t=  18s | Z_raw=1.657 Z_hat=1.657 dZ=0.023 | Zc=1.657 Zt=0.000 sel=cuda | rate=29760184 rate_t=0 | n= 60 | hz~16425 | pulses=697301936
+[TEL] t=  19s | Z_raw=1.648 Z_hat=1.648 dZ=0.010 | Zc=1.648 Zt=0.000 sel=cuda | rate=29920356 rate_t=0 | n= 60 | hz~16912 | pulses=727391904
+[TEL] t=  20s | Z_raw=1.633 Z_hat=1.633 dZ=-0.001 | Zc=1.633 Zt=0.000 sel=cuda | rate=30207982 rate_t=0 | n= 60 | hz~15565 | pulses=757499552
+[TEL] t=  21s | Z_raw=1.618 Z_hat=1.618 dZ=-0.031 | Zc=1.618 Zt=0.000 sel=cuda | rate=30489394 rate_t=0 | n= 60 | hz~16356 | pulses=787718448
+[TEL] t=  22s | Z_raw=1.633 Z_hat=1.633 dZ=-0.009 | Zc=1.633 Zt=0.000 sel=cuda | rate=30197464 rate_t=0 | n= 61 | hz~16353 | pulses=817777856
+[TEL] t=  23s | Z_raw=1.605 Z_hat=1.605 dZ=-0.018 | Zc=1.605 Zt=0.000 sel=cuda | rate=30729240 rate_t=0 | n= 61 | hz~16710 | pulses=848397920
+[TEL] t=  24s | Z_raw=1.619 Z_hat=1.619 dZ=0.006 | Zc=1.619 Zt=0.000 sel=cuda | rate=30462140 rate_t=0 | n= 61 | hz~16162 | pulses=879019888
+[TEL] t=  25s | Z_raw=1.590 Z_hat=1.590 dZ=-0.028 | Zc=1.590 Zt=0.000 sel=cuda | rate=31009556 rate_t=0 | n= 61 | hz~15702 | pulses=909672000
+[TEL] t=  26s | Z_raw=1.623 Z_hat=1.623 dZ=0.028 | Zc=1.623 Zt=0.000 sel=cuda | rate=30381570 rate_t=0 | n= 62 | hz~19333 | pulses=940022192
+[TEL] t=  27s | Z_raw=1.601 Z_hat=1.601 dZ=-0.000 | Zc=1.601 Zt=0.000 sel=cuda | rate=30803124 rate_t=0 | n= 61 | hz~15811 | pulses=970741488
+[TEL] t=  28s | Z_raw=1.597 Z_hat=1.597 dZ=-0.013 | Zc=1.597 Zt=0.000 sel=cuda | rate=30879344 rate_t=0 | n= 61 | hz~16815 | pulses=1001411760
+[TEL] t=  29s | Z_raw=1.614 Z_hat=1.614 dZ=0.002 | Zc=1.614 Zt=0.000 sel=cuda | rate=30565272 rate_t=0 | n= 61 | hz~17004 | pulses=1032085008
+[TEL] t=  30s | Z_raw=1.615 Z_hat=1.615 dZ=0.002 | Zc=1.615 Zt=0.000 sel=cuda | rate=30542564 rate_t=0 | n= 61 | hz~16227 | pulses=1062748352
+[TEL] t=  31s | Z_raw=1.409 Z_hat=1.408 dZ=-0.080 | Zc=1.409 Zt=0.000 sel=cuda | rate=35008640 rate_t=0 | n= 58 | hz~16199 | pulses=1097693424
+[TEL] t=  32s | Z_raw=1.410 Z_hat=1.410 dZ=-0.029 | Zc=1.410 Zt=0.000 sel=cuda | rate=34983716 rate_t=0 | n= 58 | hz~18737 | pulses=1132592976
+[TEL] t=  33s | Z_raw=1.418 Z_hat=1.417 dZ=-0.006 | Zc=1.418 Zt=0.000 sel=cuda | rate=34778748 rate_t=0 | n= 58 | hz~16498 | pulses=1167442560
+[TEL] t=  34s | Z_raw=1.442 Z_hat=1.442 dZ=0.018 | Zc=1.442 Zt=0.000 sel=cuda | rate=34194680 rate_t=0 | n= 57 | hz~16522 | pulses=1202055040
+[TEL] t=  35s | Z_raw=1.436 Z_hat=1.436 dZ=-0.002 | Zc=1.436 Zt=0.000 sel=cuda | rate=34352384 rate_t=0 | n= 57 | hz~18708 | pulses=1236362080
+[TEL] t=  36s | Z_raw=1.434 Z_hat=1.434 dZ=0.002 | Zc=1.434 Zt=0.000 sel=cuda | rate=34395888 rate_t=0 | n= 57 | hz~18886 | pulses=1270721184
+[TEL] t=  37s | Z_raw=1.435 Z_hat=1.435 dZ=0.001 | Zc=1.435 Zt=0.000 sel=cuda | rate=34370708 rate_t=0 | n= 57 | hz~19994 | pulses=1305012704
+[TEL] t=  38s | Z_raw=1.431 Z_hat=1.431 dZ=-0.000 | Zc=1.431 Zt=0.000 sel=cuda | rate=34463088 rate_t=0 | n= 57 | hz~15911 | pulses=1339308080
+[TEL] t=  39s | Z_raw=1.440 Z_hat=1.440 dZ=0.003 | Zc=1.440 Zt=0.000 sel=cuda | rate=34255404 rate_t=0 | n= 57 | hz~19206 | pulses=1373603008
+[TEL] t=  40s | Z_raw=1.431 Z_hat=1.431 dZ=-0.011 | Zc=1.431 Zt=0.000 sel=cuda | rate=34473468 rate_t=0 | n= 57 | hz~16095 | pulses=1407807408
+[TEL] t=  41s | Z_raw=1.432 Z_hat=1.432 dZ=-0.009 | Zc=1.432 Zt=0.000 sel=cuda | rate=34444768 rate_t=0 | n= 57 | hz~17828 | pulses=1442092608
+[TEL] t=  42s | Z_raw=1.438 Z_hat=1.438 dZ=-0.004 | Zc=1.438 Zt=0.000 sel=cuda | rate=34298732 rate_t=0 | n= 57 | hz~18609 | pulses=1476392128
+[TEL] t=  43s | Z_raw=1.442 Z_hat=1.442 dZ=0.004 | Zc=1.442 Zt=0.000 sel=cuda | rate=34197360 rate_t=0 | n= 57 | hz~16855 | pulses=1510673040
+[TEL] t=  44s | Z_raw=1.430 Z_hat=1.430 dZ=-0.009 | Zc=1.430 Zt=0.000 sel=cuda | rate=34486224 rate_t=0 | n= 57 | hz~21038 | pulses=1544958064
+
+[STATS] loop_iters=748120 pi_ticks=697669 deadband_held=407643 integral_updates=211958 integral_on_rail=78111 sm_moves=557 p_only_moves=129
+
+[STATS] samples=697669 mean_Z=1.5146 std_Z=0.0864 active_sms=48..64 rows_csv=748120
+[GPUtronic Gold] Stopped cleanly.
+[LOAD] wrote results/gputronic_gold_loadfile_10ms.csv
