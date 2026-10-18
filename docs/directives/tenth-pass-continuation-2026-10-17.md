@@ -1,4 +1,4 @@
-# Tenth pass, continued: get the freed SMs to a second kernel, and unstick the integral under load
+# Tenth pass, continued: make the controller's view of the GPU complete, and unstick the integral under load
 
 This continues `docs/directives/tenth-pass-2026-10-17.md`. It is not an eleventh pass. It is based on the results on `test-results/2026-10-17_tenth-pass` (`4224435`, report `docs/analysis/tenth-pass-2026-10-17.md`) and on Ben's conclusions from reading them. Start from that results branch at `4224435`, so the guest switch is already in the tree. Post everything to a new branch, `test-results/2026-10-17_tenth-pass-continued`, with logs under `logs/2026-10-17_tenth-pass-continued/`. Do not force-push. The only merge this directive asks for is item 1.
 
