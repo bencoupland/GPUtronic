@@ -290,7 +290,18 @@ __global__ void gold_guest_kernel(unsigned long long* pulses, int* stop, int* li
  * S/1000 batches (credit counter), so measured work per pulse rises by S/1000 and
  * the pulse rate falls to 1000/S. A literal extra-FMA multiplier would not work:
  * the pass is about 288 us of mapped atomics and only ~1.6 us of arithmetic, so 20%
- * more arithmetic barely moves the rate. Default 1000/0 always pulses. */
+ * more arithmetic barely moves the rate. Default 1000/0 always pulses.
+ * That sentence is the unset kernel. GPUTRONIC_WORK_LOAD=1 is the other test,
+ * off unless the run sets it, and only with the independent-FMA body: the same
+ * scale changes the round count, and every batch still pulses. */
+__device__ __forceinline__ int gold_scaled_rounds(int base, unsigned int scale_milli) {
+    unsigned int sc = scale_milli ? scale_milli : 1000u;
+    int r = (int)(((unsigned long long)base * sc + 500ull) / 1000ull);
+    if (r < 1) r = 1;
+    if (r > 4096) r = 4096;
+    return r;
+}
+
 __device__ __forceinline__ int gold_load_pulse(unsigned int flags, GPUtronicControl* ctrl,
                                                unsigned int* credit) {
     /* work_scale_milli is only read while the host has set GPUTRONIC_FLAG_LOAD in
@@ -357,7 +368,8 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
                                        int block_base,
                                        int peak_reps,
                                        int peak_chains,
-                                       int peak_rounds) {
+                                       int peak_rounds,
+                                       int work_load) {
     const int sm = blockIdx.x + block_base;
     const int tid = threadIdx.x;
     const int lane = tid & 31;
@@ -378,6 +390,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
     __shared__ unsigned int s_flags;
     __shared__ int s_active;
     __shared__ unsigned int s_scale;
+    __shared__ unsigned int s_work_scale;
     __shared__ unsigned long long s_ctrl_last;
     if (sm >= num_sm) return;
     if (tid == 0) {
@@ -508,8 +521,26 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
             continue;
         }
 
+        int rounds_now = indep_rounds;
+        unsigned long long ops_add = pass_ops;
         if constexpr (Peak != 0 && Acc > 0) {
-            gold_work_indep<Acc>(&local, sm, indep_rounds, gold_peak_keep);
+            /* GPUTRONIC_WORK_LOAD=1. The cached scale is already uniform.
+             * Without the cache, one thread reads the mapped word and the
+             * block shares it. Tensor-on blocks do not take that barrier. */
+            if (work_load && (flags & GPUTRONIC_FLAG_LOAD)) {
+                unsigned int sc = 1000u;
+                if (use_cache) {
+                    sc = s_scale ? s_scale : 1000u;
+                } else if (blockDim.x == cuda_warps * 32) {
+                    if (tid == 0)
+                        s_work_scale = ctrl->work_scale_milli ? ctrl->work_scale_milli : 1000u;
+                    __syncthreads();
+                    sc = s_work_scale;
+                }
+                rounds_now = gold_scaled_rounds(indep_rounds, sc);
+                ops_add = (unsigned long long)Acc * (unsigned long long)rounds_now * 2ULL * 32ULL;
+            }
+            gold_work_indep<Acc>(&local, sm, rounds_now, gold_peak_keep);
         } else if constexpr (Peak != 0) {
             gold_work_peak(&local, sm, peak_r, peak_c);
         } else {
@@ -532,7 +563,7 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
          * block is CUDA warps alone. That is the normal run: the tensor sensor
          * is off. The barrier lets the leader add both warps into one snapshot. */
         if (accum_on && !is_tensor_warp) {
-            if (lane == 0) atomicAdd(&s_ops[0], pass_ops);
+            if (lane == 0) atomicAdd(&s_ops[0], ops_add);
             const int cuda_only = (blockDim.x == cuda_warps * 32);
             if (cuda_only) __syncthreads();
             if (tid == 0) {
@@ -559,7 +590,11 @@ __global__ void gold_persistent_kernel(unsigned long long* sm_counters,
          * read, and only lane 0 takes it. On, lane 0 uses the shared scale. */
         int do_pulse = 0;
         if (lane == 0) {
-            if (use_cache)
+            /* Real-work load: every batch publishes. The scale already
+             * changed the round count above. Unset, this is the pulse skip. */
+            if (work_load)
+                do_pulse = 1;
+            else if (use_cache)
                 do_pulse = gold_load_from_scale(flags, s_scale, &load_credit);
             else
                 do_pulse = gold_load_pulse(flags, ctrl, &load_credit);
@@ -627,6 +662,7 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
                                    int peak_acc,
                                    int peak_rounds,
                                    int use_peak,
+                                   int work_load,
                                    cudaStream_t stream) {
     /* CUDA-core warps stay as configured; the tensor sensor adds one warp.
      * nblocks is this launch. num_sm is the logical ceiling (the OS-reserve
@@ -643,7 +679,7 @@ extern "C" void gold_launch_kernel(unsigned long long* sm_counters,
     gold_persistent_kernel<PEAK, ACC><<<nblocks, threads, 0, stream>>>( \
         sm_counters, d_ctrl, num_sm, cuda_warps, work_count, accum, accum_sm, accum_bin_ns, \
         idle_quiet, pass_mask, sm_mask_lo, sm_mask_hi, pulse_local, ctrl_cache, ctrl_cache_ns, \
-        smid_out, idle_exit, idle_work, slot_gen, block_base, peak_reps, peak_chains, peak_rounds)
+        smid_out, idle_exit, idle_work, slot_gen, block_base, peak_reps, peak_chains, peak_rounds, work_load)
     if (!peak)
         GOLD_LAUNCH(0, 0);
     else if (acc == 4)
@@ -784,6 +820,7 @@ struct GPUtronicHandle {
     int peak_acc;    /* 4/8/16/32 independent FMAs per thread per round; 0 = off */
     int peak_rounds; /* repeats of that independent block */
     int peak_live; /* 1 when a peak test switch is set, including reps=1 */
+    int work_load; /* GPUTRONIC_WORK_LOAD=1: scale changes FMA rounds, every batch pulses */
     unsigned int spawn_count;
     unsigned int relaunch_count;
     /* Test only. GPUTRONIC_GUEST_BLOCKS. Zero unless that run sets it. */
@@ -1023,6 +1060,7 @@ static void gold_launch_this(GPUtronicHandle* h, int nblocks, int block_base, cu
                        h->peak_acc,
                        h->peak_rounds > 0 ? h->peak_rounds : 1,
                        h->peak_live,
+                       h->work_load,
                        stream);
 }
 
@@ -1879,6 +1917,7 @@ int gputronic_start(GPUtronicHandle* h) {
         h->peak_acc = 0;
         h->peak_rounds = 32;
         h->peak_live = 0;
+        h->work_load = 0;
         {
             const char* pr = getenv("GPUTRONIC_PEAK_REPS");
             const char* pc = getenv("GPUTRONIC_PEAK_CHAINS");
@@ -1913,6 +1952,17 @@ int gputronic_start(GPUtronicHandle* h) {
         else if (h->peak_live || h->cfg.threads_per_block != GPUTRONIC_DEFAULT_THREADS_PER_BLOCK)
             printf("[PEAK] reps=%d chains=%d threads=%d\n",
                    h->peak_reps, h->peak_chains, h->cfg.threads_per_block);
+        {
+            const char* wl = getenv("GPUTRONIC_WORK_LOAD");
+            if (wl && strcmp(wl, "1") == 0) {
+                if (h->peak_acc > 0) {
+                    h->work_load = 1;
+                    printf("[WORK] real-work load: scale sets independent-FMA rounds, every batch pulses\n");
+                } else {
+                    printf("[WORK] GPUTRONIC_WORK_LOAD needs PEAK_ACC; switch is off for this run\n");
+                }
+            }
+        }
         if (h->idle_exit || h->relaunch) {
             if (cudaStreamCreateWithFlags(&h->side_stream, cudaStreamNonBlocking) == cudaSuccess)
                 h->side_on = 1;
@@ -2654,10 +2704,12 @@ static int mode_step(void) {
     return 0;
 }
 
-/* Closed-loop short validation after dyno */
+/* Closed-loop short validation after dyno. Commands 1.5 so the gate still
+ * requires a closed rate under 90% of free run. Unset runs keep the macro. */
 static int mode_closedloop_check(int seconds) {
     GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
+    cfg.target_z = 1.5f;
     cfg.csv_path = "results/gputronic_gold_closedloop.csv";
 
     GPUtronicHandle* h = gputronic_create(&cfg);
@@ -2785,19 +2837,21 @@ static int gold_load_bursts(GoldLoadPoint* p, int maxn, double scale, unsigned i
     return n;
 }
 
-/* Run closed loop at Z 1.5 (or open-loop full width if full_width), wait for
+/* Run closed loop at the compiled target (or open-loop full width if full_width), wait for
  * calibration, then apply the schedule and log one row per 10 ms bin. */
 /* full_width: 0 closed loop, 1 open loop all SMs, >1 open loop at that many SMs (T10).
  * Bin size: GPUTRONIC_TRACE_BIN_US (default 1 ms with the tally, else 10 ms, minimum
  * 100). Rows are streamed to the file, so memory use does not grow with run length.
  * GPUTRONIC_STEP_AT_MS and GPUTRONIC_STEP_SMS, and the STEP2 pair, are test only.
  * During this timed loop they change the open-loop SM count. Unset, the count stays. */
+static unsigned long long gold_work_sum(GPUtronicHandle* h, cudaStream_t st, unsigned long long* buf);
+
 static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, int duration_s, int full_width) {
     GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
     cfg.csv_path = full_width ? "results/gputronic_gold_fullwidth.csv" : "results/gputronic_gold_load.csv";
-    /* Test only. loadfile has no Z argument. Unset keeps 1.5. `run` takes Z
-     * on the command line and does not read this. */
+    /* Test only. loadfile has no Z argument. Unset keeps the compiled target.
+     * `run` takes Z on the command line and does not read this. */
     {
         const char* tz = getenv("GPUTRONIC_TARGET_Z");
         if (tz && *tz) {
@@ -2862,6 +2916,23 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
                       "rail_ticks,sm_moves,p_only_moves\n");
     unsigned long long pv[7] = {h->st_loop, h->st_ticks, h->st_db_skip, h->st_int_upd,
                                 h->st_rail, h->st_moves, h->st_p_only};
+    /* T9 counter, only when the run asked for it. One sample a second, on its
+     * own stream, so the copy does not wait for the resident kernel. */
+    cudaStream_t wr_st = 0;
+    unsigned long long* wr_buf = NULL;
+    unsigned long long wr_p = 0, wr_w = 0;
+    int wr_on = 0;
+    if (h->d_work &&
+        cudaStreamCreateWithFlags(&wr_st, cudaStreamNonBlocking) == cudaSuccess) {
+        wr_buf = (unsigned long long*)malloc((size_t)h->cfg.num_sm * 32 * sizeof(unsigned long long));
+        if (wr_buf) {
+            wr_on = 1;
+            wr_p = h->h_ctrl->total_work_pulses;
+            wr_w = gold_work_sum(h, wr_st, wr_buf);
+        } else {
+            cudaStreamDestroy(wr_st);
+        }
+    }
     double t0 = now_us();
     double next_bin = 0.0;
     int k = 0, last_print = -1;
@@ -2885,7 +2956,10 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
         if (cur != h->h_ctrl->work_scale_milli) {
             h->h_ctrl->work_scale_milli = cur;
             __sync_synchronize();
-            if (cur > 1000u) __sync_fetch_and_or(&h->h_ctrl->control_flags, GPUTRONIC_FLAG_LOAD);
+            /* Pulse-skip engages only above 1.0. The real-work load also
+             * engages below 1.0, so a lighter scale still reaches the kernel. */
+            int load_on = h->work_load ? (cur != 1000u) : (cur > 1000u);
+            if (load_on) __sync_fetch_and_or(&h->h_ctrl->control_flags, GPUTRONIC_FLAG_LOAD);
             else __sync_fetch_and_and(&h->h_ctrl->control_flags, ~GPUTRONIC_FLAG_LOAD);
         }
         int sampled = 0;
@@ -2944,6 +3018,15 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
             if (sec > 0) {
                 gold_guest_sample(h);
                 gputronic_print_status(h, sec);
+                if (wr_on) {
+                    unsigned long long pn = h->h_ctrl->total_work_pulses;
+                    unsigned long long wn = gold_work_sum(h, wr_st, wr_buf);
+                    double dp = (double)(pn - wr_p), dw = (double)(wn - wr_w);
+                    double ratio = dw > 0.0 ? dp * (double)GOLD_BATCH / dw : 0.0;
+                    printf("[WORK] t=%ds pulses=%.0f batches=%.0f ratio=%.5f\n", sec, dp, dw, ratio);
+                    wr_p = pn;
+                    wr_w = wn;
+                }
             }
         }
         if (!sampled) usleep(200);
@@ -2954,6 +3037,10 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
     if (f) fclose(f);
     if (fa) fclose(fa);
     free(a_prev);
+    if (wr_on) {
+        cudaStreamDestroy(wr_st);
+        free(wr_buf);
+    }
     gputronic_stop(h);
     gputronic_destroy(h);
     printf("[LOAD] wrote %s\n", csv_bin);
@@ -3033,7 +3120,7 @@ static void usage(const char* argv0) {
     printf("  %s step            # open-loop SM-count step response\n", argv0);
     printf("  %s check           # dyno + 20s closed-loop gate\n", argv0);
     printf("  %s all             # dyno + step + closed-loop\n", argv0);
-    printf("  %s loadstep [sec] [scale] [t_on_s] [t_off_s]  # T6: Z 1.5, load step (default 60 1.2 20 0=hold)\n", argv0);
+    printf("  %s loadstep [sec] [scale] [t_on_s] [t_off_s]  # T6: compiled target, load step (default 60 1.2 20 0=hold)\n", argv0);
     printf("  %s bursts [scale] [seed] [reps]              # T7: 2..200 ms bursts (default 1.2 1 5)\n", argv0);
     printf("  %s loadfile <file> [sec]                      # schedule file, lines \"t_ms scale\"\n", argv0);
     printf("  %s noise [sms] [sec]                         # T10: open loop at fixed SMs, Z noise floor (default 46 30)\n", argv0);
@@ -3044,12 +3131,13 @@ static void usage(const char* argv0) {
     printf("    GPUTRONIC_CTRL_CACHE_US=1000   # cache period, only with CTRL_CACHE=1\n");
     printf("    GPUTRONIC_ICLAMP_SMS=6         # clamp in SMs; unset keeps the scaled law\n");
     printf("    GPUTRONIC_IDLE_WORK=1          # idle blocks do the work and add to the one total\n");
-    printf("    GPUTRONIC_TARGET_Z=<z>         # loadfile/loadstep only; unset keeps 1.5\n");
+    printf("    GPUTRONIC_TARGET_Z=<z>         # loadfile/loadstep only; unset keeps 1.0\n");
     printf("    GPUTRONIC_IDLE_EXIT=1          # idle block returns; host launches the rest\n");
     printf("    GPUTRONIC_RELAUNCH=1           # new grid at the commanded count\n");
     printf("    GPUTRONIC_RELAUNCH_HOLD_US=5000\n");
     printf("    GPUTRONIC_PEAK_REPS / GPUTRONIC_PEAK_CHAINS / GPUTRONIC_THREADS\n");
     printf("    GPUTRONIC_PEAK_ACC (4|8|16|32) / GPUTRONIC_PEAK_ROUNDS (default 32)\n");
+    printf("    GPUTRONIC_WORK_LOAD=1          # scale changes FMA rounds; every batch pulses\n");
     printf("    GPUTRONIC_GUEST_BLOCKS=<n>     # second kernel, own pulse word, off if unset\n");
     printf("    GPUTRONIC_GUEST_AT_MS=8000     # launch the guest this many ms after run starts\n");
     printf("    GPUTRONIC_GUEST_STREAM_FIRST=1 # test: create the guest stream before Gold's\n");

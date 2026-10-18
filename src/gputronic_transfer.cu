@@ -373,6 +373,8 @@ static int mode_dyno(void) {
 static int mode_closedloop(int seconds) {
     GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
+    /* This gate commands 1.5. Unset runs keep GPUTRONIC_GOLD_TARGET_Z. */
+    cfg.target_z = 1.5f;
     cfg.csv_path = "results/gputronic_transfer_closedloop.csv";
     cfg.max_sleep_ns = 500000;
     cfg.launch_selftest_kernel = 0;
@@ -383,7 +385,7 @@ static int mode_closedloop(int seconds) {
 
     printf("\n=== TRANSFER CLOSED-LOOP ===\n");
     printf("[LAW] target=%.2f | Gold SM-count table (no transfer override)\n",
-           GPUTRONIC_GOLD_TARGET_Z);
+           cfg.target_z);
 
     /* Full-width reference. The table probe finishes near 3 s (1.8 s sustain
      * plus four 300 ms steps). A 2.2 s delay landed this window on a probe
@@ -397,7 +399,7 @@ static int mode_closedloop(int seconds) {
     printf("[BASE] sustained free-run  pulse/s=%.1f  GFLOP/s=%.4f  Z_hat=%.3f\n",
            fr_rate, fr_gflops, z_free);
 
-    float target = GPUTRONIC_GOLD_TARGET_Z;
+    float target = cfg.target_z;
     int cal_swallow = 0;
     if (z_free >= target - 0.08f) {
         cal_swallow = 1;

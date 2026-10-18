@@ -44,8 +44,11 @@ extern "C" {
 /* Controller defaults. Kp and Ki unchanged. Calibration [F-09] measures a rate-vs-SM table at
  * calibration and sets the feed-forward SM count (n_ff) and sms_per_u (local
  * slope) from it. The law is two-sided around n_ff:
- *   u = Kp*e + Ki*I - Kd*dZ/dt,  n = n_ff - u*sms_per_u,  e = target - Z     */
-#define GPUTRONIC_GOLD_TARGET_Z 1.5f
+ *   u = Kp*e + Ki*I - Kd*dZ/dt,  n = n_ff - u*sms_per_u,  e = target - Z
+ * Home is Z = 1: full launch, the loop out of the way. The gold, transfer, and
+ * episode check gates command 1.5, because those gates pass only when the
+ * closed rate falls below 90% of free run. */
+#define GPUTRONIC_GOLD_TARGET_Z 1.0f
 #define GPUTRONIC_GOLD_KP 0.55f
 #define GPUTRONIC_GOLD_KI 0.08f
 #define GPUTRONIC_GOLD_KD 0.0f   /* see function frame note; 0 = dZ/dt logged only */

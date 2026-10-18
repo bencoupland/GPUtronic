@@ -504,6 +504,8 @@ static int mode_dyno(void) {
 static int mode_closedloop(int seconds) {
     GPUtronicConfig cfg;
     gputronic_config_gold(&cfg);
+    /* This gate commands 1.5. Unset runs keep GPUTRONIC_GOLD_TARGET_Z. */
+    cfg.target_z = 1.5f;
     char csv[320], rep[320];
     path_join(csv, sizeof(csv), "_closedloop.csv");
     path_join(rep, sizeof(rep), "_closedloop_report.txt");
@@ -517,7 +519,7 @@ static int mode_closedloop(int seconds) {
 
     printf("\n=== EPISODE CLOSED-LOOP ===\n");
     printf("[LAW] target=%.2f | Gold SM-count table | max_sleep=500us (stock) | honour=%s shots=%d host=%d\n",
-           GPUTRONIC_GOLD_TARGET_Z, g_honour, g_sleep_shots, g_host_wait);
+           cfg.target_z, g_honour, g_sleep_shots, g_host_wait);
 
     /* Full-width reference. The table probe finishes near 3 s (1.8 s sustain
      * plus four 300 ms steps). A 2.2 s delay landed this window on a probe
@@ -531,7 +533,7 @@ static int mode_closedloop(int seconds) {
     printf("[BASE] sustained free-run  pulse/s=%.1f  GFLOP/s=%.4f  Z_hat=%.3f\n",
            fr_rate, fr_gflops, z_free);
 
-    float target = GPUTRONIC_GOLD_TARGET_Z;
+    float target = cfg.target_z;
     int cal_swallow = 0;
     if (z_free >= target - 0.08f) {
         cal_swallow = 1;

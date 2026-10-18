@@ -327,7 +327,7 @@ Values in force when a run sets nothing. A test switch left unset is off, and th
 
 | Name | Value | Where |
 |---|---|---|
-| Target Z | 1.5 | `GPUTRONIC_GOLD_TARGET_Z` |
+| Target Z | 1.0 | `GPUTRONIC_GOLD_TARGET_Z`. Gold, transfer, and episode `check` command 1.5 |
 | Kp, Ki, Kd | 0.55, 0.08, 0 | `GPUTRONIC_GOLD_KP/KI/KD`. Setters `gputronic_set_gains`, `gputronic_set_kd` |
 | Deadband | 0.08 | `GPUTRONIC_GOLD_DEADBAND`, `gputronic_set_deadband`, env `GPUTRONIC_DEADBAND` |
 | Integral clamp | scaled: `Ki * clamp * sms_per_u = 0.04 * num_sm` | `integral_clamp` (> 0 = fixed override), `GPUTRONIC_GOLD_INTEGRAL_SMS_FRAC`. Test only: `GPUTRONIC_ICLAMP_SMS` sets the budget in SMs for one run |
@@ -353,6 +353,7 @@ Values in force when a run sets nothing. A test switch left unset is off, and th
 | Relaunch the grid | off | `GPUTRONIC_RELAUNCH=1`. Hold `GPUTRONIC_RELAUNCH_HOLD_US`, default 5 ms, floor 0.5 ms, cap 1 s. Setting this and idle-exit together turns both off |
 | Dependent peak body | off | `GPUTRONIC_PEAK_REPS` (max 256), `GPUTRONIC_PEAK_CHAINS` (max 16), `GPUTRONIC_THREADS` (32 to 1024). Selects a second kernel |
 | Independent peak body | off | `GPUTRONIC_PEAK_ACC` (4, 8, 16, or 32) and `GPUTRONIC_PEAK_ROUNDS` (default 32, cap 4096). When both peak bodies are set, this one runs |
+| Real-work load | off | `GPUTRONIC_WORK_LOAD=1`, and only with the independent body. `work_scale_milli` / 1000 multiplies the round count. Every batch still pulses. Without `GPUTRONIC_PEAK_ACC` the switch stays off |
 | Guest kernel | off | `GPUTRONIC_GUEST_BLOCKS` sets the block count. `GPUTRONIC_GUEST_AT_MS` (default 8000) is when `run` launches it. Its own mapped pulse word. It does not read `active_sms`. Each block records the SM id, the GPU time it entered, and the GPU time of its first published pulse. `GPUTRONIC_GUEST_STREAM_FIRST=1` creates the guest stream before Gold's streams. `GPUTRONIC_GUEST_PRIORITY=1` asks for the highest stream priority. `GPUTRONIC_GOLD_NONBLOCK=1` launches Gold's kernel on a non-blocking stream. All three stay off when unset. `guest` runs that kernel with the Gold kernel not launched |
 
 ## 5. Calls added and removed
@@ -387,7 +388,7 @@ The test switches in section 4 are arguments of the Gold launch. A normal start 
 
 These are inputs a check can set. A normal run leaves them alone.
 
-- `work_scale_milli`, appended last. The host writes it. 0 or 1000 means no load. With the cache switch off, the kernel reads it only while `GPUTRONIC_FLAG_LOAD` is set. With `GPUTRONIC_CTRL_CACHE=1`, the block leader reads it in the same refresh as the other command words. At S > 1000 a pulsing warp emits one pulse per S/1000 batches (`gold_load_pulse`, or `gold_load_from_scale` when the cache is on). On the independent-FMA body this scale skips pulses and still runs the arithmetic, so it is not a reduction of that work.
+- `work_scale_milli`, appended last. The host writes it. 0 or 1000 means no load. With the cache switch off, the kernel reads it only while `GPUTRONIC_FLAG_LOAD` is set. With `GPUTRONIC_CTRL_CACHE=1`, the block leader reads it in the same refresh as the other command words. At S > 1000 a pulsing warp emits one pulse per S/1000 batches (`gold_load_pulse`, or `gold_load_from_scale` when the cache is on). On the independent-FMA body this scale skips pulses and still runs the arithmetic, so it is not a reduction of that work. `GPUTRONIC_WORK_LOAD=1` is the other use of the same word: the round count changes with the scale, and every batch pulses. It stays off unless the run sets it.
 - `work_count`, a kernel argument, `num_sm * 32` device slots, NULL unless `GPUTRONIC_WORK_COUNTER=1` (`ratio` mode). Per-warp count of finished batches.
 - `GPUTRONIC_INTEGRAL_CLAMP` greater than 0 fixes the clamp for the process. Unset keeps the scaled law.
 - CLI modes `loadstep`, `bursts`, `loadfile`, `ratio`, `fullwidth`, and `noise`. See `gputronic_gold help` and `TEST_SUITE.md`.
