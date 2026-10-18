@@ -1,0 +1,33 @@
+# phase B 2026-10-17T20:01:42-07:00
+# command: GPUTRONIC_PEAK_ACC=32 GPUTRONIC_PEAK_ROUNDS=512 GPUTRONIC_THREADS=512 GPUTRONIC_PULSE_LOCAL=1 GPUTRONIC_CTRL_CACHE=1 ./build/gputronic_gold guest 10 28
+# Gold kernel not launched. Block count 28 = 82 - 54, the phase A settled count.
+GPUTRONIC_CTRL_CACHE=1
+GPUTRONIC_PEAK_ACC=32
+GPUTRONIC_PEAK_ROUNDS=512
+GPUTRONIC_PULSE_LOCAL=1
+GPUTRONIC_THREADS=512
+[ZC ] type=host host_ptr=OK dev_ptr=OK round_trip=OK (host 0x795698600200, device 0x795698600200, same address (UVA))
+[SNS] tensor sensor off
+═══════════════════════════════════════════════════════════
+[GPUtronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (launching 82, 2 reserved for the OS) | thr/block=512
+[LAW] target_z=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[LOOP] dt=10 us (100 kHz) active_sms=82 floor=2
+
+[GUEST] gold resident=0
+[GUEST] concurrentKernels=1
+[GUEST] blocks=28 acc=32 rounds=512 threads=512 skip_sm=82,83
+[GUEST] launched at 0 ms
+[GUEST] t=   1s | rate=9057553 | pulses=9058480 | blocks=28 live=28
+[GUEST] t=   2s | rate=9041701 | pulses=18101168 | blocks=28 live=28
+[GUEST] t=   3s | rate=9046687 | pulses=27148816 | blocks=28 live=28
+[GUEST] t=   4s | rate=9030305 | pulses=36180096 | blocks=28 live=28
+[GUEST] t=   5s | rate=9054778 | pulses=45235792 | blocks=28 live=28
+[GUEST] t=   6s | rate=9039609 | pulses=54276384 | blocks=28 live=28
+[GUEST] t=   7s | rate=9038775 | pulses=63316128 | blocks=28 live=28
+[GUEST] t=   8s | rate=9034571 | pulses=72351568 | blocks=28 live=28
+[GUEST] t=   9s | rate=9036994 | pulses=81389504 | blocks=28 live=28
+[GUEST] t=  10s | rate=9025575 | pulses=90416144 | blocks=28 live=28
+[GUEST] stopped pulses=90424848 live=28
+phase-b rc=0 temp=44C stopped=0
