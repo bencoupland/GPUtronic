@@ -4,12 +4,7 @@ This continues `docs/directives/tenth-pass-2026-10-17.md`. It is not an eleventh
 
 ## Start here
 
-Ben is running this on the last few percent (about 3%) of the token budget before it resets. Do the items in this order, keep each one small, and commit and push what is finished before starting the next. If the budget runs out partway, the pushed commits are the result. Say in the report where it stopped.
-
-1. Item 1, the ninth-pass merge, if it hasn't happened yet. Text and git only, no GPU.
-2. Item 2, the guest scheduling fix. This is the main job.
-3. Item 3, the integral under the 1.2 load, only after item 2 has a pushed result, either fixed or not.
-4. The report (item 5).
+Ben's usage reset tonight, so the full budget is available. Complete every item in this directive: items 1 to 3, then the report and checks in item 5.
 
 ## Where things stand
 
@@ -60,13 +55,13 @@ Fix the first cause the timestamps point to, as a test switch or as an environme
 
 **The run.** Phase C again, same as the tenth pass (`run 40`, guest 28 blocks at 8000 ms, idle-exit on, `GPUTRONIC_NO_CSV=1`), with the fix. Then the same with the guest at 54 blocks, and with a fixed guest at 40 blocks while Gold holds a target that settles near the floor, if `run [sec] [Z]` gets there. That covers the "under any load" rule. For each run report: mean Z, min, max and band share after the guest starts; the SM counts; the guest rate as a fraction of phase B's 9,040,655 pulses/s (or a fresh phase B at the new block count); the block entry and first-pulse times; the `[SPAWN]` lines; power and temperature.
 
-If no fix works within the budget, that is the result. Report which hypotheses were ruled out and how.
+If no fix works, that is the result. Report which hypotheses were ruled out and how.
 
 ## 3. Unstick the integral under the 1.2 load
 
 Only after item 2 has a pushed result. Idle-exit unset and guest unset, so this is the same default plant as the tenth-pass load step.
 
-The integral sat on the 3.28-SM clamp on every tick of every loaded hold. The eighth pass tried `GPUTRONIC_ICLAMP_SMS` at 6, 9 and 12 on the lighter cached plant, and none of them brought Z back into the band. That has never been run on the 32×512 full-pipe plant. Rerun the tenth-pass load step (`logs/2026-10-17_tenth-pass/steps.txt`, `loadfile ... 420`, `GPUTRONIC_TRACE_BIN_US=1000`) with `GPUTRONIC_ICLAMP_SMS` at 6, then 9, then 12. These are test settings. The compiled default clamp doesn't change, and adopting a wider one is Ben's decision after he sees the numbers. If the budget only allows one, run 9. If none of the three runs takes the integral off the rail, try 15 only if Ben has already said yes to going wider. Otherwise stop and report.
+The integral sat on the 3.28-SM clamp on every tick of every loaded hold. The eighth pass tried `GPUTRONIC_ICLAMP_SMS` at 6, 9 and 12 on the lighter cached plant, and none of them brought Z back into the band. That has never been run on the 32×512 full-pipe plant. Rerun the tenth-pass load step (`logs/2026-10-17_tenth-pass/steps.txt`, `loadfile ... 420`, `GPUTRONIC_TRACE_BIN_US=1000`) with `GPUTRONIC_ICLAMP_SMS` at 6, then 9, then 12. These are test settings. The compiled default clamp doesn't change, and adopting a wider one is Ben's decision after he sees the numbers. If none of the three runs takes the integral off the rail, try 15 only if Ben has already said yes to going wider. Otherwise stop and report.
 
 For each run, use the tenth-pass step table: first bin outside, enters and stays, tail that stays, highest and lowest `z_hat`, SM before and at end, the share of the last 30 s in band, the share on the clamp, SM changes and counts in the last 30 s. Watch the returns to 1.0 as well. A wider clamp could make the down steps worse, and that has to show up in the table.
 
@@ -80,7 +75,7 @@ For each run, use the tenth-pass step table: first bin outside, enters and stays
 
 ## 5. Report and checks
 
-Report at `docs/analysis/tenth-pass-continued-2026-10-17.md`, short, in the same style as the tenth-pass report: item 1's outcome, the item 2 timestamps and which case they showed, each hypothesis tested and its result, the phase C tables with the fix, the item 3 step tables, any switch or environment setting added (and confirmation that it's off by default), and where the budget stopped the pass if it did.
+Report at `docs/analysis/tenth-pass-continued-2026-10-17.md`, short, in the same style as the tenth-pass report: item 1's outcome, the item 2 timestamps and which case they showed, each hypothesis tested and its result, the phase C tables with the fix, the item 3 step tables, any switch or environment setting added (and confirmation that it's off by default).
 
 Checks:
 
