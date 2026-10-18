@@ -4,7 +4,7 @@ Reference closed-loop control for a GPU execution path.
 
 The specification of record is:
 
-`docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md` (GT-FF-GOLD-1.0)
+`docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md` (GT-FF-GOLD-1.0)
 
 That document is the function frame: signals, functions F-01…F-14, calibration parameters, measured plant, and a guided walk through the source. This file is the short form.
 

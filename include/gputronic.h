@@ -3,7 +3,7 @@
  * Version: 1.0.0-gold
  *
  * If a signal is not in GPUtronicControl, the device cannot see it.
- * Function list: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md
+ * Function list: docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md
  *
  * Names, not a claim that the GPU is a motor:
  *   Q — useful work rate, the pulse counter [F-04]
@@ -30,7 +30,7 @@ extern "C" {
 #define GPUTRONIC_VERSION_STRING "1.0.0-gold"
 
 /* RTX 5080 (GB203) defaults — override via config.num_sm after query.
- * Calibration constants are listed in docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md, section 4.
+ * Calibration constants are listed in docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md, section 4.
  * Changing them needs a new version number. */
 #define GPUTRONIC_DEFAULT_NUM_SM 84
 #define GPUTRONIC_DEFAULT_THREADS_PER_BLOCK 64

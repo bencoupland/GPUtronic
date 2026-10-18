@@ -1,7 +1,7 @@
 /* =============================================================================
  * GPUtronic Gold 1.0.0
  * -----------------------------------------------------------------------------
- * Read with: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md  (GT-FF-GOLD-1.0)
+ * Read with: docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md  (GT-FF-GOLD-1.0)
  *
  * Walk order (do not start at main):
  *   gold_work / gold_persistent_kernel        device kernel [F-02]

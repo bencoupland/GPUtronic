@@ -1,7 +1,7 @@
 /* =============================================================================
  * GPUtronic Transfer Plant — cooperative GEMM microtiles on Gold 1.0
  * -----------------------------------------------------------------------------
- * Read with: docs/GPUTRONIC-GOLD-1.0-FUNCTION-FRAME.md [F-03, F-14]
+ * Read with: docs/GPUtronic-GOLD-1.0-FUNCTION-FRAME.md [F-03, F-14]
  *
  * Second kernel on the Gold interface.
  *   - launch_selftest_kernel = 0
