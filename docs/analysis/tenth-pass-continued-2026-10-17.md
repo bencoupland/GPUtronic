@@ -2,7 +2,7 @@
 
 This continues the tenth pass. The parent is `test-results/2026-10-17_tenth-pass` at `4224435`. The guest switch was already in that tree. Logs are `logs/2026-10-17_tenth-pass-continued/`. Kp 0.55, Ki 0.08, deadband 0.08, the 82-block launch, and the floor of 2 were not changed. The compiled integral clamp was not changed.
 
-The clamp runs on the 1.2 load are not in this note yet. They start only after this result is on the remote.
+Item 2 was pushed before these load steps. The source was not changed for them.
 
 ## 1. Ninth-pass results on main
 
@@ -49,6 +49,113 @@ The listed tries are ruled out. A shared hardware queue at the default connectio
 The controller's view is still incomplete while a second kernel is resident. The guest's 448 pulses show up only as Gold stops.
 
 `GPUTRONIC_GUEST_STREAM_FIRST`, `GPUTRONIC_GUEST_PRIORITY`, and `GPUTRONIC_GOLD_NONBLOCK` are test switches. Unset, the guest stream is still created after Gold's launch, at the default priority, and Gold's kernel stays on the default stream.
+
+## 3. The integral under the 1.2 load
+
+Idle-exit was left unset. The guest was left unset. `GPUTRONIC_NO_CSV` was left unset. The plant is the same full-pipe set as the tenth-pass load step (`GPUTRONIC_PEAK_ACC=32`, `GPUTRONIC_PEAK_ROUNDS=512`, `GPUTRONIC_THREADS=512`, `GPUTRONIC_PULSE_LOCAL=1`, `GPUTRONIC_CTRL_CACHE=1`). `GPUTRONIC_ICLAMP_SMS` was set to 6, then 9, then 12, one run each. These are test settings. The compiled clamp is the one the binary already prints when that variable is unset. A wider clamp was not compiled in. 15 was not run: at 9 and at 12 the integral does not reach the rail, so the condition for going wider is not met.
+
+This is a synthetic load. On this kernel `work_scale_milli` skips pulses and the FMAs keep running, so the counter reports a slower job while the SMs do the same work. The schedule is `logs/2026-10-17_tenth-pass-continued/steps.txt`, copied from the tenth pass, with t = 0 at the end of calibration:
+
+```
+60000  1.2
+120000 1.0
+180000 1.2
+240000 1.0
+300000 1.2
+360000 1.0
+```
+
+Command, with `GPUTRONIC_ICLAMP_SMS` set to 6, 9, or 12:
+
+```
+GPUTRONIC_PEAK_ACC=32 GPUTRONIC_PEAK_ROUNDS=512 GPUTRONIC_THREADS=512 \
+GPUTRONIC_PULSE_LOCAL=1 GPUTRONIC_CTRL_CACHE=1 \
+GPUTRONIC_TRACE_BIN_US=1000 GPUTRONIC_ICLAMP_SMS=6 \
+timeout --signal=INT --kill-after=30s 480 \
+  ./build/gputronic_gold loadfile logs/2026-10-17_tenth-pass-continued/steps.txt 420
+```
+
+Each run returned 0. No run was stopped for temperature. The clamp lines are:
+
+- 6 SMs: `integral clamp=2.053 (iclamp_sms, max integral correction 6.00 SMs of 82)`. Log `clamp-6.txt`.
+- 9 SMs: `integral clamp=3.439 (iclamp_sms, max integral correction 9.00 SMs of 82)`. Log `clamp-9.txt`.
+- 12 SMs: `integral clamp=4.729 (iclamp_sms, max integral correction 12.00 SMs of 82)`. Log `clamp-12.txt`.
+
+The `[CTRL]` line on each of those logs is `target=1.50 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080`. The launch line is 82 blocks, 512 threads.
+
+The 1 ms trace is the loadfile sampler with `GPUTRONIC_TRACE_BIN_US=1000`. The step table uses that file. The program writes it as `results/gputronic_gold_loadfile_10ms.csv`. The committed copies are:
+
+- `clamp-6-loadfile-1ms.csv`, 52,234,760 bytes, 419,964 data rows, t = 0.00 to t = 419,999.17 ms
+- `clamp-9-loadfile-1ms.csv`, 52,089,716 bytes, 419,962 data rows, t = 0.00 to t = 419,999.13 ms
+- `clamp-12-loadfile-1ms.csv`, 52,160,100 bytes, 419,983 data rows, t = 0.00 to t = 419,999.19 ms
+
+The control thread also wrote `results/gputronic_gold_load.csv` at the 10 µs tick. That file was deleted after each run and is not committed.
+
+A tick is on the integral clamp when `|integral| >= 0.999 * clamp`, the test that increments `st_rail`. The clamp share is `rail_ticks / pi_ticks` summed over the 1 ms bins. The band test is on `z_hat`. "Enters and stays" means the first 1 ms bin where `|z_hat - 1.5| <= 0.08` and every later bin in that hold is also inside. "Ends outside" means the hold's last bin is outside that band, so there is no such tail. A limit cycle means the last 30 s uses exactly two SM counts, each seen at least five times, with the count changing at least six times. None of the eighteen holds meets that.
+
+The same definitions on the tenth-pass file reproduce that pass's table. On that run the printed clamp was 3.28 SMs, the last 30 s of each 1.2 hold was on the clamp for every control tick, 55.0–57.3% of those bins were inside the band, and the count ended at 61. The returns to 1.0 were 96.1–97.5% inside over the last 30 s, with none of those ticks on the clamp, and the lowest `z_hat` on each return was about 1.36.
+
+### 6 SMs
+
+`dmon -s pucm -d 1` has 421 samples, power 42–208 W (mean 184.5 W, the 42 W sample included), die 47–63 °C. Every `clocks_event_reasons.active` sample is 0. The whole-run counter is `integral_on_rail=1404459` out of `pi_ticks=6572896`, and `active_sms=42..63`. The sum of `rail_ticks` in the 1 ms file is 1,404,459, the same count. That line mixes calibration with both scales. The last 30 s rows below are the hold figures.
+
+On the first two 1.2 holds the last 30 s is on the clamp for every control tick, and the in-band share is 35.3% and 90.6%. On the third, the integral reaches the clamp at t = 353,442.02 ms (53.442 s into the hold, `z_hat` 1.64058). Every rail tick in that last 30 s falls from that bin to the end of the hold: 102,450 of 102,461 control ticks. That is the 22% in the table. The last 30 s of each return to 1.0 has no ticks on the clamp. The lowest `z_hat` on those returns is 1.31809, 1.32526, and 1.32384. The staying tail on each return is 65 ms, 99 ms, and 43 ms.
+
+| Step | Scale | First bin outside | Enters and stays | Tail that stays | Highest z_hat | Lowest z_hat | SM before | SM at end of hold | SM range in the hold | Last 30 s inside the band | Last 30 s on the clamp | SM changes in the last 30 s | Counts in the last 30 s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 60 s | 1.2 | 0.1 ms | 59.959 s | 40 ms | 1.80896 | 1.46467 | 54 | 60 | 54–63 | 10,582 / 29,993 (35.3%) | 467,849 / 467,849 (100%) | 1,826 | 60, 61, 62, 63 |
+| 120 s | 1.0 | 15.1 ms | 59.934 s | 65 ms | 1.76442 | 1.31809 | 60 | 53 | 52–60 | 27,488 / 30,001 (91.6%) | 0 / 470,483 (0%) | 184 | 52, 53, 56, 57, 58, 60 |
+| 180 s | 1.2 | 15.1 ms | 59.903 s | 96 ms | 1.77002 | 1.44905 | 53 | 60 | 53–62 | 27,191 / 30,001 (90.6%) | 471,705 / 471,705 (100%) | 102 | 60, 61, 62 |
+| 240 s | 1.0 | 16.1 ms | 59.900 s | 99 ms | 1.62436 | 1.32526 | 60 | 51 | 51–60 | 27,996 / 30,001 (93.3%) | 0 / 469,524 (0%) | 174 | 51, 52, 55, 56 |
+| 300 s | 1.2 | 21.2 ms | 59.874 s | 0.125 s | 1.86045 | 1.44910 | 51 | 60 | 51–62 | 26,409 / 30,001 (88.0%) | 102,450 / 469,834 (22%) | 270 | 59, 60, 61, 62 |
+| 360 s | 1.0 | 27.1 ms | 59.956 s | 43 ms | 1.62935 | 1.32384 | 60 | 51 | 51–60 | 27,302 / 30,000 (91.0%) | 0 / 468,952 (0%) | 77 | 51, 52, 54, 55 |
+
+Over the whole hold, the share of 1 ms bins inside the band is 27.5%, 80.3%, 78.6%, 71.4%, 74.1%, and 70.2%, in step order. The count at the end of each 1.2 hold is 60.
+
+### 9 SMs
+
+`dmon` has 421 samples, power 59–216 W (mean 189.9 W), die 51–64 °C. Every `clocks_event_reasons.active` sample is 0. The whole-run counter is `integral_on_rail=0` out of `pi_ticks=6822467`, and `active_sms=48..67`. The sum of `rail_ticks` in the 1 ms file is 0.
+
+The integral is off the rail on every hold. The last 30 s of the 1.2 holds is 83.0%, 82.0%, and 82.7% inside the band, and the count ends at 65, 65, and 66. Four holds end outside the band, all on the high side, so they have no staying tail:
+
+- 60 s, last 10.0 ms, last `z_hat` 1.58623, 65 SMs
+- 180 s, last 11.1 ms, last `z_hat` 1.61323, 65 SMs
+- 240 s, last 6.1 ms, last `z_hat` 1.61486, 59 SMs
+- 300 s, last 9.0 ms, last `z_hat` 1.64271, 66 SMs
+
+The two returns that do end inside stay there for 90 ms and 18 ms. The lowest `z_hat` on the three returns is 1.31365, 1.31242, and 1.31281. The highest `z_hat` on the first two 1.2 holds is 1.81009 at 20.258 s into the hold and 1.81334 at 19.510 s into the hold.
+
+| Step | Scale | First bin outside | Enters and stays | Tail that stays | Highest z_hat | Lowest z_hat | SM before | SM at end of hold | SM range in the hold | Last 30 s inside the band | Last 30 s on the clamp | SM changes in the last 30 s | Counts in the last 30 s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 60 s | 1.2 | 4.1 ms | ends outside | — | 1.81009 | 1.45409 | 55 | 65 | 55–67 | 24,912 / 29,997 (83.0%) | 0 / 482,865 (0%) | 361 | 63, 64, 65, 66 |
+| 120 s | 1.0 | 0.2 ms | 59.909 s | 90 ms | 1.65328 | 1.31365 | 65 | 56 | 55–65 | 26,228 / 30,001 (87.4%) | 0 / 487,987 (0%) | 66 | 55, 56, 59, 60 |
+| 180 s | 1.2 | 13.2 ms | ends outside | — | 1.81334 | 1.45578 | 56 | 65 | 56–67 | 24,611 / 29,998 (82.0%) | 0 / 471,991 (0%) | 384 | 63, 64, 65, 66 |
+| 240 s | 1.0 | 0.0 ms | ends outside | — | 1.61732 | 1.31242 | 65 | 59 | 55–65 | 25,869 / 29,995 (86.2%) | 0 / 504,390 (0%) | 99 | 55, 56, 59, 60 |
+| 300 s | 1.2 | 0.3 ms | ends outside | — | 1.77352 | 1.45284 | 59 | 66 | 58–67 | 24,799 / 30,000 (82.7%) | 0 / 485,647 (0%) | 332 | 63, 64, 65, 66, 67 |
+| 360 s | 1.0 | 0.2 ms | 59.981 s | 18 ms | 1.65957 | 1.31281 | 66 | 58 | 55–66 | 25,494 / 29,997 (85.0%) | 0 / 518,764 (0%) | 154 | 55, 56, 58, 59, 60 |
+
+Over the whole hold, the share of 1 ms bins inside the band is 64.9%, 64.3%, 66.8%, 63.5%, 66.7%, and 62.9%, in step order.
+
+### 12 SMs
+
+`dmon` has 421 samples, power 59–218 W (mean 189.5 W), die 51–64 °C. Every `clocks_event_reasons.active` sample is 0. The whole-run counter is `integral_on_rail=0` out of `pi_ticks=6545569`, and `active_sms=47..70`. The sum of `rail_ticks` in the 1 ms file is 0.
+
+The integral is off the rail on every hold. The last 30 s of the 1.2 holds is 81.0%, 82.2%, and 81.8% inside the band, and the count ends at 65. The highest `z_hat` in the run is 1.97583, 23.715 s into the 180 s hold, with the count ranging up to 70 on that hold. The returns to 1.0 end at 55 SMs. Their lowest `z_hat` is 1.30843, 1.31385, and 1.31253, and their last-30 s in-band shares are 84.4%, 86.0%, and 85.5%. The staying tails on those returns are 0.764 s, 0.157 s, and 33 ms.
+
+| Step | Scale | First bin outside | Enters and stays | Tail that stays | Highest z_hat | Lowest z_hat | SM before | SM at end of hold | SM range in the hold | Last 30 s inside the band | Last 30 s on the clamp | SM changes in the last 30 s | Counts in the last 30 s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 60 s | 1.2 | 26.1 ms | 59.876 s | 0.123 s | 1.90096 | 1.44719 | 55 | 65 | 55–66 | 24,308 / 30,001 (81.0%) | 0 / 464,628 (0%) | 433 | 63, 64, 65, 66 |
+| 120 s | 1.0 | 21.1 ms | 59.235 s | 0.764 s | 1.65323 | 1.30843 | 65 | 55 | 55–65 | 25,307 / 30,001 (84.4%) | 0 / 465,785 (0%) | 149 | 55, 56, 58, 59, 60 |
+| 180 s | 1.2 | 23.2 ms | 59.826 s | 0.173 s | 1.97583 | 1.44415 | 55 | 65 | 55–70 | 24,672 / 29,999 (82.2%) | 0 / 466,402 (0%) | 398 | 63, 64, 65, 66, 67 |
+| 240 s | 1.0 | 11.1 ms | 59.842 s | 0.157 s | 1.61268 | 1.31385 | 65 | 55 | 55–65 | 25,807 / 30,000 (86.0%) | 0 / 474,811 (0%) | 140 | 55, 56, 58, 59, 60 |
+| 300 s | 1.2 | 10.2 ms | 59.970 s | 29 ms | 1.78579 | 1.45302 | 55 | 65 | 55–66 | 24,533 / 29,996 (81.8%) | 0 / 467,598 (0%) | 396 | 63, 64, 65, 66 |
+| 360 s | 1.0 | 11.1 ms | 59.966 s | 33 ms | 1.61327 | 1.31253 | 65 | 55 | 55–65 | 25,654 / 30,000 (85.5%) | 0 / 469,455 (0%) | 143 | 55, 56, 58, 59 |
+
+Over the whole hold, the share of 1 ms bins inside the band is 62.9%, 62.7%, 66.3%, 62.5%, 66.1%, and 62.5%, in step order.
+
+Read against the tenth-pass load on this same plant: at 6 SMs the loaded holds still finish on the clamp, and the first 1.2 hold's last 30 s is inside the band less often than at 3.28 SMs (35.3% against 55.0%). At 9 and at 12 the integral stays off the clamp, the 1.2 last-30 s share rises to about 81–83%, and the count ends near 65 rather than 61. The returns to 1.0 get worse as the clamp widens. The last-30 s in-band share falls from 96–98% at the compiled clamp, to 91–93% at 6 SMs, 85–87% at 9, and 84–86% at 12. The undershoot goes from about 1.36 to about 1.31. The plots are `clamp-6-zhat.svg`, `clamp-9-zhat.svg`, and `clamp-12-zhat.svg`. `plot_clamp.py` drew them from the 1 ms files, one point about every 100 ms.
+
+Plain `nvidia-smi` at the end of the three runs was 51 °C and 59.77 W (`nvidia-smi-clamp-end.txt`).
 
 ## Checks
 
