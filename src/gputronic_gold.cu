@@ -182,7 +182,11 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  * GPUTRONIC_ICLAMP_SMS sets the integral clamp in SMs for one run. Unset
  * keeps the scaled law. GPUTRONIC_RATE_WIN_US sets the rate window in
  * microseconds for one run. Unset keeps 8000 (8 ms). Floor 500, cap 100000.
- * The 0.70/0.30 mix stays. GPUTRONIC_IDLE_WORK=1 is a test, off by default.
+ * The 0.70/0.30 mix stays. GPUTRONIC_OPEN_SCHED is a host test, off by
+ * default. fullwidth and noise then read a loadfile-format schedule
+ * (t_ms scale, optional active_sms). Unset keeps scale 1.0 and the launch
+ * count. A count at or above the launch means every block. Closed-loop
+ * loadfile ignores the third column. GPUTRONIC_IDLE_WORK=1 is a test, off by default.
  * Blocks past active_sms then run the same body and atomicAdd into
  * total_work_pulses. Unset, those blocks do not. GPUTRONIC_IDLE_EXIT=1
  * makes an idle block return.
@@ -2811,10 +2815,15 @@ static int mode_closedloop_check(int seconds) {
 /* ---- Synthetic load tests T6/T7 and full-width co-run for T8 ---- */
 
 #define GOLD_LOAD_MAX 4096
-typedef struct { double t_ms; unsigned int scale_milli; } GoldLoadPoint;
+typedef struct {
+    double t_ms;
+    unsigned int scale_milli;
+    int sms; /* -1: leave the open-loop count alone. Closed loop ignores this. */
+} GoldLoadPoint;
 
-/* Schedule file: one "t_ms scale" pair per line (scale as a factor, e.g. 1.2),
- * '#' starts a comment. t_ms counts from the end of calibration. */
+/* Schedule file: "t_ms scale" per line, optional third column active_sms.
+ * Scale is a factor (1.2). '#' starts a comment. t_ms counts from the end
+ * of calibration. A count below the SM floor is raised to that floor. */
 static int gold_load_read(const char* path, GoldLoadPoint* p, int maxn) {
     FILE* f = fopen(path, "r");
     if (!f) { fprintf(stderr, "[LOAD] cannot open %s\n", path); return -1; }
@@ -2822,15 +2831,41 @@ static int gold_load_read(const char* path, GoldLoadPoint* p, int maxn) {
     int n = 0;
     while (n < maxn && fgets(line, sizeof line, f)) {
         double t, sc;
+        int sms = -1;
+        int got;
         if (line[0] == '#') continue;
-        if (sscanf(line, "%lf %lf", &t, &sc) == 2 && sc > 0.0) {
+        got = sscanf(line, "%lf %lf %d", &t, &sc, &sms);
+        if (got >= 2 && sc > 0.0) {
+            if (got == 2 || sms < 0) sms = -1;
+            else if (sms < GPUTRONIC_SM_FLOOR) sms = GPUTRONIC_SM_FLOOR;
             p[n].t_ms = t;
             p[n].scale_milli = (unsigned int)(sc * 1000.0 + 0.5);
+            p[n].sms = sms;
             n++;
         }
     }
     fclose(f);
     return n;
+}
+
+/* Unset: *out is NULL, *np is 0, and nothing is printed. Set: read the file
+ * or fail. An empty or unreadable file must not run as scale 1.0. */
+static int gold_open_sched_points(GoldLoadPoint** out, int* np) {
+    static GoldLoadPoint pts[GOLD_LOAD_MAX];
+    const char* path = getenv("GPUTRONIC_OPEN_SCHED");
+    *out = NULL;
+    *np = 0;
+    if (!path || !path[0]) return 0;
+    int n = gold_load_read(path, pts, GOLD_LOAD_MAX);
+    if (n <= 0) {
+        if (n == 0) fprintf(stderr, "[SCHED] %s has no points\n", path);
+        return 1;
+    }
+    printf("[SCHED] open-loop schedule %s, %d points (unset keeps scale 1.0 and the launch count)\n",
+           path, n);
+    *out = pts;
+    *np = n;
+    return 0;
 }
 
 /* Bursts of 2, 4, 8, 16, 50, 200 ms at `scale`, `reps` times each in a seeded
@@ -2846,9 +2881,9 @@ static int gold_load_bursts(GoldLoadPoint* p, int maxn, double scale, unsigned i
     double t = 10000.0;
     int n = 0;
     for (int i = 0; i < m && n + 2 <= maxn; i++) {
-        p[n].t_ms = t; p[n].scale_milli = (unsigned int)(scale * 1000.0 + 0.5); n++;
+        p[n].t_ms = t; p[n].scale_milli = (unsigned int)(scale * 1000.0 + 0.5); p[n].sms = -1; n++;
         t += order[i];
-        p[n].t_ms = t; p[n].scale_milli = 1000u; n++;
+        p[n].t_ms = t; p[n].scale_milli = 1000u; p[n].sms = -1; n++;
         t += 1500.0 + (double)(rand() % 1001);
     }
     return n;
@@ -2969,7 +3004,19 @@ static int gold_load_run(const char* csv_bin, const GoldLoadPoint* p, int np, in
             gputronic_set_open_loop_sms(h, step2_sms);
             step2_done = 1;
         }
-        while (k < np && p[k].t_ms <= t_ms) cur = p[k++].scale_milli;
+        while (k < np && p[k].t_ms <= t_ms) {
+            cur = p[k].scale_milli;
+            /* The count column is open-loop only. Closed-loop loadfile keeps
+             * its two-column behaviour. A count at or above the launch is
+             * every block (open_loop_sms 0). */
+            if (full_width && p[k].sms >= 0) {
+                int nsm = p[k].sms;
+                if (nsm >= h->cfg.num_sm) nsm = 0;
+                else if (nsm < GPUTRONIC_SM_FLOOR) nsm = GPUTRONIC_SM_FLOOR;
+                gputronic_set_open_loop_sms(h, nsm);
+            }
+            k++;
+        }
         if (cur != h->h_ctrl->work_scale_milli) {
             h->h_ctrl->work_scale_milli = cur;
             __sync_synchronize();
@@ -3156,6 +3203,7 @@ static void usage(const char* argv0) {
     printf("    GPUTRONIC_PEAK_REPS / GPUTRONIC_PEAK_CHAINS / GPUTRONIC_THREADS\n");
     printf("    GPUTRONIC_PEAK_ACC (4|8|16|32) / GPUTRONIC_PEAK_ROUNDS (default 32)\n");
     printf("    GPUTRONIC_WORK_LOAD=1          # scale changes FMA rounds; every batch pulses\n");
+    printf("    GPUTRONIC_OPEN_SCHED=<path>    # fullwidth/noise: t_ms scale [sms]; unset keeps scale 1.0\n");
     printf("    GPUTRONIC_GUEST_BLOCKS=<n>     # second kernel, own pulse word, off if unset\n");
     printf("    GPUTRONIC_GUEST_AT_MS=8000     # launch the guest this many ms after run starts\n");
     printf("    GPUTRONIC_GUEST_STREAM_FIRST=1 # test: create the guest stream before Gold's\n");
@@ -3201,8 +3249,8 @@ int main(int argc, char** argv) {
         double toff = argc >= 6 ? atof(argv[5]) : 0.0;
         if (sec <= 0) sec = 60;
         int n = 0;
-        pts[n].t_ms = ton * 1000.0; pts[n].scale_milli = (unsigned int)(sc * 1000.0 + 0.5); n++;
-        if (toff > ton) { pts[n].t_ms = toff * 1000.0; pts[n].scale_milli = 1000u; n++; }
+        pts[n].t_ms = ton * 1000.0; pts[n].scale_milli = (unsigned int)(sc * 1000.0 + 0.5); pts[n].sms = -1; n++;
+        if (toff > ton) { pts[n].t_ms = toff * 1000.0; pts[n].scale_milli = 1000u; pts[n].sms = -1; n++; }
         return gold_load_run("results/gputronic_gold_loadstep_10ms.csv", pts, n, sec, 0);
     }
     if (strcmp(mode, "bursts") == 0) {
@@ -3228,7 +3276,12 @@ int main(int argc, char** argv) {
         int sec = argc >= 4 ? atoi(argv[3]) : 30;
         if (nsm < GPUTRONIC_SM_FLOOR) nsm = GPUTRONIC_SM_FLOOR;
         if (sec <= 0) sec = 30;
-        return gold_load_run("results/gputronic_gold_noise.csv", NULL, 0, sec, nsm);
+        {
+            GoldLoadPoint* pts = NULL;
+            int np = 0;
+            if (gold_open_sched_points(&pts, &np) != 0) return 1;
+            return gold_load_run("results/gputronic_gold_noise.csv", pts, np, sec, nsm);
+        }
     }
     if (strcmp(mode, "ratio") == 0) {
         int hold = argc >= 3 ? atoi(argv[2]) : 5;
@@ -3242,7 +3295,12 @@ int main(int argc, char** argv) {
     if (strcmp(mode, "fullwidth") == 0) {
         int sec = argc >= 3 ? atoi(argv[2]) : 120;
         if (sec <= 0) sec = 120;
-        return gold_load_run("results/gputronic_gold_fullwidth_10ms.csv", NULL, 0, sec, 1);
+        {
+            GoldLoadPoint* pts = NULL;
+            int np = 0;
+            if (gold_open_sched_points(&pts, &np) != 0) return 1;
+            return gold_load_run("results/gputronic_gold_fullwidth_10ms.csv", pts, np, sec, 1);
+        }
     }
 
     /* run [sec] [Z] [Kp] [Ki]  OR bare defaults when mode omitted */
