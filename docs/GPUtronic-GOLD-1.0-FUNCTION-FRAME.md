@@ -115,13 +115,13 @@ STOP leaves the loop. PAUSE skips the pulse. RESET clears that block's per-SM co
 
 **Purpose.** Turn the pulse total into the rate the controller uses.
 
-**Runs when.** Every control tick, about 10 µs. The rate itself updates when 8 ms have been accumulated.
+**Runs when.** Every control tick, about 10 µs. The rate itself updates when the window has been accumulated. The window is 8 ms unless a run sets `GPUTRONIC_RATE_WIN_US`.
 
 **Reads.** `total_work_pulses`. The time since the previous tick.
 
 **Writes.** `rate_ema`.
 
-**Calculation.** Sum the pulse deltas and the tick times. When the summed time reaches 8 ms:
+**Calculation.** Sum the pulse deltas and the tick times. When the summed time reaches the window (8 ms when `GPUTRONIC_RATE_WIN_US` is unset):
 
 ```
 r_win = (pulses in the window) / (time in the window)
@@ -334,7 +334,7 @@ Values in force when a run sets nothing. A test switch left unset is off, and th
 | Z limits | 0.3 – 10 | `GPUTRONIC_GOLD_Z_FLOOR/CEILING` |
 | Calibration | warm-up 0.7 s, reference 0.7–1.8 s, then 4 × 300 ms | `control_thread`, `GPUTRONIC_GOLD_PROBE_MS` |
 | Control tick | 10 µs | `GPUTRONIC_DEFAULT_CONTROL_DT_US` |
-| Rate window | 8 ms, then 0.7 / 0.3 | `control_thread` |
+| Rate window | 8 ms, then 0.7 / 0.3 | `control_thread`. Test only: `GPUTRONIC_RATE_WIN_US` in microseconds. Unset keeps 8000. Floor 500, cap 100000 |
 | Threads per block | 64 | `GPUTRONIC_DEFAULT_THREADS_PER_BLOCK` |
 | SM floor | 2 | kernel and control thread. A quiet-idle sweep may still start at 4 |
 | OS reserve | 2 | launch count is the device SM count minus 2. `GPUTRONIC_OS_RESERVE` overrides it for one run. Those SMs get no block |

@@ -180,7 +180,9 @@ __device__ __forceinline__ float gold_tensor_work(int sm) {
  * is still read only while the load flag is set. The pulse batch stays at 1 ms.
  * Tensor-on blocks do not take this cache: a barrier there is not uniform.
  * GPUTRONIC_ICLAMP_SMS sets the integral clamp in SMs for one run. Unset
- * keeps the scaled law. GPUTRONIC_IDLE_WORK=1 is a test, off by default.
+ * keeps the scaled law. GPUTRONIC_RATE_WIN_US sets the rate window in
+ * microseconds for one run. Unset keeps 8000 (8 ms). Floor 500, cap 100000.
+ * The 0.70/0.30 mix stays. GPUTRONIC_IDLE_WORK=1 is a test, off by default.
  * Blocks past active_sms then run the same body and atomicAdd into
  * total_work_pulses. Unset, those blocks do not. GPUTRONIC_IDLE_EXIT=1
  * makes an idle block return.
@@ -742,6 +744,7 @@ struct GPUtronicHandle {
     float integral;
     float rate_ema;
     float rate_ref; /* free-run rate for Z = rate_ref / rate */
+    double rate_win_s;   /* seconds; 0.008 unless GPUTRONIC_RATE_WIN_US is set */
     double rate_win_dt;
     unsigned long long rate_win_pulses;
     /* Loop telemetry (control thread writes; trace/stats read; diagnostic only). */
@@ -1287,13 +1290,13 @@ static void* control_thread(void* arg) {
         unsigned long long dpulse = pulses - h->prev_pulses;
         h->prev_pulses = pulses;
 
-        /* Rate over an ~8 ms window, not one 10 µs tick [F-05]. */
+        /* Rate over the window, not one 10 µs tick [F-05]. Unset keeps 8 ms. */
         unsigned long long pulses_t = h->h_ctrl->tensor_work_pulses;
         h->rate_win_pulses_t += pulses_t - h->prev_pulses_t;
         h->prev_pulses_t = pulses_t;
         h->rate_win_pulses += dpulse;
         h->rate_win_dt += (double)dt;
-        if (h->rate_win_dt >= 0.008) {
+        if (h->rate_win_dt >= h->rate_win_s) {
             float inst_rate = (float)((double)h->rate_win_pulses / h->rate_win_dt);
             float inst_t = (float)((double)h->rate_win_pulses_t / h->rate_win_dt);
             h->last_win_pulses = h->rate_win_pulses;
@@ -1621,6 +1624,7 @@ GPUtronicHandle* gputronic_create(const GPUtronicConfig* cfg_in) {
     /* Map the shared control block and query the SM count. No copy-based fallback [F-01]. */
     GPUtronicHandle* h = (GPUtronicHandle*)calloc(1, sizeof(GPUtronicHandle));
     if (!h) return NULL;
+    h->rate_win_s = 0.008;
 
     if (cfg_in)
         h->cfg = *cfg_in;
@@ -2038,6 +2042,19 @@ int gputronic_start(GPUtronicHandle* h) {
             h->smid_boot = (unsigned int*)malloc((size_t)h->cfg.num_sm * sizeof(unsigned int));
             if (h->smid_boot)
                 memcpy(h->smid_boot, h->h_smid, (size_t)h->cfg.num_sm * sizeof(unsigned int));
+        }
+    }
+
+    /* Test only. Unset keeps the 8 ms literal. A set value is clamped. */
+    h->rate_win_s = 0.008;
+    {
+        const char* rw = getenv("GPUTRONIC_RATE_WIN_US");
+        if (rw && *rw) {
+            long v = atol(rw);
+            if (v < 500) v = 500;
+            if (v > 100000) v = 100000;
+            h->rate_win_s = (double)v * 1e-6;
+            printf("[RATE] window %ld us (unset keeps 8000)\n", v);
         }
     }
 
@@ -3129,6 +3146,7 @@ static void usage(const char* argv0) {
     printf("    GPUTRONIC_PULSE_LOCAL=1\n");
     printf("    GPUTRONIC_CTRL_CACHE=1\n");
     printf("    GPUTRONIC_CTRL_CACHE_US=1000   # cache period, only with CTRL_CACHE=1\n");
+    printf("    GPUTRONIC_RATE_WIN_US=8000     # rate window, us; unset keeps 8 ms\n");
     printf("    GPUTRONIC_ICLAMP_SMS=6         # clamp in SMs; unset keeps the scaled law\n");
     printf("    GPUTRONIC_IDLE_WORK=1          # idle blocks do the work and add to the one total\n");
     printf("    GPUTRONIC_TARGET_Z=<z>         # loadfile/loadstep only; unset keeps 1.0\n");
