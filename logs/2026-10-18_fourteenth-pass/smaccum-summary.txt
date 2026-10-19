@@ -1,0 +1,2 @@
+acc-01 sms=82 min=5.906e+11 med=5.923e+11 max=5.953e+11 max/min=1.008
+acc-02 sms=82 min=5.910e+11 med=5.924e+11 max=5.948e+11 max/min=1.006

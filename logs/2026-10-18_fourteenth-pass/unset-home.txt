@@ -1,0 +1,32 @@
+[ZC ] type=host host_ptr=OK dev_ptr=OK round_trip=OK (host 0x791936600200, device 0x791936600200, same address (UVA))
+[SNS] tensor sensor off
+═══════════════════════════════════════════════════════════
+[GPUtronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (launching 82, 2 reserved for the OS) | thr/block=64
+[LAW] target_z=1.00 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[LOOP] dt=10 us (100 kHz) active_sms=82 floor=2
+
+[CSV] results/gputronic_gold_run.csv
+[OK] Persistent self-test kernel launched (82 blocks x 64 threads)
+[SMID] launched 82 blocks on a 84-SM device
+[SMID] block:smid 0:0 1:1 2:14 3:15 4:28 5:29 6:42 7:43 8:56 9:57 10:70 11:71 12:2 13:3 14:16 15:17 16:30 17:31 18:44 19:45 20:58 21:59 22:72 23:73 24:4 25:5 26:18 27:19 28:32 29:33 30:46 31:47 32:60 33:61 34:74 35:75 36:6 37:7 38:20 39:21 40:34 41:35 42:48 43:49 44:62 45:63 46:76 47:77 48:8 49:9 50:22 51:23 52:36 53:37 54:50 55:51 56:64 57:65 58:78 59:79 60:10 61:11 62:24 63:25 64:38 65:39 66:52 67:53 68:66 69:67 70:80 71:81 72:12 73:13 74:26 75:27 76:40 77:41 78:54 79:55 80:68 81:69
+[SMID] left out: 82 83
+[SMID] recorded 82 of 82
+[CTRL] Gold | target=1.00 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 kalman=1 two-sided | cal 1.8s + 4-point table
+[TEL] t=   1s | Z_raw=1.000 Z_hat=1.000 dZ=0.000 | Zc=0.000 Zt=0.000 sel=cuda | rate=579034 rate_t=0 | n= 82 | hz~22170 | pulses=595511
+[CAL] rate_ref=595265.6 pulses/s (sustained 1.10s window)
+[TEL] t=   2s | Z_raw=1.000 Z_hat=1.000 dZ=0.000 | Zc=0.000 Zt=0.000 sel=cuda | rate=453757 rate_t=0 | n= 61 | hz~15612 | pulses=1163739
+[CAL] cuda table n= 61 rate=455193.0 Z=1.308
+[CAL] cuda table n= 41 rate=292631.3 Z=2.034
+[CAL] cuda table n= 20 rate=122910.3 Z=4.843
+[CAL] cuda table n=  2 rate=9936.1 Z=59.909
+[CAL] cuda target Z=1.00 → n_ff=82.0 dZ/dn=0.0147 sms_per_u=68.2
+[CAL] controller starts on the cuda sensor
+[CAL] integral clamp=0.601 (scaled, max integral correction 3.28 SMs of 82)
+[TEL] t=   3s | Z_raw=1.000 Z_hat=1.000 dZ=0.000 | Zc=0.000 Zt=0.000 sel=cuda | rate=0 rate_t=0 | n= 82 | hz~16808 | pulses=1338904
+
+[STATS] loop_iters=50575 pi_ticks=3 deadband_held=3 integral_updates=0 integral_on_rail=0 sm_moves=0 p_only_moves=0
+
+[STATS] samples=3 mean_Z=1.0000 std_Z=0.0000 active_sms=82..82 rows_csv=50575
+[GPUtronic Gold] Stopped cleanly.
