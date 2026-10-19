@@ -1,0 +1,10 @@
+name=NVIDIA GeForce RTX 5080
+multiProcessorCount=84
+maxThreadsPerMultiProcessor=1536
+maxThreadsPerBlock=1024
+regsPerMultiprocessor=65536
+regsPerBlock=65536
+warpSize=32
+sharedMemPerMultiprocessor=102400
+sharedMemPerBlock=49152
+major=12 minor=0

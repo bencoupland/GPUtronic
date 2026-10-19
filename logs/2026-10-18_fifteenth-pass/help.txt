@@ -1,0 +1,40 @@
+ENV 2026-10-18T21:27:55-07:00 TZ=PDT
+---
+GPUtronic Gold 1.0.0-gold
+
+Usage:
+  ./build/gputronic_gold                 # 30s closed-loop free-run (Gold defaults)
+  ./build/gputronic_gold run [sec] [Z] [Kp] [Ki]
+  ./build/gputronic_gold dyno            # open-loop working-SM sweep + R²
+  ./build/gputronic_gold step            # open-loop SM-count step response
+  ./build/gputronic_gold check           # dyno + 20s closed-loop gate
+  ./build/gputronic_gold all             # dyno + step + closed-loop
+  ./build/gputronic_gold loadstep [sec] [scale] [t_on_s] [t_off_s]  # T6: compiled target, load step (default 60 1.2 20 0=hold)
+  ./build/gputronic_gold bursts [scale] [seed] [reps]              # T7: 2..200 ms bursts (default 1.2 1 5)
+  ./build/gputronic_gold loadfile <file> [sec]                      # schedule file, lines "t_ms scale"
+  ./build/gputronic_gold noise [sms] [sec]                         # T10: open loop at fixed SMs, Z noise floor (default 46 30)
+    test only, off by default: GPUTRONIC_IDLE_QUIET=1
+    GPUTRONIC_ACTIVE_PASSES=0,1,3   GPUTRONIC_ACTIVE_SMS=0-11
+    GPUTRONIC_PULSE_LOCAL=1
+    GPUTRONIC_CTRL_CACHE=1
+    GPUTRONIC_CTRL_CACHE_US=1000   # cache period, only with CTRL_CACHE=1
+    GPUTRONIC_RATE_WIN_US=8000     # rate window, us; unset keeps 8 ms
+    GPUTRONIC_ICLAMP_SMS=6         # clamp in SMs; unset keeps the scaled law
+    GPUTRONIC_IDLE_WORK=1          # idle blocks do the work and add to the one total
+    GPUTRONIC_TARGET_Z=<z>         # loadfile/loadstep only; unset keeps 1.0
+    GPUTRONIC_IDLE_EXIT=1          # idle block returns; host launches the rest
+    GPUTRONIC_RELAUNCH=1           # new grid at the commanded count
+    GPUTRONIC_RELAUNCH_HOLD_US=5000
+    GPUTRONIC_PEAK_REPS / GPUTRONIC_PEAK_CHAINS / GPUTRONIC_THREADS
+    GPUTRONIC_PEAK_ACC (4|8|16|32) / GPUTRONIC_PEAK_ROUNDS (default 32)
+    GPUTRONIC_WORK_LOAD=1          # scale changes FMA rounds; every batch pulses
+    GPUTRONIC_OPEN_SCHED=<path>    # fullwidth/noise: t_ms scale [sms]; unset keeps scale 1.0
+    GPUTRONIC_GUEST_BLOCKS=<n>     # second kernel, own pulse word, off if unset
+    GPUTRONIC_GUEST_AT_MS=8000     # launch the guest this many ms after run starts
+    GPUTRONIC_GUEST_STREAM_FIRST=1 # test: create the guest stream before Gold's
+    GPUTRONIC_GUEST_PRIORITY=1     # test: highest stream priority, off if unset
+    GPUTRONIC_GOLD_NONBLOCK=1      # test: Gold kernel on a non-blocking stream
+  ./build/gputronic_gold guest [sec] [blocks]                       # guest only, Gold kernel not launched
+    GPUTRONIC_STEP_AT_MS / GPUTRONIC_STEP_SMS   # test only, during noise or loadstep
+  ./build/gputronic_gold ratio [hold_s] [n1,n2,...]                 # T9: pulse-to-work ratio (default 5, N,3N/4,N/2,N/4)
+  ./build/gputronic_gold fullwidth [sec]                            # T8: open loop, all SMs, no controller

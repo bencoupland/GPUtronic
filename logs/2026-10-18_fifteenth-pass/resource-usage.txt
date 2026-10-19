@@ -1,0 +1,56 @@
+
+Fatbin elf code:
+================
+arch = sm_120
+code version = [1,8]
+host = linux
+compile_size = 64bit
+identifier = src/gputronic_gold.cu 
+
+Resource usage:
+ Common:
+  GLOBAL:0
+
+Fatbin elf code:
+================
+arch = sm_120
+code version = [1,8]
+host = linux
+compile_size = 64bit
+identifier = src/gputronic_gold.cu
+
+Resource usage:
+ Common:
+  GLOBAL:688128 CONSTANT[4]:16
+ Function _Z17gold_guest_kernelILi32EEvPyPiS1_S0_iii:
+  REG:48 STACK:0 SHARED:1160 LOCAL:0 CONSTANT[0]:940 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z17gold_guest_kernelILi16EEvPyPiS1_S0_iii:
+  REG:40 STACK:0 SHARED:1160 LOCAL:0 CONSTANT[0]:940 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z17gold_guest_kernelILi8EEvPyPiS1_S0_iii:
+  REG:38 STACK:0 SHARED:1160 LOCAL:0 CONSTANT[0]:940 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z17gold_guest_kernelILi4EEvPyPiS1_S0_iii:
+  REG:38 STACK:0 SHARED:1160 LOCAL:0 CONSTANT[0]:940 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z20gold_zc_probe_kernelP16GPUtronicControl:
+  REG:8 STACK:0 SHARED:0 LOCAL:0 CONSTANT[0]:904 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z22gold_persistent_kernelILi1ELi0EEvPyP16GPUtronicControliiS0_S0_iyijyyiiyPjiiS3_iiiii:
+  REG:72 STACK:0 SHARED:2240 LOCAL:0 CONSTANT[0]:1036 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z22gold_persistent_kernelILi1ELi32EEvPyP16GPUtronicControliiS0_S0_iyijyyiiyPjiiS3_iiiii:
+  REG:63 STACK:0 SHARED:2240 LOCAL:0 CONSTANT[0]:1036 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z22gold_persistent_kernelILi1ELi16EEvPyP16GPUtronicControliiS0_S0_iyijyyiiyPjiiS3_iiiii:
+  REG:56 STACK:0 SHARED:2240 LOCAL:0 CONSTANT[0]:1036 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z22gold_persistent_kernelILi1ELi8EEvPyP16GPUtronicControliiS0_S0_iyijyyiiyPjiiS3_iiiii:
+  REG:48 STACK:0 SHARED:2240 LOCAL:0 CONSTANT[0]:1036 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z22gold_persistent_kernelILi1ELi4EEvPyP16GPUtronicControliiS0_S0_iyijyyiiyPjiiS3_iiiii:
+  REG:48 STACK:0 SHARED:2240 LOCAL:0 CONSTANT[0]:1036 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z22gold_persistent_kernelILi0ELi0EEvPyP16GPUtronicControliiS0_S0_iyijyyiiyPjiiS3_iiiii:
+  REG:40 STACK:0 SHARED:2240 LOCAL:0 CONSTANT[0]:1036 TEXTURE:0 SURFACE:0 SAMPLER:0
+
+Fatbin ptx code:
+================
+arch = sm_120
+code version = [8,7]
+host = linux
+compile_size = 64bit
+compressed
+identifier = src/gputronic_gold.cu
+ptxasOptions =  --generate-line-info 

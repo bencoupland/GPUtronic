@@ -1,0 +1,5 @@
+timestamp, display_active, display_mode, pstate, utilization.gpu [%], clocks.current.sm [MHz], clocks.current.memory [MHz], power.draw [W], clocks_event_reasons.active
+2026/10/18 21:27:55.801, Enabled, [Requested functionality has been deprecated], P3, 5 %, 885 MHz, 7001 MHz, 34.51 W, 0x0000000000000000
+2026/10/18 21:27:56.860, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2887 MHz, 14801 MHz, 50.01 W, 0x0000000000000000
+2026/10/18 21:27:57.864, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2895 MHz, 14801 MHz, 70.28 W, 0x0000000000000000
+2026/10/18 21:27:58.867, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2895 MHz, 14801 MHz, 71.13 W, 0x0000000000000000

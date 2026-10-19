@@ -1,0 +1,15 @@
+ref_ps=579130.5
+ref_ops_ps=6.072624e+11
+n_bases=53
+n_plant=15
+n_ops_ratio=42
+best_base_ps=603361.7
+best_base_source=grid-t512
+mode=high
+acc=32
+rounds=512
+threads=512
+why=base-bracket
+source=stair-down
+ps=603392.9
+reason=a point cleared the 49-million per-SM pulse test

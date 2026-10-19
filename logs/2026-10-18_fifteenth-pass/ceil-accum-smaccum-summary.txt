@@ -1,0 +1,2 @@
+sms=82 dt_s=27.999 final_min=2.060326e+13 final_med=2.090797e+13 final_max=2.139179e+13 final_max_over_min=1.038272
+rate_min=6.484312e+11 rate_med=6.486757e+11 rate_max=6.488746e+11 rate_max_over_min=1.000684

@@ -1,0 +1,55 @@
+ENV 2026-10-18T22:12:04-07:00
+GPUTRONIC_CTRL_CACHE=1
+GPUTRONIC_PEAK_ACC=32
+GPUTRONIC_PEAK_ROUNDS=512
+GPUTRONIC_PULSE_LOCAL=1
+GPUTRONIC_THREADS=928
+GPUTRONIC_TRACE_BIN_US=1000
+GPUTRONIC_WORK_LOAD=1
+---
+[ZC ] type=host host_ptr=OK dev_ptr=OK round_trip=OK (host 0x754490600200, device 0x754490600200, same address (UVA))
+[SNS] tensor sensor off
+═══════════════════════════════════════════════════════════
+[GPUtronic Gold 1.0.0-gold]
+═══════════════════════════════════════════════════════════
+[GPU] NVIDIA GeForce RTX 5080 | SMs=84 (launching 82, 2 reserved for the OS) | thr/block=928
+[LAW] target_z=1.00 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 width-actuator two-sided
+[LOOP] dt=10 us (100 kHz) active_sms=82 floor=2
+
+[CSV] results/gputronic_gold_fullwidth.csv
+[PEAK] indep acc=32 rounds=512 threads=928
+[WORK] real-work load: scale sets independent-FMA rounds, every batch pulses
+[PULSE] local count: one mapped atomic per block per 1 ms
+[CTRL] cached control words, including work_scale_milli: leader reads once per 1000 us
+[OK] Persistent self-test kernel launched (82 blocks x 928 threads)
+[SMID] launched 82 blocks on a 84-SM device
+[SMID] block:smid 0:0 1:1 2:14 3:15 4:28 5:29 6:42 7:43 8:56 9:57 10:70 11:71 12:2 13:3 14:16 15:17 16:30 17:31 18:44 19:45 20:58 21:59 22:72 23:73 24:4 25:5 26:18 27:19 28:32 29:33 30:46 31:47 32:60 33:61 34:74 35:75 36:6 37:7 38:20 39:21 40:34 41:35 42:48 43:49 44:62 45:63 46:76 47:77 48:8 49:9 50:22 51:23 52:36 53:37 54:50 55:51 56:64 57:65 58:78 59:79 60:10 61:11 62:24 63:25 64:38 65:39 66:52 67:53 68:66 69:67 70:80 71:81 72:12 73:13 74:26 75:27 76:40 77:41 78:54 79:55 80:68 81:69
+[SMID] left out: 82 83
+[SMID] recorded 82 of 82
+[CTRL] Gold | target=1.00 Kp=0.550 Ki=0.0800 Kd=0.0000 deadband=0.080 kalman=1 two-sided | cal 1.8s + 4-point table
+[CAL] rate_ref=42999124.0 pulses/s (sustained 1.10s window)
+[CAL] cuda table n= 61 rate=32605009.4 Z=1.319
+[CAL] cuda table n= 41 rate=21777179.4 Z=1.975
+[CAL] cuda table n= 20 rate=10626061.8 Z=4.047
+[CAL] cuda table n=  2 rate=1062385.4 Z=40.474
+[CAL] cuda target Z=1.00 → n_ff=82.0 dZ/dn=0.0152 sms_per_u=65.9
+[CAL] controller starts on the cuda sensor
+[CAL] integral clamp=0.622 (scaled, max integral correction 3.28 SMs of 82)
+[LOAD] calibrated; schedule t=0 at wall 1792386727.686264900 (CLOCK_REALTIME), 0 points, 12 s
+[TEL] t=   1s | Z_raw=0.984 Z_hat=0.984 dZ=-0.019 | Zc=0.984 Zt=0.000 sel=cuda | rate=43704736 rate_t=0 | n= 82 | hz~15901 | pulses=139968239
+[TEL] t=   2s | Z_raw=1.008 Z_hat=1.008 dZ=-0.005 | Zc=1.008 Zt=0.000 sel=cuda | rate=42648672 rate_t=0 | n= 82 | hz~16306 | pulses=182504395
+[TEL] t=   3s | Z_raw=0.982 Z_hat=0.982 dZ=-0.034 | Zc=0.982 Zt=0.000 sel=cuda | rate=43775664 rate_t=0 | n= 82 | hz~16966 | pulses=224986727
+[TEL] t=   4s | Z_raw=0.981 Z_hat=0.981 dZ=-0.030 | Zc=0.981 Zt=0.000 sel=cuda | rate=43823188 rate_t=0 | n= 82 | hz~16005 | pulses=267829384
+[TEL] t=   5s | Z_raw=1.068 Z_hat=1.068 dZ=0.282 | Zc=1.068 Zt=0.000 sel=cuda | rate=40255536 rate_t=0 | n= 82 | hz~16630 | pulses=310186552
+[TEL] t=   6s | Z_raw=0.996 Z_hat=0.996 dZ=0.068 | Zc=0.996 Zt=0.000 sel=cuda | rate=43165964 rate_t=0 | n= 82 | hz~15934 | pulses=352790800
+[TEL] t=   7s | Z_raw=0.991 Z_hat=0.991 dZ=0.013 | Zc=0.991 Zt=0.000 sel=cuda | rate=43399384 rate_t=0 | n= 82 | hz~16974 | pulses=395357348
+[TEL] t=   8s | Z_raw=1.073 Z_hat=1.073 dZ=0.068 | Zc=1.073 Zt=0.000 sel=cuda | rate=40074468 rate_t=0 | n= 82 | hz~16555 | pulses=437844610
+[TEL] t=   9s | Z_raw=0.991 Z_hat=0.991 dZ=-0.023 | Zc=0.991 Zt=0.000 sel=cuda | rate=43372792 rate_t=0 | n= 82 | hz~21183 | pulses=480458399
+[TEL] t=  10s | Z_raw=0.995 Z_hat=0.995 dZ=-0.010 | Zc=0.995 Zt=0.000 sel=cuda | rate=43198732 rate_t=0 | n= 82 | hz~16639 | pulses=523425466
+[TEL] t=  11s | Z_raw=1.075 Z_hat=1.075 dZ=0.140 | Zc=1.075 Zt=0.000 sel=cuda | rate=40009440 rate_t=0 | n= 82 | hz~16021 | pulses=565796612
+
+[STATS] loop_iters=238408 pi_ticks=4 deadband_held=4 integral_updates=0 integral_on_rail=0 sm_moves=0 p_only_moves=0
+
+[STATS] samples=187615 mean_Z=1.0106 std_Z=0.0363 active_sms=82..82 rows_csv=238408
+[GPUtronic Gold] Stopped cleanly.
+[LOAD] wrote results/gputronic_gold_fullwidth_10ms.csv

@@ -1,0 +1,23 @@
+timestamp, display_active, display_mode, pstate, utilization.gpu [%], clocks.current.sm [MHz], clocks.current.memory [MHz], power.draw [W], clocks_event_reasons.active
+2026/10/18 22:17:02.074, Enabled, [Requested functionality has been deprecated], P5, 24 %, 877 MHz, 810 MHz, 35.54 W, 0x0000000000000000
+2026/10/18 22:17:03.120, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2767 MHz, 14801 MHz, 97.20 W, 0x0000000000000000
+2026/10/18 22:17:04.121, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 217.67 W, 0x0000000000000000
+2026/10/18 22:17:05.123, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2850 MHz, 14801 MHz, 202.40 W, 0x0000000000000000
+2026/10/18 22:17:06.124, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2872 MHz, 14801 MHz, 161.02 W, 0x0000000000000000
+2026/10/18 22:17:07.125, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 217.69 W, 0x0000000000000000
+2026/10/18 22:17:08.127, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 218.16 W, 0x0000000000000000
+2026/10/18 22:17:09.128, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 218.40 W, 0x0000000000000000
+2026/10/18 22:17:10.130, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 217.09 W, 0x0000000000000000
+2026/10/18 22:17:11.131, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 218.49 W, 0x0000000000000000
+2026/10/18 22:17:12.132, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 218.84 W, 0x0000000000000000
+2026/10/18 22:17:13.134, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2842 MHz, 14801 MHz, 218.47 W, 0x0000000000000000
+2026/10/18 22:17:14.135, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 219.16 W, 0x0000000000000000
+2026/10/18 22:17:15.137, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 219.22 W, 0x0000000000000000
+2026/10/18 22:17:16.138, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 218.80 W, 0x0000000000000000
+2026/10/18 22:17:17.139, Enabled, [Requested functionality has been deprecated], P1, 100 %, 2835 MHz, 14801 MHz, 218.88 W, 0x0000000000000000
+2026/10/18 22:17:18.141, Enabled, [Requested functionality has been deprecated], P0, 3 %, 2850 MHz, 15001 MHz, 172.05 W, 0x0000000000000000
+2026/10/18 22:17:19.142, Enabled, [Requested functionality has been deprecated], P0, 2 %, 2895 MHz, 15001 MHz, 60.25 W, 0x0000000000000000
+2026/10/18 22:17:20.143, Enabled, [Requested functionality has been deprecated], P3, 4 %, 1117 MHz, 7001 MHz, 48.15 W, 0x0000000000000000
+2026/10/18 22:17:21.145, Enabled, [Requested functionality has been deprecated], P3, 4 %, 945 MHz, 7001 MHz, 33.64 W, 0x0000000000000000
+2026/10/18 22:17:22.147, Enabled, [Requested functionality has been deprecated], P3, 1 %, 757 MHz, 7001 MHz, 33.24 W, 0x0000000000000000
+2026/10/18 22:17:23.150, Enabled, [Requested functionality has been deprecated], P3, 4 %, 780 MHz, 7001 MHz, 33.83 W, 0x0000000000000000

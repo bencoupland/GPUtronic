@@ -1,0 +1,12 @@
+acc=32
+rounds=2048
+threads=256
+sms=82
+source_sms=82
+ops=5.374197e+13
+tflops=53.741974
+ps=156257.1
+source=grid-t256
+source_tag=sweep
+source_rounds=2048
+n_points=243
